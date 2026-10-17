@@ -41,7 +41,7 @@ def split_message(text: str, limit: int = 4000) -> list[str]:
     return chunks
 
 
-class JarvisBot:
+class TelegramBot:
     def __init__(self, config: Config):
         self.config = config
         self.db = Database(config.db_path)
@@ -87,7 +87,7 @@ class JarvisBot:
             app.job_queue.run_daily(
                 self._brief_job, time=time(hour, minute, tzinfo=self.config.timezone), name="daily-brief"
             )
-        log.info("Jarvis is online.")
+        log.info("ClaudeBot is online.")
 
     def run(self) -> None:
         self.app.run_polling(allowed_updates=Update.ALL_TYPES)
@@ -140,7 +140,7 @@ class JarvisBot:
 
     async def on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
-            f"At your service, {self.config.owner_name}.\n\n"
+            f"ClaudeBot at your service, {self.config.owner_name}.\n\n"
             "Just talk to me normally. Try:\n"
             "- what's in my inbox?\n"
             "- reply to Sam saying Thursday works\n"

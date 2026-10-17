@@ -1,7 +1,7 @@
-"""One-time Google sign-in: `python -m jarvis.google_auth`.
+"""One-time Google sign-in: `python -m claudebot.google_auth`.
 
-Opens a browser, asks you to allow Gmail and Calendar access, and saves the token Jarvis uses.
-Run it on a computer with a browser; copy the token to your server if Jarvis runs elsewhere.
+Opens a browser, asks you to allow Gmail and Calendar access, and saves the token ClaudeBot uses.
+Run it on a computer with a browser; copy the token to your server if ClaudeBot runs elsewhere.
 """
 
 import sys
@@ -24,7 +24,7 @@ def main() -> None:
     config.google_token_file.parent.mkdir(parents=True, exist_ok=True)
     config.google_token_file.write_text(creds.to_json())
     print(f"Connected. Token saved to {config.google_token_file}")
-    print("If Jarvis runs on a server, set GOOGLE_TOKEN_JSON there to the contents of that file.")
+    print("If ClaudeBot runs on a server, set GOOGLE_TOKEN_JSON there to the contents of that file.")
 
 
 if __name__ == "__main__":

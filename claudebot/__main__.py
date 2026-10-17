@@ -1,10 +1,10 @@
-"""Start Jarvis: `python -m jarvis`."""
+"""Start ClaudeBot: `python -m claudebot`."""
 
 import logging
 import os
 import sys
 
-from .bot import JarvisBot
+from .bot import TelegramBot
 from .config import load_config
 
 
@@ -29,7 +29,7 @@ def main() -> None:
         logging.warning(
             "TELEGRAM_OWNER_ID is not set. Message the bot once to get your ID, then set it and restart."
         )
-    JarvisBot(config).run()
+    TelegramBot(config).run()
 
 
 if __name__ == "__main__":

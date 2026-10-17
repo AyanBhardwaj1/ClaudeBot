@@ -42,7 +42,7 @@ class Google:
                 info = json.loads(self.config.google_token_file.read_text())
             else:
                 raise GoogleNotConnected(
-                    "Google account not connected. Run `python -m jarvis.google_auth` first."
+                    "Google account not connected. Run `python -m claudebot.google_auth` first."
                 )
             self._creds = Credentials.from_authorized_user_info(info, SCOPES)
         if not self._creds.valid:

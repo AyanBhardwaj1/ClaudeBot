@@ -7,12 +7,12 @@ from zoneinfo import ZoneInfo
 import pytest
 from anthropic.types.beta import BetaMessage
 
-from jarvis.agent import BETAS, Agent
-from jarvis.bot import split_message
-from jarvis.config import Config
-from jarvis.db import Database
-from jarvis.reminders import next_occurrence
-from jarvis.tools import TOOLS, ToolContext, run_tool
+from claudebot.agent import BETAS, Agent
+from claudebot.bot import split_message
+from claudebot.config import Config
+from claudebot.db import Database
+from claudebot.reminders import next_occurrence
+from claudebot.tools import TOOLS, ToolContext, run_tool
 
 TZ = ZoneInfo("America/Chicago")
 

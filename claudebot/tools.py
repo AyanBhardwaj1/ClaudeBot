@@ -1,4 +1,4 @@
-"""Tools Jarvis can call, with their JSON schemas and handlers.
+"""Tools ClaudeBot can call, with their JSON schemas and handlers.
 
 The tool list is fixed for the life of the process: changing it mid-conversation would
 invalidate earlier thinking blocks and the prompt cache.

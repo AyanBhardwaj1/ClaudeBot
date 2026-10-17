@@ -31,23 +31,23 @@ class Config:
 
     @property
     def db_path(self) -> Path:
-        return self.data_dir / "jarvis.db"
+        return self.data_dir / "claudebot.db"
 
 
 def load_config() -> Config:
-    data_dir = Path(os.getenv("JARVIS_DATA_DIR", "data"))
+    data_dir = Path(os.getenv("CLAUDEBOT_DATA_DIR", "data"))
     data_dir.mkdir(parents=True, exist_ok=True)
     return Config(
         telegram_token=os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         owner_id=_int_or_none(os.getenv("TELEGRAM_OWNER_ID")),
-        model=os.getenv("JARVIS_MODEL", "claude-opus-5-5"),
-        effort=os.getenv("JARVIS_EFFORT", "medium"),
-        timezone=ZoneInfo(os.getenv("JARVIS_TIMEZONE", "America/Chicago")),
+        model=os.getenv("CLAUDEBOT_MODEL", "claude-opus-5-5"),
+        effort=os.getenv("CLAUDEBOT_EFFORT", "medium"),
+        timezone=ZoneInfo(os.getenv("CLAUDEBOT_TIMEZONE", "America/Chicago")),
         data_dir=data_dir,
         google_credentials_file=Path(os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")),
         google_token_file=Path(os.getenv("GOOGLE_TOKEN_FILE", str(data_dir / "google_token.json"))),
         google_token_json=os.getenv("GOOGLE_TOKEN_JSON") or None,
         daily_brief_time=os.getenv("DAILY_BRIEF_TIME") or None,
         new_thread_after_hours=float(os.getenv("NEW_THREAD_AFTER_HOURS", "8")),
-        owner_name=os.getenv("JARVIS_OWNER_NAME", "sir"),
+        owner_name=os.getenv("CLAUDEBOT_OWNER_NAME", "sir"),
     )
