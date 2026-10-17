@@ -1,0 +1,9 @@
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "A Claude-powered personal assistant on Telegram: Gmail, Calendar, memory, reminders and web search."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
