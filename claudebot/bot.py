@@ -362,6 +362,10 @@ class TelegramBot:
         await self.outbox.deliver(context.job.data)
 
     async def _cleanup_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if self.agent.busy:
+            # A brief or task may still be replaying a conversation /new just retired; its files
+            # aren't safe to delete yet. The next run picks them up.
+            return
         try:
             deleted = await clean_up_uploads(self.client, self.db)
         except Exception:

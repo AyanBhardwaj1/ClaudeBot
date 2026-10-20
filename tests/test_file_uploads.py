@@ -30,7 +30,8 @@ async def test_text_is_uploaded_as_plain_text_and_images_as_images(tmp_path):
     db, client = Database(tmp_path / "t.db"), FakeClient([])
     uploader = FileUploader(client, db)
     text = await uploader.to_block("héllo".encode(), "text/csv", "grades.csv")
-    assert text["source"]["type"] == "file" and client.files.uploaded[0] == ("grades.csv", "héllo".encode(), "text/plain")
+    assert text["source"]["type"] == "file" and client.files.uploaded[0] == ("grades.csv.txt", "héllo".encode(), "text/plain")
+    assert text["title"] == "grades.csv"  # Claude still sees the real name
     png = b"\x89PNG\r\n\x1a\n" + b"\0" * 8
     image = await uploader.to_block(png, "image/png", "a.png")
     assert image == {"type": "image", "source": {"type": "file", "file_id": "file_2"}}
@@ -106,3 +107,24 @@ async def test_cleanup_treats_missing_files_as_gone_and_retries_other_errors(tmp
     await clean_up_uploads(client, db)
     remaining = [r["file_id"] for r in db.conn.execute("SELECT file_id FROM uploaded_files")]
     assert remaining == ["file_2"]  # 404 means already deleted; 500 is retried next time
+
+
+async def test_agent_reports_busy_while_a_turn_runs(tmp_path):
+    import asyncio
+
+    db = Database(tmp_path / "t.db")
+    gate = asyncio.Event()
+
+    class SlowClient(FakeClient):
+        async def create(self, **kwargs):
+            await gate.wait()
+            return await super().create(**kwargs)
+
+    agent = make_agent(tmp_path, db, SlowClient([message("end_turn", [{"type": "text", "text": "ok"}])]))
+    assert not agent.busy
+    turn = asyncio.create_task(agent.run([{"type": "text", "text": "hi"}]))
+    await asyncio.sleep(0)
+    assert agent.busy  # the bot's cleanup job skips its run while this is true
+    gate.set()
+    await turn
+    assert not agent.busy

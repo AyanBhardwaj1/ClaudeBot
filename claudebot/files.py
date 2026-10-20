@@ -87,11 +87,17 @@ class FileUploader:
         block = to_content_block(data, mime_type, filename)  # raises UnsupportedFile
         source = block["source"]
         if source["type"] == "text":
-            upload = (filename, source["data"].encode("utf-8"), "text/plain")  # possibly truncated
+            # Possibly truncated text. A .txt name keeps it stored as text/plain, the only text
+            # type document blocks accept, whatever the original extension (.csv, .json, ...).
+            name = filename if filename.lower().endswith(".txt") else f"{filename}.txt"
+            upload = (name, source["data"].encode("utf-8"), "text/plain")
         else:
             upload = (filename, data, source["media_type"])
         try:
             uploaded = await self.client.files.upload(file=upload)
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
+            log.error("This API key can't use the Files API (%s); sending files inline instead", e)
+            return block
         except anthropic.APIError as e:
             log.warning("Files API upload of %s failed (%s); sending it inline", filename, e)
             return block

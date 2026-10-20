@@ -132,6 +132,11 @@ class Agent:
             + "\n</background_events>",
         }
 
+    @property
+    def busy(self) -> bool:
+        """A turn is running (it may still be using files from a just-retired conversation)."""
+        return self._lock.locked()
+
     def _store(self, thread_id: int, message: dict) -> None:
         self.db.append_message(thread_id, message)
         file_ids = file_ids_in(message["content"])
