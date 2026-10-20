@@ -43,15 +43,29 @@ def _tokens(usage) -> tuple[int, int, int, int, int]:
     )
 
 
-def estimate_cost(model: str, usage) -> float:
+def _token_cost(model: str, fresh: int, output: int, cache_read: int, cache_write: int) -> float:
     input_price, output_price, read_price, write_price = _price(model)
-    fresh, output, cache_read, cache_write, searches = _tokens(usage)
     return (
-        fresh * input_price
-        + output * output_price
-        + cache_read * read_price
-        + cache_write * write_price
-    ) / PER_MILLION + searches * WEB_SEARCH_USD
+        fresh * input_price + output * output_price + cache_read * read_price + cache_write * write_price
+    ) / PER_MILLION
+
+
+def estimate_cost(model: str, usage) -> float:
+    """Estimated USD for one response.
+
+    When the API ran several steps (compaction, a refusal fallback), `usage.iterations` itemizes
+    each one and the top-level counts cover only the last, so sum the steps at their own prices.
+    """
+    fresh, output, cache_read, cache_write, searches = _tokens(usage)
+    iterations = getattr(usage, "iterations", None)
+    if not iterations:
+        return _token_cost(model, fresh, output, cache_read, cache_write) + searches * WEB_SEARCH_USD
+    total = 0.0
+    for step in iterations:
+        step_model = getattr(step, "model", None) or model  # compaction steps run on the request's model
+        step_fresh, step_output, step_read, step_write, _ = _tokens(step)
+        total += _token_cost(step_model, step_fresh, step_output, step_read, step_write)
+    return total + searches * WEB_SEARCH_USD
 
 
 class UsageTracker:

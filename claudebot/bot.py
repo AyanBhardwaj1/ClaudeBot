@@ -17,7 +17,7 @@ from telegram.ext import (
     filters,
 )
 
-from .agent import Agent
+from .agent import Agent, ConversationReset
 from .config import Config
 from .db import Database
 from .files import MAX_FILE_BYTES, UnsupportedFile, to_content_block
@@ -58,10 +58,14 @@ class TelegramOutboxUI:
     def __init__(self, bot: "TelegramBot"):
         self.bot = bot
 
-    async def announce(self, outbox_id: int, text: str) -> int | None:
-        undo = InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Undo", callback_data=f"undo:{outbox_id}")]])
+    async def announce(self, outbox_id: int, text: str, needs_approval: bool = False) -> int | None:
+        if needs_approval:
+            buttons = [InlineKeyboardButton("✅ Send", callback_data=f"send:{outbox_id}"),
+                       InlineKeyboardButton("✖️ Cancel", callback_data=f"undo:{outbox_id}")]
+        else:
+            buttons = [InlineKeyboardButton("↩️ Undo", callback_data=f"undo:{outbox_id}")]
         message = await self.bot.app.bot.send_message(
-            chat_id=self.bot.config.owner_id, text=text, reply_markup=undo
+            chat_id=self.bot.config.owner_id, text=text, reply_markup=InlineKeyboardMarkup([buttons])
         )
         return message.message_id
 
@@ -99,6 +103,10 @@ class TelegramBot:
         )
         self.watcher = InboxWatcher(self.db, google, client, self.tracker, config, self.send_to_owner)
         self._warned_google_missing = False
+        # Updates are handled concurrently (so button taps aren't stuck behind a reply), but the
+        # owner's messages must reach the agent in the order sent: a file, then "what's due in this?".
+        # Each message handler takes this FIFO lock before its first await.
+        self._message_order = asyncio.Lock()
         self.agent.tool_context = ToolContext(
             google=google,
             db=self.db,
@@ -120,7 +128,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("new", self.on_new, filters=owner))
         self.app.add_handler(CommandHandler("brief", self.on_brief, filters=owner))
         self.app.add_handler(CommandHandler("usage", self.on_usage, filters=owner))
-        self.app.add_handler(CallbackQueryHandler(self.on_undo, pattern=r"^undo:\d+$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_outbox_button, pattern=r"^(undo|send):\d+$"))
         self.app.add_handler(MessageHandler(owner & filters.PHOTO, self.on_photo))
         self.app.add_handler(MessageHandler(owner & filters.Document.ALL, self.on_document))
         self.app.add_handler(MessageHandler(owner & (filters.VOICE | filters.AUDIO), self.on_voice))
@@ -158,14 +166,20 @@ class TelegramBot:
         for chunk in split_message(text):
             await self.app.bot.send_message(chat_id=self.config.owner_id, text=chunk)
 
-    async def _ask_agent(self, content: list[dict]) -> str:
+    async def _ask_agent(self, content: list[dict], owner_present: bool = True) -> str:
         """Run the agent with a typing indicator, turning API failures into a short message."""
         stop = asyncio.Event()
         typing = asyncio.create_task(self._keep_typing(stop))
         try:
-            return await self.agent.run(content)
+            return await self.agent.run(content, owner_present=owner_present)
         except BudgetExceeded as e:
             return str(e)
+        except ConversationReset:
+            log.exception("Conversation reset")
+            return (
+                "That conversation got too big for me (usually from large files), so I've started a "
+                "fresh one. Please send that again."
+            )
         except anthropic.AuthenticationError:
             return "My Anthropic API key isn't working. Check ANTHROPIC_API_KEY."
         except anthropic.RateLimitError:
@@ -219,45 +233,58 @@ class TelegramBot:
         await update.effective_message.reply_text("Fresh start. I still remember the important things.")
 
     async def on_brief(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self.send_to_owner(await self._ask_agent([{"type": "text", "text": BRIEF_PROMPT}]))
+        async with self._message_order:
+            await self._send_brief()
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        reply = await self._ask_agent([{"type": "text", "text": update.effective_message.text}])
-        await self.send_to_owner(reply)
+        async with self._message_order:
+            reply = await self._ask_agent([{"type": "text", "text": update.effective_message.text}])
+            await self.send_to_owner(reply)
 
     async def on_usage(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(self.tracker.summary())
 
     async def on_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        message = update.effective_message
-        photo = await message.photo[-1].get_file()  # largest size
-        data = bytes(await photo.download_as_bytearray())
-        await self._ask_about_file(to_content_block(data, "image/jpeg", "photo.jpg"), message.caption)
+        async with self._message_order:
+            message = update.effective_message
+            photo = await message.photo[-1].get_file()  # largest size
+            data = bytes(await photo.download_as_bytearray())
+            try:
+                block = to_content_block(data, "image/jpeg", "photo.jpg")
+            except UnsupportedFile as e:
+                await message.reply_text(str(e))
+                return
+            await self._ask_about_file(block, message.caption)
 
     async def on_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        message = update.effective_message
-        document = message.document
-        if (document.file_size or 0) > MAX_FILE_BYTES:
-            await message.reply_text(f"{document.file_name} is too big for me (10 MB max).")
-            return
-        data = bytes(await (await document.get_file()).download_as_bytearray())
-        try:
-            block = to_content_block(data, document.mime_type or "", document.file_name or "file")
-        except UnsupportedFile as e:
-            await message.reply_text(str(e))
-            return
-        await self._ask_about_file(block, message.caption)
+        async with self._message_order:
+            message = update.effective_message
+            document = message.document
+            if (document.file_size or 0) > MAX_FILE_BYTES:
+                await message.reply_text(f"{document.file_name} is too big for me (10 MB max).")
+                return
+            data = bytes(await (await document.get_file()).download_as_bytearray())
+            try:
+                block = to_content_block(data, document.mime_type or "", document.file_name or "file")
+            except UnsupportedFile as e:
+                await message.reply_text(str(e))
+                return
+            await self._ask_about_file(block, message.caption)
 
     async def _ask_about_file(self, block: dict, caption: str | None) -> None:
         question = caption or "(sent with no message: say briefly what it is and anything I need to act on)"
         await self.send_to_owner(await self._ask_agent([block, {"type": "text", "text": question}]))
 
-    async def on_undo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def on_outbox_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         if query.from_user.id != self.config.owner_id:
             await query.answer()
             return
-        result = await self.outbox.undo(int(query.data.split(":")[1]))
+        action, outbox_id = query.data.split(":")
+        if action == "send":
+            result = await self.outbox.approve(int(outbox_id))
+        else:
+            result = await self.outbox.undo(int(outbox_id))
         await query.answer(result)
 
     async def on_voice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -291,7 +318,8 @@ class TelegramBot:
         try:
             if row["run_as_task"]:
                 prompt = f"[Scheduled task #{reminder_id} that I set earlier - do it now]\n{row['text']}"
-                await self.send_to_owner(await self._ask_agent([{"type": "text", "text": prompt}]))
+                reply = await self._ask_agent([{"type": "text", "text": prompt}], owner_present=False)
+                await self.send_to_owner(reply)
             else:
                 await self.send_to_owner(f"⏰ {row['text']}")
                 self.db.add_notice(f"Reminder #{reminder_id} fired: {row['text']}")
@@ -307,7 +335,12 @@ class TelegramBot:
                 self.schedule_reminder(reminder_id)
 
     async def _brief_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
-        await self.send_to_owner(await self._ask_agent([{"type": "text", "text": BRIEF_PROMPT}]))
+        await self._send_brief()
+
+    async def _send_brief(self) -> None:
+        # The brief reads untrusted email with nobody necessarily watching: no unattended sends.
+        reply = await self._ask_agent([{"type": "text", "text": BRIEF_PROMPT}], owner_present=False)
+        await self.send_to_owner(reply)
 
     # --- outbox and inbox alerts ---
 

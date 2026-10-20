@@ -250,29 +250,33 @@ class Database:
 
     # --- emails the inbox watcher has already looked at ---
 
-    def mark_emails_seen(self, message_ids: list[str]) -> list[str]:
-        """Record message ids as seen; return the ones that were not seen before."""
-        now = _now()
-        fresh = []
-        for message_id in message_ids:
-            cur = self.conn.execute(
-                "INSERT OR IGNORE INTO seen_emails (message_id, seen_at) VALUES (?, ?)",
-                (message_id, now.isoformat()),
+    def unseen_emails(self, message_ids: list[str]) -> list[str]:
+        seen = {
+            r["message_id"]
+            for r in self.conn.execute(
+                f"SELECT message_id FROM seen_emails WHERE message_id IN ({','.join('?' * len(message_ids))})",
+                message_ids,
             )
-            if cur.rowcount:
-                fresh.append(message_id)
+        } if message_ids else set()
+        return [m for m in message_ids if m not in seen]
+
+    def mark_emails_seen(self, message_ids: list[str]) -> None:
+        now = _now()
+        self.conn.executemany(
+            "INSERT OR IGNORE INTO seen_emails (message_id, seen_at) VALUES (?, ?)",
+            [(m, now.isoformat()) for m in message_ids],
+        )
         self.conn.execute(
             "DELETE FROM seen_emails WHERE seen_at < ?", ((now - SEEN_EMAIL_RETENTION).isoformat(),)
         )
         self.conn.commit()
-        return fresh
 
     # --- outbox (emails waiting out their undo window) ---
 
-    def queue_email(self, email: dict, send_at: datetime) -> int:
+    def queue_email(self, email: dict, send_at: datetime, status: str = "pending") -> int:
         cur = self.conn.execute(
-            "INSERT INTO outbox (email_json, send_at) VALUES (?, ?)",
-            (json.dumps(email), send_at.astimezone(timezone.utc).isoformat()),
+            "INSERT INTO outbox (email_json, send_at, status) VALUES (?, ?, ?)",
+            (json.dumps(email), send_at.astimezone(timezone.utc).isoformat(), status),
         )
         self.conn.commit()
         return cur.lastrowid

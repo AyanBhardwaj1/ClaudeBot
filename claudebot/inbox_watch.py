@@ -20,6 +20,8 @@ QUERY = "in:inbox is:unread category:primary newer_than:2d"
 MAX_CHECK = 20
 MAX_LISTED = 10
 MAX_SUMMARY = 200
+MAX_SUBJECT = 100
+MAX_NAME = 40
 BASELINE_KEY = "inbox_baseline"
 
 CLASSIFIER_PROMPT = """You triage new emails for {owner} and decide which deserve a phone \
@@ -83,9 +85,16 @@ def in_quiet_hours(now: datetime, spec: str | None) -> bool:
     return current >= start or current < end  # window wraps past midnight
 
 
-def _sender(raw: str) -> str:
+def clip(value: str, limit: int) -> str:
+    """Single-line, length-capped text: email fields are attacker-controlled."""
+    text = " ".join(str(value).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _sender(raw: str) -> tuple[str, str]:
+    """(display name, address). Alerts show both, so a fake "Mom" can't hide its real address."""
     name, address = parseaddr(raw)
-    return name or address or raw
+    return clip(name, MAX_NAME), clip(address or raw, MAX_SUBJECT)
 
 
 class InboxWatcher:
@@ -112,11 +121,12 @@ class InboxWatcher:
         if in_quiet_hours(now.astimezone(self.config.timezone), self.config.quiet_hours):
             return []
         emails = await asyncio.to_thread(self.google.search_emails, QUERY, MAX_CHECK)
-        fresh_ids = set(self.db.mark_emails_seen([e["id"] for e in emails]))
         if self.db.get_setting(BASELINE_KEY) is None:
             # First run: everything already in the inbox is old news, not an alert storm.
+            self.db.mark_emails_seen([e["id"] for e in emails])
             self.db.set_setting(BASELINE_KEY, now.isoformat())
             return []
+        fresh_ids = set(self.db.unseen_emails([e["id"] for e in emails]))
         fresh = [e for e in emails if e["id"] in fresh_ids]
         if not fresh:
             return []
@@ -124,9 +134,11 @@ class InboxWatcher:
             alerts = await self._classify(fresh)
         except (ClassifierError, BudgetExceeded, anthropic.APIError) as e:
             log.warning("Inbox classifier unavailable (%s); sending a plain list", e)
-            alerts = [{**email, "summary": email["subject"] or "(no subject)"} for email in fresh]
+            alerts = [{**email, "summary": clip(email["subject"] or "(no subject)", MAX_SUBJECT)} for email in fresh]
         if alerts:
             await self._send(alerts)
+        # Only now: if classifying or the Telegram send failed, the next check tries again.
+        self.db.mark_emails_seen([e["id"] for e in fresh])
         return alerts
 
     async def _classify(self, emails: list[dict]) -> list[dict]:
@@ -160,15 +172,25 @@ class InboxWatcher:
         for verdict in verdicts:
             email = by_id.pop(verdict.get("id"), None)  # ignore invented or repeated ids
             if email and verdict.get("notify") is True:
-                summary = str(verdict.get("summary") or email["subject"])[:MAX_SUMMARY]
+                summary = clip(verdict.get("summary") or email["subject"], MAX_SUMMARY)
                 alerts.append({**email, "summary": summary})
         return alerts
 
     async def _send(self, alerts: list[dict]) -> None:
         shown = alerts[:MAX_LISTED]
-        lines = [f"- {_sender(a['from'])}: {a['summary']}" for a in shown]
+        lines = []
+        for a in shown:
+            name, address = _sender(a["from"])
+            who = f"{name} <{address}>" if name else address
+            lines.append(f"- {who}: {a['summary']}")
         if len(alerts) > len(shown):
             lines.append(f"- ...and {len(alerts) - len(shown)} more")
         await self.notify("📬 New email\n" + "\n".join(lines))
-        details = "; ".join(f"{a['from']} | subject {a['subject']!r} | id {a['id']}: {a['summary']}" for a in alerts)
-        self.db.add_notice(f"Inbox alert sent to the owner: {details}")
+        # JSON keeps each quoted field inside its string; the agent sees it as data to look up,
+        # and reads the email itself via read_email (a tool result) when it needs the content.
+        emails = []
+        for a in shown:
+            name, address = _sender(a["from"])
+            emails.append({"message_id": a["id"], "from_name": name, "from_address": address,
+                           "subject": clip(a["subject"], MAX_SUBJECT), "summary": a["summary"]})
+        self.db.add_notice("Inbox alert shown to the owner: " + json.dumps(emails, ensure_ascii=False))

@@ -60,7 +60,7 @@ def make_context(db: Database, google=None, scheduled=None, submitted=None) -> T
     scheduled = scheduled if scheduled is not None else []
     submitted = submitted if submitted is not None else []
 
-    async def send_email(email):
+    async def send_email(email, needs_approval=False):
         submitted.append(email)
         return {"status": "queued", "outbox_id": len(submitted), "sends_in_seconds": 20}
 

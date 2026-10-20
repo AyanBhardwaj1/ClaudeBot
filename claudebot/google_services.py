@@ -3,7 +3,9 @@
 import base64
 import html
 import json
+import os
 import re
+import threading
 from datetime import date, datetime
 from email.message import EmailMessage
 from zoneinfo import ZoneInfo
@@ -32,10 +34,16 @@ class Google:
         self.config = config
         self.tz: ZoneInfo = config.timezone
         self._creds: Credentials | None = None
+        # Background jobs and parallel tool calls hit Google from several threads at once.
+        self._creds_lock = threading.Lock()
 
     # --- auth ---
 
     def _credentials(self) -> Credentials:
+        with self._creds_lock:
+            return self._load_credentials()
+
+    def _load_credentials(self) -> Credentials:
         if self._creds is None:
             if self.config.google_token_json:
                 info = json.loads(self.config.google_token_json)
@@ -49,7 +57,10 @@ class Google:
         if not self._creds.valid:
             self._creds.refresh(Request())
             if not self.config.google_token_json:
-                self.config.google_token_file.write_text(self._creds.to_json())
+                # Write-then-rename so a crash can't leave a half-written token file.
+                tmp = self.config.google_token_file.with_suffix(".tmp")
+                tmp.write_text(self._creds.to_json())
+                os.replace(tmp, self.config.google_token_file)
         return self._creds
 
     def _gmail(self):

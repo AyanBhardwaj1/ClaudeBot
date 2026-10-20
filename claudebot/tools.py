@@ -30,7 +30,8 @@ class ToolContext:
     tz: ZoneInfo
     schedule_reminder: Callable[[int], None]
     unschedule_reminder: Callable[[int], None]
-    send_email: Callable[[dict], Awaitable[dict]]
+    send_email: Callable[..., Awaitable[dict]]  # (email, needs_approval=False)
+    owner_present: bool = True
 
 
 @dataclass(frozen=True)
@@ -259,7 +260,7 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         block = to_content_block(data, mime_type, a["filename"])
         return ContentBlocks([{"type": "text", "text": f"Attachment {a['filename']}:"}, block])
     if name == "send_email":
-        return await ctx.send_email(email_args())
+        return await ctx.send_email(email_args(), needs_approval=not ctx.owner_present)
     if name == "create_draft":
         return await asyncio.to_thread(g.create_draft, **email_args())
     if name == "modify_email":
