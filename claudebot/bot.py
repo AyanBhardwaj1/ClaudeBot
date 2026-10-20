@@ -114,6 +114,7 @@ class TelegramBot:
             schedule_reminder=self.schedule_reminder,
             unschedule_reminder=self.unschedule_reminder,
             send_email=self.outbox.submit,
+            approve_email=self.outbox.approve,
         )
         self._register_handlers()
 
@@ -229,7 +230,8 @@ class TelegramBot:
         )
 
     async def on_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        self.db.new_thread(self.agent.config_hash)
+        async with self._message_order:  # after any messages already queued, not before them
+            self.db.new_thread(self.agent.config_hash)
         await update.effective_message.reply_text("Fresh start. I still remember the important things.")
 
     async def on_brief(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

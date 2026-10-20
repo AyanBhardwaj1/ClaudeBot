@@ -188,9 +188,8 @@ class InboxWatcher:
         await self.notify("📬 New email\n" + "\n".join(lines))
         # JSON keeps each quoted field inside its string; the agent sees it as data to look up,
         # and reads the email itself via read_email (a tool result) when it needs the content.
-        emails = []
-        for a in shown:
+        for a in shown:  # one notice per email, so per-notice length caps never cut one in half
             name, address = _sender(a["from"])
-            emails.append({"message_id": a["id"], "from_name": name, "from_address": address,
-                           "subject": clip(a["subject"], MAX_SUBJECT), "summary": a["summary"]})
-        self.db.add_notice("Inbox alert shown to the owner: " + json.dumps(emails, ensure_ascii=False))
+            fields = {"message_id": a["id"], "from_name": name, "from_address": address,
+                      "subject": clip(a["subject"], MAX_SUBJECT), "summary": a["summary"]}
+            self.db.add_notice("Inbox alert shown to the owner: " + json.dumps(fields, ensure_ascii=False))

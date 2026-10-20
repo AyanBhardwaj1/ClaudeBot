@@ -31,7 +31,22 @@ class ToolContext:
     schedule_reminder: Callable[[int], None]
     unschedule_reminder: Callable[[int], None]
     send_email: Callable[..., Awaitable[dict]]  # (email, needs_approval=False)
+    approve_email: Callable[[int], Awaitable[str]] | None = None
+    # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
+    # untrusted email with nobody watching, so anything that reaches other people or plants
+    # instructions for later needs the owner.
     owner_present: bool = True
+
+
+class NeedsOwner(PermissionError):
+    pass
+
+
+def _require_owner(ctx: "ToolContext", action: str) -> None:
+    if not ctx.owner_present:
+        raise NeedsOwner(
+            f"Can't {action} in a turn the owner didn't start. Tell the owner what you'd suggest instead."
+        )
 
 
 @dataclass(frozen=True)
@@ -103,6 +118,15 @@ CLIENT_TOOLS = [
         "name": "create_draft",
         "description": "Save an email as a Gmail draft without sending it.",
         "input_schema": _schema(_EMAIL_FIELDS, ["to", "subject", "body"]),
+    },
+    {
+        "name": "approve_held_email",
+        "description": (
+            "Send an email that is waiting for the owner's Send tap (status awaiting_approval), "
+            "when the owner tells you in their own message to send it. Never call send_email "
+            "again for it: that would send a duplicate."
+        ),
+        "input_schema": _schema({"outbox_id": {"type": "integer"}}, ["outbox_id"]),
     },
     {
         "name": "modify_email",
@@ -229,7 +253,7 @@ async def run_tool(name: str, args: dict, ctx: ToolContext) -> tuple[str | list[
         if isinstance(result, ContentBlocks):
             return result.blocks, False
         return json.dumps(result, ensure_ascii=False, default=str), False
-    except (GoogleNotConnected, UnsupportedFile) as e:
+    except (GoogleNotConnected, UnsupportedFile, NeedsOwner) as e:
         return str(e), True
     except HttpError as e:
         return f"Google API error {e.status_code}: {e.reason}", True
@@ -261,6 +285,11 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         return ContentBlocks([{"type": "text", "text": f"Attachment {a['filename']}:"}, block])
     if name == "send_email":
         return await ctx.send_email(email_args(), needs_approval=not ctx.owner_present)
+    if name == "approve_held_email":
+        _require_owner(ctx, "release a held email")
+        if ctx.approve_email is None:
+            raise ValueError("Approving held emails isn't available.")
+        return {"result": await ctx.approve_email(int(a["outbox_id"]))}
     if name == "create_draft":
         return await asyncio.to_thread(g.create_draft, **email_args())
     if name == "modify_email":
@@ -268,6 +297,8 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "list_calendar_events":
         return await asyncio.to_thread(g.list_events, a["start"], a["end"])
     if name == "create_calendar_event":
+        if a.get("attendees"):
+            _require_owner(ctx, "send calendar invites")
         return await asyncio.to_thread(
             g.create_event,
             a["summary"],
@@ -284,6 +315,7 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         return await asyncio.to_thread(g.delete_event, a["event_id"])
 
     if name == "remember":
+        _require_owner(ctx, "save memories")
         return {"saved": True, "memory_id": ctx.db.add_memory(a["fact"])}
     if name == "list_memories":
         return [{"id": m["id"], "fact": m["text"]} for m in ctx.db.list_memories()]
@@ -299,6 +331,8 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
             when = when.replace(tzinfo=ctx.tz)
         if when < datetime.now(ctx.tz) and repeat == "none":
             raise ValueError("That time is in the past.")
+        if a.get("run_as_task"):
+            _require_owner(ctx, "schedule tasks")
         reminder_id = ctx.db.add_reminder(a["text"], when, repeat, bool(a.get("run_as_task", False)))
         ctx.schedule_reminder(reminder_id)
         return {"scheduled": True, "reminder_id": reminder_id, "when": when.isoformat(), "repeat": repeat}

@@ -28,7 +28,15 @@ class OutboxUI(Protocol):
 
 
 def _describe(email: dict) -> str:
-    return f"{email['to']}: {email.get('subject') or '(reply)'}"
+    """Every recipient, so a hidden cc/bcc can't slip past the owner's look at the card."""
+    copies = "".join(f" ({kind}: {email[kind]})" for kind in ("cc", "bcc") if email.get(kind))
+    return f"{email['to']}{copies}: {email.get('subject') or '(reply)'}"
+
+
+def _preview(body: str) -> str:
+    if len(body) <= PREVIEW_CHARS:
+        return body
+    return f"{body[:PREVIEW_CHARS]}\n[... {len(body) - PREVIEW_CHARS} more characters not shown]"
 
 
 class Outbox:
@@ -51,7 +59,7 @@ class Outbox:
         now = datetime.now(timezone.utc)
         if needs_approval:
             outbox_id = self.db.queue_email(email, now, status="held")
-            await self._announce(outbox_id, "held", f"✉️ Ready to send to {_describe(email)}\n\n{email['body'][:PREVIEW_CHARS]}", True)
+            await self._announce(outbox_id, "held", f"✉️ Ready to send to {_describe(email)}\n\n{_preview(email['body'])}", True)
             return {
                 "status": "awaiting_approval",
                 "outbox_id": outbox_id,
@@ -138,6 +146,10 @@ class Outbox:
                 )
             except Exception:
                 log.exception("Couldn't re-announce held email %s", row["id"])
+                self.db.add_notice(
+                    f"After a restart, the email to {_describe(email)} was not sent and is now cancelled; "
+                    "the owner may want to send it again."
+                )
         for row in self.db.outbox_with_status("sending"):
             # It may or may not have reached Gmail; resending could send it twice.
             self.db.transition_outbox(row["id"], "sending", "unknown")

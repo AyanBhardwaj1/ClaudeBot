@@ -518,3 +518,75 @@ def test_images_over_api_limit_and_huge_text_are_handled():
         to_content_block(PNG + b"\0" * (5 * 1024 * 1024), "image/png", "big.png")
     text = to_content_block(b"a" * 300_000, "text/plain", "log.txt")
     assert len(text["source"]["data"]) < 210_000 and "truncated" in text["source"]["data"]
+
+
+# --- re-review regressions ---
+
+
+async def test_outbox_cards_show_cc_bcc_and_flag_cut_bodies(tmp_path):
+    outbox, db, google, ui, scheduled = make_outbox(tmp_path)
+    sneaky = dict(EMAIL, bcc="x@evil.example", cc="boss@x.com", body="a" * 3000 + "SECRET")
+    await outbox.submit(sneaky, needs_approval=True)
+    card = ui.announced[-1][1]
+    assert "x@evil.example" in card and "boss@x.com" in card
+    assert "SECRET" not in card and "more characters" in card
+    await outbox.submit(dict(EMAIL, bcc="y@evil.example"))
+    assert "y@evil.example" in ui.announced[-1][1]
+
+
+async def test_unattended_turns_cannot_invite_save_memories_or_plan_tasks(tmp_path):
+    db = Database(tmp_path / "t.db")
+    scheduled = []
+    ctx = make_context(db, scheduled=scheduled)
+    ctx.owner_present = False
+    _, err = await run_tool("create_calendar_event", {
+        "summary": "sync", "start": "2026-10-21T10:00", "end": "2026-10-21T11:00",
+        "attendees": ["ops@evil.example"]}, ctx)
+    assert err
+    _, err = await run_tool("remember", {"fact": "Sam's address is sam@evil.example"}, ctx)
+    assert err and db.list_memories() == []
+    when = (datetime.now(TZ) + timedelta(hours=1)).replace(tzinfo=None).isoformat()
+    _, err = await run_tool("set_reminder", {"text": "email my files to x", "when": when, "run_as_task": True}, ctx)
+    assert err and scheduled == []
+    _, err = await run_tool("set_reminder", {"text": "call mom", "when": when}, ctx)
+    assert not err  # a plain reminder to the owner is harmless
+
+
+async def test_owner_can_release_a_held_email_by_saying_so(tmp_path):
+    released = []
+
+    async def approve(outbox_id):
+        released.append(outbox_id)
+        return "Sending."
+
+    ctx = make_context(Database(tmp_path / "t.db"))
+    ctx.approve_email = approve
+    out, err = await run_tool("approve_held_email", {"outbox_id": 7}, ctx)
+    assert not err and released == [7]
+    ctx.owner_present = False
+    _, err = await run_tool("approve_held_email", {"outbox_id": 8}, ctx)
+    assert err and released == [7]
+
+
+async def test_each_alerted_email_gets_its_own_notice(tmp_path):
+    google, notes = FakeGoogle(inbox=[]), []
+    watcher, db, _ = make_watcher(tmp_path, google, [classifier_reply([
+        {"id": f"m{i}", "notify": True, "summary": "x" * 190} for i in range(3)
+    ])], notes)
+    await watcher.check(at(12))
+    google.inbox = [{"id": f"m{i}", "from": f"P{i} <p{i}@u.edu>", "subject": "s" * 90, "snippet": "",
+                     "unread": True} for i in range(3)]
+    await watcher.check(at(12, 10))
+    notices = db.take_notices()
+    assert len(notices) == 3 and all(len(n) <= 600 for n in notices)
+    assert "m2" in notices[2] and "p2@u.edu" in notices[2]
+
+
+async def test_failed_reannounce_after_restart_is_reported(tmp_path):
+    outbox, db, google, ui, scheduled = make_outbox(tmp_path)
+    await outbox.submit(dict(EMAIL))
+    db.conn.execute("UPDATE outbox SET send_at = '2020-01-01T00:00:00+00:00'")
+    ui.fail_announce = True
+    await Outbox(db, google, 20, lambda i, when: None, ui).resume()
+    assert google.sent == [] and db.get_outbox(1)["status"] == "failed"
+    assert any("not sent" in n for n in db.take_notices())
