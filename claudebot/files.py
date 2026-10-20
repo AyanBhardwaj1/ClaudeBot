@@ -1,6 +1,18 @@
-"""Turn uploaded files and email attachments into Claude content blocks."""
+"""Turn uploaded files and email attachments into Claude content blocks.
+
+Files go to the Anthropic Files API once and conversations keep only the file id, so a few
+PDFs can't push every later request past the API's request-size limit.
+"""
 
 import base64
+import logging
+from datetime import timedelta
+
+import anthropic
+
+from .db import Database
+
+log = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # the API's per-image limit
@@ -56,3 +68,60 @@ def to_content_block(data: bytes, mime_type: str, filename: str) -> dict:
     raise UnsupportedFile(
         f"I can't read {filename} ({mime_type or 'unknown type'}). PDFs, text files and images work."
     )
+
+
+ORPHAN_UPLOAD_AGE = timedelta(days=1)
+
+
+class FileUploader:
+    def __init__(self, client: anthropic.AsyncAnthropic, db: Database):
+        self.client = client
+        self.db = db
+
+    async def to_block(self, data: bytes, mime_type: str, filename: str) -> dict:
+        """Validate, upload, and return a block that references the file by id.
+
+        Falls back to the inline block when the upload fails, so a Files API hiccup never
+        loses the owner's file.
+        """
+        block = to_content_block(data, mime_type, filename)  # raises UnsupportedFile
+        source = block["source"]
+        if source["type"] == "text":
+            upload = (filename, source["data"].encode("utf-8"), "text/plain")  # possibly truncated
+        else:
+            upload = (filename, data, source["media_type"])
+        try:
+            uploaded = await self.client.files.upload(file=upload)
+        except anthropic.APIError as e:
+            log.warning("Files API upload of %s failed (%s); sending it inline", filename, e)
+            return block
+        self.db.record_upload(uploaded.id)
+        return {**block, "source": {"type": "file", "file_id": uploaded.id}}
+
+
+def file_ids_in(content: list[dict]) -> list[str]:
+    """File ids referenced by content blocks, including inside tool results."""
+    ids = []
+    for block in content if isinstance(content, list) else []:
+        source = block.get("source") or {}
+        if source.get("type") == "file":
+            ids.append(source["file_id"])
+        if block.get("type") == "tool_result":
+            ids += file_ids_in(block.get("content"))
+    return ids
+
+
+async def clean_up_uploads(client: anthropic.AsyncAnthropic, db: Database) -> int:
+    """Delete uploads from finished conversations (never the current one). Returns how many."""
+    deleted = 0
+    for file_id in db.stale_uploads(ORPHAN_UPLOAD_AGE):
+        try:
+            await client.files.delete(file_id)
+        except anthropic.NotFoundError:
+            pass  # already gone
+        except anthropic.APIError as e:
+            log.warning("Couldn't delete uploaded file %s (%s); will retry", file_id, e)
+            continue
+        db.forget_upload(file_id)
+        deleted += 1
+    return deleted

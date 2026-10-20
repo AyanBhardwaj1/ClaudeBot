@@ -32,6 +32,8 @@ class ToolContext:
     unschedule_reminder: Callable[[int], None]
     send_email: Callable[..., Awaitable[dict]]  # (email, needs_approval=False)
     approve_email: Callable[[int], Awaitable[str]] | None = None
+    # (bytes, mime type, filename) -> content block, e.g. FileUploader.to_block
+    prepare_file: Callable[[bytes, str, str], Awaitable[dict]] | None = None
     # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
     # untrusted email with nobody watching, so anything that reaches other people or plants
     # instructions for later needs the owner.
@@ -281,7 +283,10 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         return await asyncio.to_thread(g.read_email, a["message_id"])
     if name == "read_email_attachment":
         data, mime_type = await asyncio.to_thread(g.get_attachment, a["message_id"], a["filename"])
-        block = to_content_block(data, mime_type, a["filename"])
+        if ctx.prepare_file is not None:
+            block = await ctx.prepare_file(data, mime_type, a["filename"])
+        else:
+            block = to_content_block(data, mime_type, a["filename"])
         return ContentBlocks([{"type": "text", "text": f"Attachment {a['filename']}:"}, block])
     if name == "send_email":
         return await ctx.send_email(email_args(), needs_approval=not ctx.owner_present)

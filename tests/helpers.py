@@ -2,6 +2,7 @@
 
 import copy
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from anthropic.types.beta import BetaMessage
@@ -96,6 +97,26 @@ def message(stop_reason: str, content: list[dict], model="claude-opus-5-5", usag
     )
 
 
+class FakeFiles:
+    """Stands in for client.files: uploads get ids, deletes are recorded."""
+
+    def __init__(self):
+        self.uploaded, self.deleted = [], []
+        self.fail_upload = None
+        self.fail_delete = {}
+
+    async def upload(self, *, file):
+        if self.fail_upload:
+            raise self.fail_upload
+        self.uploaded.append(file)
+        return SimpleNamespace(id=f"file_{len(self.uploaded)}")
+
+    async def delete(self, file_id):
+        if file_id in self.fail_delete:
+            raise self.fail_delete[file_id]
+        self.deleted.append(file_id)
+
+
 class FakeClient:
     """Stands in for AsyncAnthropic, replaying canned responses and recording requests."""
 
@@ -104,6 +125,7 @@ class FakeClient:
         self.requests = []
         self.beta = self
         self.messages = self
+        self.files = FakeFiles()
 
     async def create(self, **kwargs):
         self.requests.append(copy.deepcopy(kwargs))

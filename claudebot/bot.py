@@ -20,7 +20,7 @@ from telegram.ext import (
 from .agent import Agent, ConversationReset
 from .config import Config
 from .db import Database
-from .files import MAX_FILE_BYTES, UnsupportedFile, to_content_block
+from .files import MAX_FILE_BYTES, FileUploader, UnsupportedFile, clean_up_uploads
 from .google_services import Google, GoogleNotConnected
 from .inbox_watch import InboxWatcher
 from .outbox import Outbox
@@ -29,6 +29,8 @@ from .tools import ToolContext
 from .usage import BudgetExceeded, UsageTracker
 
 log = logging.getLogger(__name__)
+
+UPLOAD_CLEANUP_HOURS = 6
 
 BRIEF_PROMPT = (
     "Give me my daily brief: today's calendar, anything in my inbox from the last day that "
@@ -86,6 +88,8 @@ class TelegramBot:
         self.config = config
         self.db = Database(config.db_path)
         client = anthropic.AsyncAnthropic()
+        self.client = client
+        self.uploader = FileUploader(client, self.db)
         google = Google(config)
         self.tracker = UsageTracker(self.db, config.timezone, config.monthly_budget_usd)
         self.agent = Agent(config, self.db, client, self.tracker)
@@ -115,6 +119,7 @@ class TelegramBot:
             unschedule_reminder=self.unschedule_reminder,
             send_email=self.outbox.submit,
             approve_email=self.outbox.approve,
+            prepare_file=self.uploader.to_block,
         )
         self._register_handlers()
 
@@ -155,6 +160,9 @@ class TelegramBot:
             app.job_queue.run_repeating(
                 self._inbox_job, interval=self.config.inbox_check_minutes * 60, first=30, name="inbox-watch"
             )
+        app.job_queue.run_repeating(
+            self._cleanup_job, interval=UPLOAD_CLEANUP_HOURS * 3600, first=60, name="file-cleanup"
+        )
         await self.outbox.resume()
         log.info("ClaudeBot is online.")
 
@@ -252,7 +260,7 @@ class TelegramBot:
             photo = await message.photo[-1].get_file()  # largest size
             data = bytes(await photo.download_as_bytearray())
             try:
-                block = to_content_block(data, "image/jpeg", "photo.jpg")
+                block = await self.uploader.to_block(data, "image/jpeg", "photo.jpg")
             except UnsupportedFile as e:
                 await message.reply_text(str(e))
                 return
@@ -267,7 +275,7 @@ class TelegramBot:
                 return
             data = bytes(await (await document.get_file()).download_as_bytearray())
             try:
-                block = to_content_block(data, document.mime_type or "", document.file_name or "file")
+                block = await self.uploader.to_block(data, document.mime_type or "", document.file_name or "file")
             except UnsupportedFile as e:
                 await message.reply_text(str(e))
                 return
@@ -352,6 +360,15 @@ class TelegramBot:
 
     async def _outbox_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self.outbox.deliver(context.job.data)
+
+    async def _cleanup_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        try:
+            deleted = await clean_up_uploads(self.client, self.db)
+        except Exception:
+            log.exception("Uploaded-file cleanup failed")
+            return
+        if deleted:
+            log.info("Deleted %d uploaded files from finished conversations", deleted)
 
     async def _inbox_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:

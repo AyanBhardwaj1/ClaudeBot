@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS seen_emails (
     message_id TEXT PRIMARY KEY,
     seen_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS uploaded_files (
+    file_id TEXT PRIMARY KEY,
+    thread_id INTEGER,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY,
     email_json TEXT NOT NULL,
@@ -113,6 +118,10 @@ class Database:
         )
         self.conn.commit()
         return cur.lastrowid
+
+    def latest_thread_id(self) -> int | None:
+        row = self.conn.execute("SELECT id FROM threads ORDER BY id DESC LIMIT 1").fetchone()
+        return row["id"] if row else None
 
     def append_message(self, thread_id: int, message: dict) -> None:
         self.conn.execute(
@@ -307,3 +316,34 @@ class Database:
         return self.conn.execute(
             "SELECT * FROM outbox WHERE status = ? ORDER BY id", (status,)
         ).fetchall()
+
+    # --- files uploaded to the Anthropic Files API ---
+
+    def record_upload(self, file_id: str) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO uploaded_files (file_id, created_at) VALUES (?, ?)",
+            (file_id, _now().isoformat()),
+        )
+        self.conn.commit()
+
+    def assign_uploads(self, file_ids: list[str], thread_id: int) -> None:
+        self.conn.executemany(
+            "UPDATE uploaded_files SET thread_id = ? WHERE file_id = ?",
+            [(thread_id, f) for f in file_ids],
+        )
+        self.conn.commit()
+
+    def stale_uploads(self, orphan_age: timedelta) -> list[str]:
+        """Files from conversations that are over, plus uploads never used after `orphan_age`."""
+        current = self.latest_thread_id()
+        rows = self.conn.execute(
+            "SELECT file_id FROM uploaded_files "
+            "WHERE (thread_id IS NOT NULL AND thread_id != ?) OR (thread_id IS NULL AND created_at < ?) "
+            "ORDER BY created_at",
+            (current if current is not None else -1, (_now() - orphan_age).isoformat()),
+        ).fetchall()
+        return [r["file_id"] for r in rows]
+
+    def forget_upload(self, file_id: str) -> None:
+        self.conn.execute("DELETE FROM uploaded_files WHERE file_id = ?", (file_id,))
+        self.conn.commit()

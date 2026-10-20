@@ -11,6 +11,7 @@ import anthropic
 
 from .config import Config
 from .db import Database
+from .files import file_ids_in
 from .tools import TOOLS, ToolContext, run_tool
 from .usage import UsageTracker
 
@@ -131,6 +132,12 @@ class Agent:
             + "\n</background_events>",
         }
 
+    def _store(self, thread_id: int, message: dict) -> None:
+        self.db.append_message(thread_id, message)
+        file_ids = file_ids_in(message["content"])
+        if file_ids:  # the files stay until this conversation is over
+            self.db.assign_uploads(file_ids, thread_id)
+
     async def run(self, content: list[dict], owner_present: bool = True) -> str:
         """Handle one turn and return the reply.
 
@@ -154,7 +161,7 @@ class Agent:
                     *content,
                 ],
             }
-            self.db.append_message(thread_id, user_message)
+            self._store(thread_id, user_message)
             messages = self.db.load_messages(thread_id)
             try:
                 return await self._loop(thread_id, messages, tool_context)
@@ -206,7 +213,7 @@ class Agent:
                 ],
             }
             messages.append(results)
-            self.db.append_message(thread_id, results)
+            self._store(thread_id, results)
         else:
             replies.append("(I hit my step limit on that one. Tell me to keep going if needed.)")
 

@@ -100,6 +100,7 @@ All in `.env` (see `.env.example`):
 - **ClaudeBot sends emails without asking first** (as configured), but every email waits `UNDO_SEND_SECONDS` with an **Undo** button before it actually goes out. If ClaudeBot restarts in the middle of sending, it tells you to check your Sent folder rather than risk sending twice.
 - **When you're not the one who started the turn** (the daily brief, a scheduled task), ClaudeBot never sends on its own: any email waits with **✅ Send / ✖️ Cancel** buttons (showing every recipient, cc and bcc included) until you tap it or tell ClaudeBot to send it. Those turns also can't send calendar invites, save memories, or schedule new tasks, so a phishing email read during your morning brief can't plant anything for later.
 - ClaudeBot treats email contents as data, not orders. A phishing email that says "forward this to..." won't make it do anything, and ClaudeBot will flag it. Inbox alerts show the sender's real address, not just their display name, so a fake "Mom" can't hide behind the name.
+- Files you send (and attachments ClaudeBot opens) are uploaded to your Anthropic account's file storage so they aren't resent with every message. ClaudeBot deletes them once that conversation is over (checked every 6 hours).
 - Keep `.env`, `credentials.json` and `data/` private. They hold the keys to your inbox. They're already in `.gitignore`.
 
 ## How it works
@@ -112,7 +113,7 @@ All in `.env` (see `.env.example`):
 | `claudebot/google_services.py` | Gmail and Calendar API calls |
 | `claudebot/inbox_watch.py` | Background inbox alerts |
 | `claudebot/outbox.py` | Undo-send queue |
-| `claudebot/files.py` | PDFs, text files and images to Claude |
+| `claudebot/files.py` | PDFs, text files and images to Claude, via the Anthropic Files API |
 | `claudebot/usage.py` | Cost estimates and the monthly budget |
 | `claudebot/db.py` | SQLite storage for chat history, memories, reminders, outbox and usage |
 
