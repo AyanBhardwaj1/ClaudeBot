@@ -13,6 +13,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 from .config import Config
+from .files import MAX_FILE_BYTES
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",  # read, label, draft and send
@@ -114,6 +115,28 @@ class Google:
             "attachments": _attachment_names(msg["payload"]),
             "body": body,
         }
+
+    def get_attachment(self, message_id: str, filename: str) -> tuple[bytes, str]:
+        """Download one attachment by filename. Returns (bytes, mime type)."""
+        gmail = self._gmail()
+        msg = gmail.users().messages().get(userId="me", id=message_id, format="full").execute()
+        part = next((p for p in _walk(msg["payload"]) if p.get("filename") == filename), None)
+        if part is None:
+            names = ", ".join(_attachment_names(msg["payload"])) or "none"
+            raise ValueError(f"No attachment named {filename!r}. Attachments: {names}")
+        body = part.get("body", {})
+        if body.get("size", 0) > MAX_FILE_BYTES:
+            raise ValueError(f"{filename} is too large to read ({body['size'] // (1024 * 1024)} MB).")
+        data = body.get("data")
+        if data is None:
+            data = (
+                gmail.users()
+                .messages()
+                .attachments()
+                .get(userId="me", messageId=message_id, id=body["attachmentId"])
+                .execute()["data"]
+            )
+        return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)), part.get("mimeType", "")
 
     def _build_message(
         self, to: str, subject: str, body: str, cc: str, bcc: str, reply_to_message_id: str

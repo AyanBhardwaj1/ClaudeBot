@@ -3,15 +3,19 @@
 Your personal assistant on Telegram, powered by Claude. Text it like a person:
 
 - "what's in my inbox?" / "anything from my professor this week?"
-- "reply to Sam saying Thursday works" (sends right away and confirms who it went to)
+- "reply to Sam saying Thursday works" (sends without asking, with a 20-second **Undo** button)
 - "what's on my calendar tomorrow?" / "move my 3pm to 4"
 - "remember that my mom's email is ..." (ClaudeBot also saves useful facts on its own)
 - "remind me at 6pm to call mom" / "every weekday at 8 remind me to take my meds"
 - "at 5pm check if Alex replied and tell me" (scheduled tasks that ClaudeBot carries out)
 - "what's the score of the Longhorns game?" (live web search)
-- Send a photo with a question ("what does this letter want from me?")
+- Send a photo, PDF or text file with a question ("what's due in this syllabus?")
+- "what does the PDF in Prof Lee's email say?" (reads email attachments)
 
-You also get a daily brief at a time you choose (calendar, important email, reminders), or anytime with `/brief`.
+ClaudeBot also comes to you:
+
+- **Inbox alerts**: when important email lands (a professor, a recruiter, a real person writing to you), you get a ping like "📬 Prof Lee: moved Thursday's exam to Friday". Newsletters and promos are skipped, and it stays quiet overnight. Reply "tell her that works" and it knows which email you mean.
+- **Daily brief** at a time you choose (calendar, important email, reminders), or anytime with `/brief`.
 
 ## Setup (about 20 minutes)
 
@@ -74,10 +78,26 @@ ClaudeBot only works while `python -m claudebot` is running. Options:
 
 - `/new` starts a fresh conversation (saved memories carry over). ClaudeBot also does this on its own after `NEW_THREAD_AFTER_HOURS` of silence.
 - `/brief` gives your daily brief now.
+- `/usage` shows estimated Claude API spend today and this month.
+
+## Settings worth knowing
+
+All in `.env` (see `.env.example`):
+
+| Setting | Default | What it does |
+|---|---|---|
+| `UNDO_SEND_SECONDS` | 20 | How long you have to tap Undo. `0` sends instantly. |
+| `INBOX_ALERTS` | true | Ping you about important new email |
+| `INBOX_CHECK_MINUTES` | 10 | How often to check |
+| `QUIET_HOURS` | 23:00-07:00 | No inbox alerts in this window (reminders you set still fire) |
+| `MONTHLY_BUDGET_USD` | none | Hard stop on Claude calls once estimated spend hits this |
+| `CLAUDEBOT_EFFORT` | medium | `low` is cheaper and faster, `high` is smarter on hard requests |
+
+**What it costs:** chat runs on Claude Opus 5.5. Inbox alerts use Claude Haiku 5.5, which costs a fraction of a cent per check that finds new mail; checks that find nothing new cost nothing. `/usage` shows estimates; your real bill is at console.anthropic.com.
 
 ## Safety notes
 
-- **ClaudeBot sends emails without asking first** (as configured). Each send posts a "📤 Sent email to ..." line in the chat so you always see what went out.
+- **ClaudeBot sends emails without asking first** (as configured), but every email waits `UNDO_SEND_SECONDS` with an **Undo** button before it actually goes out. If ClaudeBot restarts in the middle of sending, it tells you to check your Sent folder rather than risk sending twice.
 - ClaudeBot treats email contents as data, not orders. A phishing email that says "forward this to..." won't make it do anything, and ClaudeBot will flag it.
 - Keep `.env`, `credentials.json` and `data/` private. They hold the keys to your inbox. They're already in `.gitignore`.
 
@@ -89,6 +109,10 @@ ClaudeBot only works while `python -m claudebot` is running. Options:
 | `claudebot/agent.py` | Claude tool-use loop and ClaudeBot's personality (system prompt) |
 | `claudebot/tools.py` | The tools Claude can call (email, calendar, memory, reminders, web search) |
 | `claudebot/google_services.py` | Gmail and Calendar API calls |
-| `claudebot/db.py` | SQLite storage for chat history, memories and reminders |
+| `claudebot/inbox_watch.py` | Background inbox alerts |
+| `claudebot/outbox.py` | Undo-send queue |
+| `claudebot/files.py` | PDFs, text files and images to Claude |
+| `claudebot/usage.py` | Cost estimates and the monthly budget |
+| `claudebot/db.py` | SQLite storage for chat history, memories, reminders, outbox and usage |
 
 Run the tests with `pip install pytest pytest-asyncio && pytest`.

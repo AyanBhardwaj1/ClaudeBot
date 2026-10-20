@@ -14,6 +14,16 @@ def _int_or_none(value: str | None) -> int | None:
     return int(value) if value and value.strip() else None
 
 
+def _float_or_none(value: str | None) -> float | None:
+    return float(value) if value and value.strip() else None
+
+
+def _flag(value: str | None, default: bool) -> bool:
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class Config:
     telegram_token: str
@@ -28,6 +38,12 @@ class Config:
     daily_brief_time: str | None
     new_thread_after_hours: float
     owner_name: str
+    fast_model: str = "claude-haiku-5-5"
+    inbox_alerts: bool = True
+    inbox_check_minutes: int = 10
+    quiet_hours: str | None = "23:00-07:00"
+    monthly_budget_usd: float | None = None
+    undo_send_seconds: int = 20
 
     @property
     def db_path(self) -> Path:
@@ -50,4 +66,10 @@ def load_config() -> Config:
         daily_brief_time=os.getenv("DAILY_BRIEF_TIME") or None,
         new_thread_after_hours=float(os.getenv("NEW_THREAD_AFTER_HOURS", "8")),
         owner_name=os.getenv("CLAUDEBOT_OWNER_NAME", "sir"),
+        fast_model=os.getenv("CLAUDEBOT_FAST_MODEL", "claude-haiku-5-5"),
+        inbox_alerts=_flag(os.getenv("INBOX_ALERTS"), True),
+        inbox_check_minutes=max(int(os.getenv("INBOX_CHECK_MINUTES", "10")), 1),
+        quiet_hours=os.getenv("QUIET_HOURS", "23:00-07:00") or None,
+        monthly_budget_usd=_float_or_none(os.getenv("MONTHLY_BUDGET_USD")),
+        undo_send_seconds=max(int(os.getenv("UNDO_SEND_SECONDS", "20")), 0),
     )

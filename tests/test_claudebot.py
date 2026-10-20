@@ -1,96 +1,20 @@
-import copy
 import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
-from anthropic.types.beta import BetaMessage
+from helpers import (
+    TZ,
+    FakeClient,
+    make_agent,
+    make_context,
+    message,
+)
 
-from claudebot.agent import BETAS, Agent
+from claudebot.agent import BETAS
 from claudebot.bot import split_message
-from claudebot.config import Config
 from claudebot.db import Database
 from claudebot.reminders import next_occurrence
-from claudebot.tools import TOOLS, ToolContext, run_tool
-
-TZ = ZoneInfo("America/Chicago")
-
-
-def make_config(tmp_path: Path) -> Config:
-    return Config(
-        telegram_token="x",
-        owner_id=1,
-        model="claude-opus-5-5",
-        effort="medium",
-        timezone=TZ,
-        data_dir=tmp_path,
-        google_credentials_file=tmp_path / "credentials.json",
-        google_token_file=tmp_path / "token.json",
-        google_token_json=None,
-        daily_brief_time=None,
-        new_thread_after_hours=8,
-        owner_name="Ayan",
-    )
-
-
-class FakeGoogle:
-    def __init__(self):
-        self.sent = []
-
-    def search_emails(self, query, max_results=10):
-        return [{"id": "m1", "from": "sam@example.com", "subject": "Lunch?", "unread": True}]
-
-    def send_email(self, **kwargs):
-        self.sent.append(kwargs)
-        return {"status": "sent", "id": "s1", "thread_id": "t1"}
-
-
-def make_context(db: Database, google=None, notices=None, scheduled=None) -> ToolContext:
-    notices = notices if notices is not None else []
-    scheduled = scheduled if scheduled is not None else []
-
-    async def notify(text):
-        notices.append(text)
-
-    return ToolContext(
-        google=google or FakeGoogle(),
-        db=db,
-        tz=TZ,
-        schedule_reminder=scheduled.append,
-        unschedule_reminder=lambda _id: None,
-        notify=notify,
-    )
-
-
-def message(stop_reason: str, content: list[dict]) -> BetaMessage:
-    return BetaMessage.model_validate(
-        {
-            "id": "msg_1",
-            "type": "message",
-            "role": "assistant",
-            "model": "claude-opus-5-5",
-            "content": content,
-            "stop_reason": stop_reason,
-            "stop_sequence": None,
-            "usage": {"input_tokens": 10, "output_tokens": 10},
-        }
-    )
-
-
-class FakeClient:
-    """Stands in for AsyncAnthropic, replaying canned responses and recording requests."""
-
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.requests = []
-        self.beta = self
-        self.messages = self
-
-    async def create(self, **kwargs):
-        self.requests.append(copy.deepcopy(kwargs))
-        return self.responses.pop(0)
-
+from claudebot.tools import TOOLS, run_tool
 
 # --- reminders ---
 
@@ -167,14 +91,15 @@ async def test_set_reminder_schedules_and_rejects_past(tmp_path):
     assert err
 
 
-async def test_send_email_notifies_owner(tmp_path):
-    google, notices = FakeGoogle(), []
-    ctx = make_context(Database(tmp_path / "t.db"), google=google, notices=notices)
-    _, err = await run_tool(
+async def test_send_email_goes_through_the_outbox(tmp_path):
+    submitted = []
+    ctx = make_context(Database(tmp_path / "t.db"), submitted=submitted)
+    out, err = await run_tool(
         "send_email", {"to": "sam@example.com", "subject": "Hi", "body": "Thursday works"}, ctx
     )
-    assert not err and google.sent[0]["to"] == "sam@example.com"
-    assert notices == ["📤 Sent email to sam@example.com: Hi"]
+    assert not err and json.loads(out)["status"] == "queued"
+    assert submitted == [{"to": "sam@example.com", "subject": "Hi", "body": "Thursday works",
+                          "cc": "", "bcc": "", "reply_to_message_id": ""}]
 
 
 async def test_bad_input_is_reported_not_raised(tmp_path):
@@ -210,8 +135,7 @@ async def test_agent_tool_loop_and_append_only_history(tmp_path):
             message("end_turn", [{"type": "text", "text": "Sure."}]),
         ]
     )
-    agent = Agent(make_config(tmp_path), db, client)
-    agent.tool_context = make_context(db)
+    agent = make_agent(tmp_path, db, client)
 
     reply = await agent.run([{"type": "text", "text": "anything in my inbox?"}])
     assert reply == "One unread: Sam asks about lunch."
@@ -250,8 +174,7 @@ async def test_agent_resumes_pause_turn_and_reports_refusal(tmp_path):
             message("refusal", []),
         ]
     )
-    agent = Agent(make_config(tmp_path), db, client)
-    agent.tool_context = make_context(db)
+    agent = make_agent(tmp_path, db, client)
     assert await agent.run([{"type": "text", "text": "weather?"}]) == "Sunny, 80F."
     assert client.requests[1]["messages"][-1]["role"] == "assistant"
     assert await agent.run([{"type": "text", "text": "something bad"}]) == "I can't help with that one."

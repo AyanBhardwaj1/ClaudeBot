@@ -1,21 +1,32 @@
-"""Telegram front end: owner-only chat, reminders and the daily brief."""
+"""Telegram front end: owner-only chat, reminders, inbox alerts, undo-send and the daily brief."""
 
 import asyncio
-import base64
 import logging
 from datetime import datetime, time, timedelta
 
 import anthropic
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.error import TelegramError
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from .agent import Agent
 from .config import Config
 from .db import Database
-from .google_services import Google
+from .files import MAX_FILE_BYTES, UnsupportedFile, to_content_block
+from .google_services import Google, GoogleNotConnected
+from .inbox_watch import InboxWatcher
+from .outbox import Outbox
 from .reminders import next_occurrence
 from .tools import ToolContext
+from .usage import BudgetExceeded, UsageTracker
 
 log = logging.getLogger(__name__)
 
@@ -41,19 +52,60 @@ def split_message(text: str, limit: int = 4000) -> list[str]:
     return chunks
 
 
+class TelegramOutboxUI:
+    """How the outbox talks to the owner: a message with an Undo button, later edited."""
+
+    def __init__(self, bot: "TelegramBot"):
+        self.bot = bot
+
+    async def announce(self, outbox_id: int, text: str) -> int | None:
+        undo = InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Undo", callback_data=f"undo:{outbox_id}")]])
+        message = await self.bot.app.bot.send_message(
+            chat_id=self.bot.config.owner_id, text=text, reply_markup=undo
+        )
+        return message.message_id
+
+    async def edit(self, message_id: int, text: str) -> None:
+        try:
+            await self.bot.app.bot.edit_message_text(
+                text, chat_id=self.bot.config.owner_id, message_id=message_id, reply_markup=None
+            )
+        except TelegramError:
+            log.warning("Couldn't edit outbox message %s", message_id, exc_info=True)
+
+    async def notify(self, text: str) -> None:
+        await self.bot.send_to_owner(text)
+
+
 class TelegramBot:
     def __init__(self, config: Config):
         self.config = config
         self.db = Database(config.db_path)
-        self.agent = Agent(config, self.db, anthropic.AsyncAnthropic())
-        self.app = Application.builder().token(config.telegram_token).post_init(self._post_init).build()
+        client = anthropic.AsyncAnthropic()
+        google = Google(config)
+        self.tracker = UsageTracker(self.db, config.timezone, config.monthly_budget_usd)
+        self.agent = Agent(config, self.db, client, self.tracker)
+        # Concurrent updates so an Undo tap is handled while a reply is still being written;
+        # the agent's lock keeps conversation turns in order.
+        self.app = (
+            Application.builder()
+            .token(config.telegram_token)
+            .concurrent_updates(True)
+            .post_init(self._post_init)
+            .build()
+        )
+        self.outbox = Outbox(
+            self.db, google, config.undo_send_seconds, self.schedule_outbox, TelegramOutboxUI(self)
+        )
+        self.watcher = InboxWatcher(self.db, google, client, self.tracker, config, self.send_to_owner)
+        self._warned_google_missing = False
         self.agent.tool_context = ToolContext(
-            google=Google(config),
+            google=google,
             db=self.db,
             tz=config.timezone,
             schedule_reminder=self.schedule_reminder,
             unschedule_reminder=self.unschedule_reminder,
-            notify=self.send_to_owner,
+            send_email=self.outbox.submit,
         )
         self._register_handlers()
 
@@ -67,7 +119,10 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("start", self.on_start, filters=owner))
         self.app.add_handler(CommandHandler("new", self.on_new, filters=owner))
         self.app.add_handler(CommandHandler("brief", self.on_brief, filters=owner))
+        self.app.add_handler(CommandHandler("usage", self.on_usage, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_undo, pattern=r"^undo:\d+$"))
         self.app.add_handler(MessageHandler(owner & filters.PHOTO, self.on_photo))
+        self.app.add_handler(MessageHandler(owner & filters.Document.ALL, self.on_document))
         self.app.add_handler(MessageHandler(owner & (filters.VOICE | filters.AUDIO), self.on_voice))
         self.app.add_handler(MessageHandler(owner & filters.TEXT & ~filters.COMMAND, self.on_text))
         # Everyone else is ignored silently.
@@ -87,6 +142,11 @@ class TelegramBot:
             app.job_queue.run_daily(
                 self._brief_job, time=time(hour, minute, tzinfo=self.config.timezone), name="daily-brief"
             )
+        if self.config.inbox_alerts:
+            app.job_queue.run_repeating(
+                self._inbox_job, interval=self.config.inbox_check_minutes * 60, first=30, name="inbox-watch"
+            )
+        await self.outbox.resume()
         log.info("ClaudeBot is online.")
 
     def run(self) -> None:
@@ -104,6 +164,8 @@ class TelegramBot:
         typing = asyncio.create_task(self._keep_typing(stop))
         try:
             return await self.agent.run(content)
+        except BudgetExceeded as e:
+            return str(e)
         except anthropic.AuthenticationError:
             return "My Anthropic API key isn't working. Check ANTHROPIC_API_KEY."
         except anthropic.RateLimitError:
@@ -145,12 +207,15 @@ class TelegramBot:
             "- what's in my inbox?\n"
             "- reply to Sam saying Thursday works\n"
             "- what's on my calendar tomorrow?\n"
-            "- remind me at 6pm to call mom\n\n"
-            "/new starts a fresh conversation, /brief gives you the daily brief."
+            "- remind me at 6pm to call mom\n"
+            "- (send a PDF) what's due in this syllabus?\n\n"
+            "I'll also ping you when important email arrives.\n\n"
+            "/new starts a fresh conversation, /brief gives you the daily brief, "
+            "/usage shows what I've cost you."
         )
 
     async def on_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        self.db.new_thread()
+        self.db.new_thread(self.agent.config_hash)
         await update.effective_message.reply_text("Fresh start. I still remember the important things.")
 
     async def on_brief(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -160,15 +225,40 @@ class TelegramBot:
         reply = await self._ask_agent([{"type": "text", "text": update.effective_message.text}])
         await self.send_to_owner(reply)
 
+    async def on_usage(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await update.effective_message.reply_text(self.tracker.summary())
+
     async def on_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message
         photo = await message.photo[-1].get_file()  # largest size
-        data = base64.standard_b64encode(bytes(await photo.download_as_bytearray())).decode()
-        content = [
-            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}},
-            {"type": "text", "text": message.caption or "(photo with no caption)"},
-        ]
-        await self.send_to_owner(await self._ask_agent(content))
+        data = bytes(await photo.download_as_bytearray())
+        await self._ask_about_file(to_content_block(data, "image/jpeg", "photo.jpg"), message.caption)
+
+    async def on_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        message = update.effective_message
+        document = message.document
+        if (document.file_size or 0) > MAX_FILE_BYTES:
+            await message.reply_text(f"{document.file_name} is too big for me (10 MB max).")
+            return
+        data = bytes(await (await document.get_file()).download_as_bytearray())
+        try:
+            block = to_content_block(data, document.mime_type or "", document.file_name or "file")
+        except UnsupportedFile as e:
+            await message.reply_text(str(e))
+            return
+        await self._ask_about_file(block, message.caption)
+
+    async def _ask_about_file(self, block: dict, caption: str | None) -> None:
+        question = caption or "(sent with no message: say briefly what it is and anything I need to act on)"
+        await self.send_to_owner(await self._ask_agent([block, {"type": "text", "text": question}]))
+
+    async def on_undo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query.from_user.id != self.config.owner_id:
+            await query.answer()
+            return
+        result = await self.outbox.undo(int(query.data.split(":")[1]))
+        await query.answer(result)
 
     async def on_voice(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
@@ -204,6 +294,7 @@ class TelegramBot:
                 await self.send_to_owner(await self._ask_agent([{"type": "text", "text": prompt}]))
             else:
                 await self.send_to_owner(f"⏰ {row['text']}")
+                self.db.add_notice(f"Reminder #{reminder_id} fired: {row['text']}")
         finally:
             now = datetime.now(self.config.timezone)
             following = next_occurrence(
@@ -217,3 +308,22 @@ class TelegramBot:
 
     async def _brief_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self.send_to_owner(await self._ask_agent([{"type": "text", "text": BRIEF_PROMPT}]))
+
+    # --- outbox and inbox alerts ---
+
+    def schedule_outbox(self, outbox_id: int, when: datetime) -> None:
+        when = max(when, datetime.now(when.tzinfo) + timedelta(seconds=1))
+        self.app.job_queue.run_once(self._outbox_job, when=when, data=outbox_id, name=f"outbox-{outbox_id}")
+
+    async def _outbox_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self.outbox.deliver(context.job.data)
+
+    async def _inbox_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        try:
+            await self.watcher.check()
+        except GoogleNotConnected:
+            if not self._warned_google_missing:
+                log.warning("Inbox alerts are on but Google isn't connected yet.")
+                self._warned_google_missing = True
+        except Exception:
+            log.exception("Inbox check failed")
