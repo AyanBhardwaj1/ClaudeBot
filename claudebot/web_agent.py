@@ -7,15 +7,22 @@ import anthropic
 
 from .usage import UsageTracker
 
-MAX_ROUNDS = 6  # pause_turn resumptions for long server-side searches
+MAX_ROUNDS = 4  # pause_turn resumptions for long server-side searches
 BETAS = ["server-side-fallback-2026-07-01"]
 
 
-def web_tools(max_searches: int, max_fetches: int) -> list[dict]:
-    return [
-        {"type": "web_search_20260209", "name": "web_search", "max_uses": max_searches},
-        {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": max_fetches},
-    ]
+def web_tools(max_searches: int, max_fetches: int, max_page_tokens: int, fetch_from_prompt: bool) -> list[dict]:
+    fetch = {
+        "type": "web_fetch_20260209",
+        "name": "web_fetch",
+        "max_uses": max_fetches,
+        "max_content_tokens": max_page_tokens,
+    }
+    if not fetch_from_prompt:
+        # Only pages the searches found: a URL written into the prompt (which the main model
+        # composed, possibly steered by an injected email) can't be fetched.
+        fetch["url_sources"] = {"user_input": {"type": "none"}}
+    return [{"type": "web_search_20260209", "name": "web_search", "max_uses": max_searches}, fetch]
 
 
 async def ask_with_web(
@@ -28,6 +35,8 @@ async def ask_with_web(
     effort: str,
     max_searches: int,
     max_fetches: int,
+    max_page_tokens: int,
+    fetch_from_prompt: bool,
     source: str,
 ) -> str:
     """Ask one question with web access and return the final text answer."""
@@ -39,9 +48,10 @@ async def ask_with_web(
             model=model,
             max_tokens=16000,
             system=system,
-            tools=web_tools(max_searches, max_fetches),
+            tools=web_tools(max_searches, max_fetches, max_page_tokens, fetch_from_prompt),
             messages=messages,
             output_config={"effort": effort},
+            cache_control={"type": "ephemeral"},  # resumed rounds re-read fetched pages from cache
             fallbacks="default",
             betas=BETAS,
         )
@@ -79,7 +89,9 @@ async def deep_research(client: anthropic.AsyncAnthropic, tracker: UsageTracker,
         system=RESEARCH_SYSTEM,
         prompt=question,
         effort="high",
-        max_searches=15,
-        max_fetches=10,
+        max_searches=12,
+        max_fetches=8,
+        max_page_tokens=15_000,
+        fetch_from_prompt=False,
         source="research",
     )

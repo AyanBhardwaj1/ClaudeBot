@@ -35,6 +35,7 @@ class ToolContext:
     # (bytes, mime type, filename) -> content block, e.g. FileUploader.to_block
     prepare_file: Callable[[bytes, str, str], Awaitable[dict]] | None = None
     research: Callable[[str], Awaitable[str]] | None = None  # question -> sourced report
+    research_left: int = 1  # deep_research calls allowed per turn (each turn gets a fresh copy)
     # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
     # untrusted email with nobody watching, so anything that reaches other people or plants
     # instructions for later needs the owner.
@@ -256,8 +257,16 @@ CLIENT_TOOLS = [
 
 SERVER_TOOLS = [
     {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
-    # Fetches only URLs already in the conversation, e.g. a link the owner pasted.
-    {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 5},
+    # Fetches only URLs already in the conversation, e.g. a link the owner pasted - and not ones
+    # from client tool results: the model could otherwise write a URL carrying private data into
+    # a reminder or calendar event, read it back, and fetch it.
+    {
+        "type": "web_fetch_20260209",
+        "name": "web_fetch",
+        "max_uses": 5,
+        "max_content_tokens": 20_000,
+        "url_sources": {"client_tool_results": {"type": "none"}},
+    },
 ]
 
 TOOLS = CLIENT_TOOLS + SERVER_TOOLS
@@ -335,8 +344,12 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         return await asyncio.to_thread(g.delete_event, a["event_id"])
 
     if name == "deep_research":
+        _require_owner(ctx, "run deep research")
         if ctx.research is None:
             raise ValueError("Deep research isn't available.")
+        if ctx.research_left <= 0:
+            raise NeedsOwner("Only one deep research per message; combine the questions into one.")
+        ctx.research_left -= 1
         return {"report": await ctx.research(a["question"])}
     if name == "remember":
         _require_owner(ctx, "save memories")

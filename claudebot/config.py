@@ -45,6 +45,7 @@ class Config:
     monthly_budget_usd: float | None = None
     undo_send_seconds: int = 20
     group_daily_limit: int = 30
+    group_monthly_budget_usd: float | None = 5.0
 
     @property
     def db_path(self) -> Path:
@@ -74,4 +75,5 @@ def load_config() -> Config:
         monthly_budget_usd=_float_or_none(os.getenv("MONTHLY_BUDGET_USD")),
         undo_send_seconds=max(int(os.getenv("UNDO_SEND_SECONDS", "20")), 0),
         group_daily_limit=max(int(os.getenv("GROUP_DAILY_LIMIT", "30")), 0),
+        group_monthly_budget_usd=_float_or_none(os.getenv("GROUP_MONTHLY_BUDGET_USD", "5")),
     )

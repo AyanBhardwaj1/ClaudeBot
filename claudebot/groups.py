@@ -66,6 +66,10 @@ class GroupResponder:
         """The reply to post, or None to stay silent (group not enabled, or over the cap)."""
         if not self.is_enabled(chat_id):
             return None
+        cap = self.config.group_monthly_budget_usd
+        if cap is not None and self.tracker.month_cost(source="group") >= cap:
+            # Groups get their own allowance so friends can't use up the owner's budget.
+            return "I'm out of budget for this month, so I'm off duty for now."
         used = self._take_slot(chat_id)
         limit = self.config.group_daily_limit
         if used > limit:
@@ -86,6 +90,8 @@ class GroupResponder:
                 effort="medium",
                 max_searches=3,
                 max_fetches=2,
+                max_page_tokens=8_000,
+                fetch_from_prompt=True,  # people paste links to check; groups hold no private data
                 source="group",
             )
         except BudgetExceeded:

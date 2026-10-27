@@ -235,12 +235,14 @@ class Database:
         )
         self.conn.commit()
 
-    def usage_totals(self, since: datetime) -> tuple[int, float]:
-        """(request count, total estimated cost in USD) since `since`."""
-        row = self.conn.execute(
-            "SELECT COUNT(*) AS n, COALESCE(SUM(cost_usd), 0) AS cost FROM usage WHERE created_at >= ?",
-            (since.astimezone(timezone.utc).isoformat(),),
-        ).fetchone()
+    def usage_totals(self, since: datetime, source: str | None = None) -> tuple[int, float]:
+        """(request count, total estimated cost in USD) since `since`, optionally for one source."""
+        query = "SELECT COUNT(*) AS n, COALESCE(SUM(cost_usd), 0) AS cost FROM usage WHERE created_at >= ?"
+        params: list = [since.astimezone(timezone.utc).isoformat()]
+        if source is not None:
+            query += " AND source = ?"
+            params.append(source)
+        row = self.conn.execute(query, params).fetchone()
         return row["n"], row["cost"]
 
     # --- settings ---

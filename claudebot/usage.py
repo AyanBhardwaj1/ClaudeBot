@@ -83,9 +83,9 @@ class UsageTracker:
     def _month_start(self, now: datetime) -> datetime:
         return now.astimezone(self.tz).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    def month_cost(self, now: datetime | None = None) -> float:
+    def month_cost(self, now: datetime | None = None, source: str | None = None) -> float:
         now = now or datetime.now(self.tz)
-        return self.db.usage_totals(self._month_start(now))[1]
+        return self.db.usage_totals(self._month_start(now), source)[1]
 
     def check_budget(self, now: datetime | None = None) -> None:
         if self.monthly_budget is None:

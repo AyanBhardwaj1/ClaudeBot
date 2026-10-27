@@ -26,7 +26,7 @@ ClaudeBot also comes to you:
 
 ### Group mode: "@ClaudeBot is this true?"
 
-Add ClaudeBot to a Telegram group and send `/enable` there (only you can). Anyone in the group can then tag it or reply to it to ask questions or fact-check a message, like asking Grok under a post. In groups it only has web search: it can't see your email, calendar, memories or conversations, and it caps itself at `GROUP_DAILY_LIMIT` answers per group per day so friends can't run up your bill. `/disable` turns it off.
+Add ClaudeBot to a Telegram group and send `/enable` there (only you can). Anyone in the group can then tag it or reply to it to ask questions or fact-check a message, like asking Grok under a post. In groups it only has web search: it can't see your email, calendar, memories or conversations, and it caps itself at `GROUP_DAILY_LIMIT` answers per group per day and `GROUP_MONTHLY_BUDGET_USD` ($5 by default) per month across all groups, so friends can't run up your bill or use up your own assistant's budget. `/disable` turns it off.
 
 ## Setup (about 20 minutes)
 
@@ -105,6 +105,7 @@ All in `.env` (see `.env.example`):
 | `QUIET_HOURS` | 23:00-07:00 | No inbox alerts in this window (reminders you set still fire) |
 | `MONTHLY_BUDGET_USD` | none | Hard stop on Claude calls once estimated spend hits this |
 | `GROUP_DAILY_LIMIT` | 30 | Answers per group per day in group mode |
+| `GROUP_MONTHLY_BUDGET_USD` | 5 | Monthly spending cap for all group answers combined |
 | `CLAUDEBOT_EFFORT` | medium | `low` is cheaper and faster, `high` is smarter on hard requests |
 
 **What it costs:** chat runs on Claude Opus 5.5. Inbox alerts use Claude Haiku 5.5, which costs a fraction of a cent per check that finds new mail; checks that find nothing new cost nothing. `/usage` shows estimates; your real bill is at console.anthropic.com.
@@ -112,6 +113,7 @@ All in `.env` (see `.env.example`):
 ## Safety notes
 
 - **ClaudeBot sends emails without asking first** (as configured), but every email waits `UNDO_SEND_SECONDS` with an **Undo** button before it actually goes out. If ClaudeBot restarts in the middle of sending, it tells you to check your Sent folder rather than risk sending twice.
+- ClaudeBot reads links you paste, but never links that only appear inside emails (a common phishing trick). Paste the link if you want it opened. Deep research only opens pages its own searches found, and only you can start it.
 - **When you're not the one who started the turn** (the daily brief, a scheduled task), ClaudeBot never sends on its own: any email waits with **✅ Send / ✖️ Cancel** buttons (showing every recipient, cc and bcc included) until you tap it or tell ClaudeBot to send it. Those turns also can't send calendar invites, save memories, or schedule new tasks, so a phishing email read during your morning brief can't plant anything for later.
 - ClaudeBot treats email contents as data, not orders. A phishing email that says "forward this to..." won't make it do anything, and ClaudeBot will flag it. Inbox alerts show the sender's real address, not just their display name, so a fake "Mom" can't hide behind the name.
 - Files you send (and attachments ClaudeBot opens) are uploaded to your Anthropic account's file storage so they aren't resent with every message. ClaudeBot deletes them once that conversation is over (checked every 6 hours).

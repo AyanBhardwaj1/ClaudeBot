@@ -175,6 +175,8 @@ class TelegramBot:
             return
         # The full assistant (email, calendar, memory) only ever listens to the owner in private.
         owner = filters.User(user_id=self.config.owner_id) & filters.ChatType.PRIVATE
+        # New messages only: an edit to an old message shouldn't re-run (and re-bill) it.
+        new_owner_message = owner & filters.UpdateType.MESSAGE
         owner_in_group = filters.User(user_id=self.config.owner_id) & filters.ChatType.GROUPS
         self.app.add_handler(CommandHandler("start", self.on_start, filters=owner))
         self.app.add_handler(CommandHandler("new", self.on_new, filters=owner))
@@ -186,13 +188,16 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("enable", self.on_group_enable, filters=owner_in_group))
         self.app.add_handler(CommandHandler("disable", self.on_group_disable, filters=owner_in_group))
         self.app.add_handler(
-            MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, self.on_group_message)
+            MessageHandler(
+                filters.ChatType.GROUPS & filters.UpdateType.MESSAGE & filters.TEXT & ~filters.COMMAND,
+                self.on_group_message,
+            )
         )
         self.app.add_handler(CallbackQueryHandler(self.on_outbox_button, pattern=r"^(undo|send):\d+$"))
-        self.app.add_handler(MessageHandler(owner & filters.PHOTO, self.on_photo))
-        self.app.add_handler(MessageHandler(owner & filters.Document.ALL, self.on_document))
+        self.app.add_handler(MessageHandler(new_owner_message & filters.PHOTO, self.on_photo))
+        self.app.add_handler(MessageHandler(new_owner_message & filters.Document.ALL, self.on_document))
         self.app.add_handler(MessageHandler(owner & (filters.VOICE | filters.AUDIO), self.on_voice))
-        self.app.add_handler(MessageHandler(owner & filters.TEXT & ~filters.COMMAND, self.on_text))
+        self.app.add_handler(MessageHandler(new_owner_message & filters.TEXT & ~filters.COMMAND, self.on_text))
         # Everyone else is ignored silently.
 
     async def _post_init(self, app: Application) -> None:
