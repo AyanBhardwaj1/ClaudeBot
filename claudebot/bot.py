@@ -11,6 +11,7 @@ from telegram import (
     BotCommandScopeAllPrivateChats,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    LinkPreviewOptions,
     Message,
     Update,
 )
@@ -21,6 +22,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    Defaults,
     MessageHandler,
     filters,
 )
@@ -32,7 +34,7 @@ from .files import MAX_FILE_BYTES, FileUploader, UnsupportedFile, clean_up_uploa
 from .google_services import Google, GoogleNotConnected
 from .groups import GroupResponder
 from .inbox_watch import InboxWatcher
-from .modes import MODES, current_mode, fence_external, set_mode
+from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
 from .reminders import next_occurrence
 from .tools import ToolContext
@@ -61,6 +63,11 @@ GROUP_COMMANDS = [
     BotCommand("enable", "Let me answer when tagged here (owner only)"),
     BotCommand("disable", "Stop answering here (owner only)"),
 ]
+
+
+def task_prompt(reminder_id: int, text: str) -> str:
+    """A scheduled task's text was written by the model earlier: links in it stay unfetchable."""
+    return f"[Scheduled task #{reminder_id} that I set earlier - do it now]\n{defang_urls(text)}"
 
 
 def display_name(message: Message) -> str:
@@ -141,6 +148,9 @@ class TelegramBot:
             Application.builder()
             .token(config.telegram_token)
             .concurrent_updates(True)
+            # Telegram's servers fetch any link in a message to build a preview, so a link in a
+            # reply the model was tricked into writing would leak whatever it carries.
+            .defaults(Defaults(link_preview_options=LinkPreviewOptions(is_disabled=True)))
             .post_init(self._post_init)
             .build()
         )
@@ -177,7 +187,8 @@ class TelegramBot:
         owner = filters.User(user_id=self.config.owner_id) & filters.ChatType.PRIVATE
         # New messages only: an edit to an old message shouldn't re-run (and re-bill) it.
         new_owner_message = owner & filters.UpdateType.MESSAGE
-        owner_in_group = filters.User(user_id=self.config.owner_id) & filters.ChatType.GROUPS
+        owner = new_owner_message  # commands too: editing "/research ..." shouldn't run it again
+        owner_in_group = filters.User(user_id=self.config.owner_id) & filters.ChatType.GROUPS & filters.UpdateType.MESSAGE
         self.app.add_handler(CommandHandler("start", self.on_start, filters=owner))
         self.app.add_handler(CommandHandler("new", self.on_new, filters=owner))
         self.app.add_handler(CommandHandler("brief", self.on_brief, filters=owner))
@@ -472,8 +483,9 @@ class TelegramBot:
             return
         try:
             if row["run_as_task"]:
-                prompt = f"[Scheduled task #{reminder_id} that I set earlier - do it now]\n{row['text']}"
-                reply = await self._ask_agent([{"type": "text", "text": prompt}], owner_present=False)
+                reply = await self._ask_agent(
+                    [{"type": "text", "text": task_prompt(reminder_id, row["text"])}], owner_present=False
+                )
                 await self.send_to_owner(reply)
             else:
                 await self.send_to_owner(f"⏰ {row['text']}")

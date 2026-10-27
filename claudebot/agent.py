@@ -12,7 +12,7 @@ import anthropic
 from .config import Config
 from .db import Database
 from .files import file_ids_in
-from .modes import DEFAULT_MODE, current_mode, mode_message
+from .modes import DEFAULT_MODE, current_mode, defang_urls, mode_message
 from .tools import TOOLS, ToolContext, run_tool
 from .usage import UsageTracker
 
@@ -120,7 +120,7 @@ class Agent:
         if is_new_thread:
             memories = self.db.list_memories()
             if memories:
-                facts = "\n".join(f"- (#{m['id']}) {m['text']}" for m in memories)
+                facts = "\n".join(f"- (#{m['id']}) {defang_urls(m['text'])}" for m in memories)
                 lines.append(f"[Things you remember about {self.config.owner_name}:\n{facts}]")
         return "\n".join(lines)
 
@@ -131,7 +131,9 @@ class Agent:
         shown = notices[-MAX_NOTICES:]
         lines = [f"({len(notices) - len(shown)} earlier events not shown)"] if len(notices) > len(shown) else []
         for notice in shown:
-            text = " ".join(notice.split())[:MAX_NOTICE_CHARS]
+            # Notices echo text from emails and from the model's own earlier output (reminders,
+            # email subjects): never let a link in them become fetchable.
+            text = defang_urls(" ".join(notice.split()))[:MAX_NOTICE_CHARS]
             lines.append("- " + text.replace("<", "‹").replace(">", "›"))  # can't close the fence early
         return {
             "type": "text",

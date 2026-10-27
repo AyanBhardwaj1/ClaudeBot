@@ -5,6 +5,8 @@ system prompt: the prompt stays byte-identical, so the conversation history and 
 stay valid.
 """
 
+import re
+
 from .db import Database
 
 MODE_KEY = "mode"
@@ -50,6 +52,22 @@ def set_mode(db: Database, name: str) -> bool:
 
 def mode_message(name: str) -> dict:
     return {"role": "system", "content": MODES[name][1]}
+
+
+# Anything that would parse as a link: a scheme, a www. host, or host.tld followed by a path/query.
+# Email addresses are left alone (the lookbehind skips the domain after an @).
+_URLISH = re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]*://\S+|\bwww\.\S+|(?<![@\w.-])[a-z0-9-]+(?:\.[a-z0-9-]+)+[/?#]\S*"
+)
+
+
+def defang_urls(text: str) -> str:
+    """Make links readable but not fetchable: "https://a.com/x" -> "https[:]//a[.]com/x".
+
+    Used on text the model wrote earlier (reminders, notices, memories) before it comes back as
+    part of a user message, where the web_fetch tool would otherwise treat it as fetchable.
+    """
+    return _URLISH.sub(lambda m: m.group(0).replace("://", "[:]//").replace(".", "[.]"), text)
 
 
 def fence_external(tag: str, author: str, text: str) -> str:
