@@ -34,6 +34,7 @@ class ToolContext:
     approve_email: Callable[[int], Awaitable[str]] | None = None
     # (bytes, mime type, filename) -> content block, e.g. FileUploader.to_block
     prepare_file: Callable[[bytes, str, str], Awaitable[dict]] | None = None
+    research: Callable[[str], Awaitable[str]] | None = None  # question -> sourced report
     # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
     # untrusted email with nobody watching, so anything that reaches other people or plants
     # instructions for later needs the owner.
@@ -193,6 +194,16 @@ CLIENT_TOOLS = [
         "input_schema": _schema({"event_id": {"type": "string"}}, ["event_id"]),
     },
     {
+        "name": "deep_research",
+        "description": (
+            "Thorough web research for questions that need many sources: comparisons, "
+            "'what's the latest on', buying decisions, fact-checking a contested claim. Runs a "
+            "separate research pass (slower, a bit pricier) and returns a sourced report. Use "
+            "plain web_search for quick facts."
+        ),
+        "input_schema": _schema({"question": {"type": "string"}}, ["question"]),
+    },
+    {
         "name": "remember",
         "description": (
             "Save a lasting fact about the owner, the people in their life, or their preferences "
@@ -243,7 +254,11 @@ CLIENT_TOOLS = [
     },
 ]
 
-SERVER_TOOLS = [{"type": "web_search_20260209", "name": "web_search", "max_uses": 5}]
+SERVER_TOOLS = [
+    {"type": "web_search_20260209", "name": "web_search", "max_uses": 5},
+    # Fetches only URLs already in the conversation, e.g. a link the owner pasted.
+    {"type": "web_fetch_20260209", "name": "web_fetch", "max_uses": 5},
+]
 
 TOOLS = CLIENT_TOOLS + SERVER_TOOLS
 
@@ -319,6 +334,10 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "delete_calendar_event":
         return await asyncio.to_thread(g.delete_event, a["event_id"])
 
+    if name == "deep_research":
+        if ctx.research is None:
+            raise ValueError("Deep research isn't available.")
+        return {"report": await ctx.research(a["question"])}
     if name == "remember":
         _require_owner(ctx, "save memories")
         return {"saved": True, "memory_id": ctx.db.add_memory(a["fact"])}

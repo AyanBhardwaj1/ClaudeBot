@@ -5,7 +5,15 @@ import logging
 from datetime import datetime, time, timedelta
 
 import anthropic
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    BotCommand,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    Update,
+)
 from telegram.constants import ChatAction
 from telegram.error import TelegramError
 from telegram.ext import (
@@ -22,11 +30,14 @@ from .config import Config
 from .db import Database
 from .files import MAX_FILE_BYTES, FileUploader, UnsupportedFile, clean_up_uploads
 from .google_services import Google, GoogleNotConnected
+from .groups import GroupResponder
 from .inbox_watch import InboxWatcher
+from .modes import MODES, current_mode, fence_external, set_mode
 from .outbox import Outbox
 from .reminders import next_occurrence
 from .tools import ToolContext
 from .usage import BudgetExceeded, UsageTracker
+from .web_agent import deep_research
 
 log = logging.getLogger(__name__)
 
@@ -34,8 +45,39 @@ UPLOAD_CLEANUP_HOURS = 6
 
 BRIEF_PROMPT = (
     "Give me my daily brief: today's calendar, anything in my inbox from the last day that "
-    "needs me (unread first), and any reminders coming up today. Keep it tight."
+    "needs me (unread first), any reminders coming up today, and 3 headlines from today worth "
+    "knowing, picked for my interests from what you remember about me (use web search). "
+    "Keep it tight."
 )
+FORWARD_PROMPT = "(I forwarded this.)"
+PRIVATE_COMMANDS = [
+    BotCommand("brief", "Daily brief now"),
+    BotCommand("research", "Deep research on a question"),
+    BotCommand("mode", "Switch personality (fun, brief, deep...)"),
+    BotCommand("new", "Start a fresh conversation"),
+    BotCommand("usage", "What I've cost you"),
+]
+GROUP_COMMANDS = [
+    BotCommand("enable", "Let me answer when tagged here (owner only)"),
+    BotCommand("disable", "Stop answering here (owner only)"),
+]
+
+
+def display_name(message: Message) -> str:
+    if message.from_user:
+        return message.from_user.full_name
+    return message.sender_chat.title if message.sender_chat else "someone"
+
+
+def origin_name(origin) -> str:
+    """Who wrote a forwarded message, whatever kind of origin Telegram reports."""
+    user = getattr(origin, "sender_user", None)
+    if user is not None:
+        return user.full_name
+    chat = getattr(origin, "sender_chat", None) or getattr(origin, "chat", None)
+    if chat is not None:
+        return chat.title or "a chat"
+    return getattr(origin, "sender_user_name", None) or "someone"
 
 
 def split_message(text: str, limit: int = 4000) -> list[str]:
@@ -106,6 +148,7 @@ class TelegramBot:
             self.db, google, config.undo_send_seconds, self.schedule_outbox, TelegramOutboxUI(self)
         )
         self.watcher = InboxWatcher(self.db, google, client, self.tracker, config, self.send_to_owner)
+        self.groups = GroupResponder(self.db, client, self.tracker, config)
         self._warned_google_missing = False
         # Updates are handled concurrently (so button taps aren't stuck behind a reply), but the
         # owner's messages must reach the agent in the order sent: a file, then "what's due in this?".
@@ -120,6 +163,7 @@ class TelegramBot:
             send_email=self.outbox.submit,
             approve_email=self.outbox.approve,
             prepare_file=self.uploader.to_block,
+            research=lambda question: deep_research(client, self.tracker, config.model, question),
         )
         self._register_handlers()
 
@@ -127,13 +171,23 @@ class TelegramBot:
 
     def _register_handlers(self) -> None:
         if self.config.owner_id is None:
-            self.app.add_handler(MessageHandler(filters.ALL, self.on_unconfigured))
+            self.app.add_handler(MessageHandler(filters.ChatType.PRIVATE, self.on_unconfigured))
             return
-        owner = filters.User(user_id=self.config.owner_id)
+        # The full assistant (email, calendar, memory) only ever listens to the owner in private.
+        owner = filters.User(user_id=self.config.owner_id) & filters.ChatType.PRIVATE
+        owner_in_group = filters.User(user_id=self.config.owner_id) & filters.ChatType.GROUPS
         self.app.add_handler(CommandHandler("start", self.on_start, filters=owner))
         self.app.add_handler(CommandHandler("new", self.on_new, filters=owner))
         self.app.add_handler(CommandHandler("brief", self.on_brief, filters=owner))
         self.app.add_handler(CommandHandler("usage", self.on_usage, filters=owner))
+        self.app.add_handler(CommandHandler("mode", self.on_mode, filters=owner))
+        self.app.add_handler(CommandHandler("research", self.on_research, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_mode_button, pattern=r"^mode:\w+$"))
+        self.app.add_handler(CommandHandler("enable", self.on_group_enable, filters=owner_in_group))
+        self.app.add_handler(CommandHandler("disable", self.on_group_disable, filters=owner_in_group))
+        self.app.add_handler(
+            MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, self.on_group_message)
+        )
         self.app.add_handler(CallbackQueryHandler(self.on_outbox_button, pattern=r"^(undo|send):\d+$"))
         self.app.add_handler(MessageHandler(owner & filters.PHOTO, self.on_photo))
         self.app.add_handler(MessageHandler(owner & filters.Document.ALL, self.on_document))
@@ -164,6 +218,11 @@ class TelegramBot:
             self._cleanup_job, interval=UPLOAD_CLEANUP_HOURS * 3600, first=60, name="file-cleanup"
         )
         await self.outbox.resume()
+        try:
+            await app.bot.set_my_commands(PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
+            await app.bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
+        except TelegramError:
+            log.warning("Couldn't set the command menu", exc_info=True)
         log.info("ClaudeBot is online.")
 
     def run(self) -> None:
@@ -233,8 +292,11 @@ class TelegramBot:
             "- remind me at 6pm to call mom\n"
             "- (send a PDF) what's due in this syllabus?\n\n"
             "I'll also ping you when important email arrives.\n\n"
-            "/new starts a fresh conversation, /brief gives you the daily brief, "
-            "/usage shows what I've cost you."
+            "- (forward any message) is this true?\n"
+            "- /research best budget laptop for CS\n\n"
+            "/mode switches my personality (try fun), /new starts fresh, /brief gives you the "
+            "daily brief, /usage shows what I've cost you. Add me to a group and send /enable "
+            "there, and people can tag me like Grok."
         )
 
     async def on_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -248,8 +310,81 @@ class TelegramBot:
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:
-            reply = await self._ask_agent([{"type": "text", "text": update.effective_message.text}])
-            await self.send_to_owner(reply)
+            message = update.effective_message
+            if message.forward_origin:
+                # Someone else's words: fenced as data, so they can't pose as the owner.
+                fenced = fence_external("forwarded_message", origin_name(message.forward_origin), message.text)
+                content = [{"type": "text", "text": fenced}, {"type": "text", "text": FORWARD_PROMPT}]
+            else:
+                content = [{"type": "text", "text": message.text}]
+            await self.send_to_owner(await self._ask_agent(content))
+
+    async def on_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        message = update.effective_message
+        if context.args:
+            name = context.args[0].lower()
+            if set_mode(self.db, name):
+                await message.reply_text(f"Mode: {MODES[name][0]}")
+            else:
+                await message.reply_text(f"Unknown mode. Try: {', '.join(MODES)}")
+            return
+        buttons = [InlineKeyboardButton(label, callback_data=f"mode:{name}") for name, (label, _) in MODES.items()]
+        await message.reply_text(
+            f"Current mode: {MODES[current_mode(self.db)][0]}. Pick one:",
+            reply_markup=InlineKeyboardMarkup([buttons[:2], buttons[2:]]),
+        )
+
+    async def on_mode_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query.from_user.id != self.config.owner_id or not set_mode(self.db, query.data.split(":")[1]):
+            await query.answer()
+            return
+        label = MODES[current_mode(self.db)][0]
+        await query.answer(label)
+        await query.edit_message_text(f"Mode: {label}")
+
+    async def on_research(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        question = " ".join(context.args or [])
+        if not question:
+            await update.effective_message.reply_text("What should I dig into? e.g. /research best budget laptop for CS")
+            return
+        async with self._message_order:
+            await update.effective_message.reply_text("🔎 Digging in. This takes a minute or two.")
+            prompt = f"Do deep research on this and give me the findings with sources: {question}"
+            await self.send_to_owner(await self._ask_agent([{"type": "text", "text": prompt}]))
+
+    async def on_group_enable(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        self.groups.enable(update.effective_chat.id)
+        await update.effective_message.reply_text(
+            f"Hi all. Tag me (@{context.bot.username}) or reply to me and I'll answer, fact-check, "
+            f"or look things up. I can't see anyone's private stuff here. Up to "
+            f"{self.config.group_daily_limit} answers a day."
+        )
+
+    async def on_group_disable(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        self.groups.disable(update.effective_chat.id)
+        await update.effective_message.reply_text("Okay, I'll stay quiet here.")
+
+    async def on_group_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        message = update.effective_message
+        replied_to = message.reply_to_message
+        tagged = f"@{context.bot.username}".lower() in message.text.lower()
+        replying_to_me = bool(replied_to and replied_to.from_user and replied_to.from_user.id == context.bot.id)
+        if not (tagged or replying_to_me) or not self.groups.is_enabled(message.chat_id):
+            return
+        replied = None
+        if replied_to and (replied_to.text or replied_to.caption):
+            replied = (display_name(replied_to), replied_to.text or replied_to.caption)
+        try:
+            await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
+            answer = await self.groups.answer(
+                message.chat_id, message.chat.title or "group", display_name(message), message.text, replied
+            )
+        except (anthropic.APIError, TelegramError):
+            log.exception("Group answer failed")
+            return
+        for chunk in split_message(answer or ""):
+            await message.reply_text(chunk)
 
     async def on_usage(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(self.tracker.summary())
@@ -264,7 +399,7 @@ class TelegramBot:
             except UnsupportedFile as e:
                 await message.reply_text(str(e))
                 return
-            await self._ask_about_file(block, message.caption)
+            await self._ask_about_file(block, message)
 
     async def on_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:
@@ -279,10 +414,15 @@ class TelegramBot:
             except UnsupportedFile as e:
                 await message.reply_text(str(e))
                 return
-            await self._ask_about_file(block, message.caption)
+            await self._ask_about_file(block, message)
 
-    async def _ask_about_file(self, block: dict, caption: str | None) -> None:
-        question = caption or "(sent with no message: say briefly what it is and anything I need to act on)"
+    async def _ask_about_file(self, block: dict, message: Message) -> None:
+        if message.forward_origin:
+            # A forwarded caption was written by someone else.
+            caption = fence_external("forwarded_message", origin_name(message.forward_origin), message.caption or "")
+            question = f"{caption}\n{FORWARD_PROMPT}"
+        else:
+            question = message.caption or "(sent with no message: say briefly what it is and anything I need to act on)"
         await self.send_to_owner(await self._ask_agent([block, {"type": "text", "text": question}]))
 
     async def on_outbox_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

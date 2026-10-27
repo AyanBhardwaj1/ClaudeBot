@@ -9,13 +9,24 @@ Your personal assistant on Telegram, powered by Claude. Text it like a person:
 - "remind me at 6pm to call mom" / "every weekday at 8 remind me to take my meds"
 - "at 5pm check if Alex replied and tell me" (scheduled tasks that ClaudeBot carries out)
 - "what's the score of the Longhorns game?" (live web search)
+- Paste a link: "tl;dr this" (reads the page)
+- **Forward any message** and it explains it and fact-checks the claims: True / False / Misleading, with a source
+- `/research best budget laptop for a CS major` (DeepSearch-style: many searches and pages, a sourced report)
 - Send a photo, PDF or text file with a question ("what's due in this syllabus?")
 - "what does the PDF in Prof Lee's email say?" (reads email attachments)
 
 ClaudeBot also comes to you:
 
 - **Inbox alerts**: when important email lands (a professor, a recruiter, a real person writing to you), you get a ping like "📬 Prof Lee: moved Thursday's exam to Friday". Newsletters and promos are skipped, and it stays quiet overnight. Reply "tell her that works" and it knows which email you mean.
-- **Daily brief** at a time you choose (calendar, important email, reminders), or anytime with `/brief`.
+- **Daily brief** at a time you choose (calendar, important email, reminders, and a few headlines picked for your interests), or anytime with `/brief`.
+
+### Personality modes
+
+`/mode` switches how ClaudeBot talks: **😈 Fun** (witty, roasty, opinionated, like Grok's fun mode), **⚡ Brief** (one-liners), **🧠 Deep** (thorough, with sources) or **😌 Default**. It sticks until you change it. Emails it writes always stay in your own voice.
+
+### Group mode: "@ClaudeBot is this true?"
+
+Add ClaudeBot to a Telegram group and send `/enable` there (only you can). Anyone in the group can then tag it or reply to it to ask questions or fact-check a message, like asking Grok under a post. In groups it only has web search: it can't see your email, calendar, memories or conversations, and it caps itself at `GROUP_DAILY_LIMIT` answers per group per day so friends can't run up your bill. `/disable` turns it off.
 
 ## Setup (about 20 minutes)
 
@@ -79,6 +90,8 @@ ClaudeBot only works while `python -m claudebot` is running. Options:
 - `/new` starts a fresh conversation (saved memories carry over). ClaudeBot also does this on its own after `NEW_THREAD_AFTER_HOURS` of silence.
 - `/brief` gives your daily brief now.
 - `/usage` shows estimated Claude API spend today and this month.
+- `/mode` switches personality; `/research <question>` runs a deep dive.
+- In a group: `/enable` / `/disable` (owner only).
 
 ## Settings worth knowing
 
@@ -91,6 +104,7 @@ All in `.env` (see `.env.example`):
 | `INBOX_CHECK_MINUTES` | 10 | How often to check |
 | `QUIET_HOURS` | 23:00-07:00 | No inbox alerts in this window (reminders you set still fire) |
 | `MONTHLY_BUDGET_USD` | none | Hard stop on Claude calls once estimated spend hits this |
+| `GROUP_DAILY_LIMIT` | 30 | Answers per group per day in group mode |
 | `CLAUDEBOT_EFFORT` | medium | `low` is cheaper and faster, `high` is smarter on hard requests |
 
 **What it costs:** chat runs on Claude Opus 5.5. Inbox alerts use Claude Haiku 5.5, which costs a fraction of a cent per check that finds new mail; checks that find nothing new cost nothing. `/usage` shows estimates; your real bill is at console.anthropic.com.
@@ -115,6 +129,9 @@ All in `.env` (see `.env.example`):
 | `claudebot/outbox.py` | Undo-send queue |
 | `claudebot/files.py` | PDFs, text files and images to Claude, via the Anthropic Files API |
 | `claudebot/usage.py` | Cost estimates and the monthly budget |
+| `claudebot/modes.py` | Personality modes |
+| `claudebot/web_agent.py` | Deep research and other web-only requests |
+| `claudebot/groups.py` | Group mode |
 | `claudebot/db.py` | SQLite storage for chat history, memories, reminders, outbox and usage |
 
 Run the tests with `pip install pytest pytest-asyncio && pytest`.
