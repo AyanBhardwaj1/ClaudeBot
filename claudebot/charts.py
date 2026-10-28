@@ -12,6 +12,9 @@ from itertools import pairwise
 import matplotlib
 
 matplotlib.use("Agg")
+# Labels are plain text: "$" means dollars here, not math markup ("$0-$50" would lose its signs,
+# and an unbalanced pair would crash the render).
+matplotlib.rcParams["text.parse_math"] = False
 from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.ticker import FuncFormatter  # noqa: E402
@@ -20,6 +23,7 @@ CHART_TYPES = ("line", "bar", "horizontal_bar", "scatter")
 MAX_SERIES = 8
 MAX_SCATTER_SERIES = 3  # past three, hues stop being distinguishable for every pair
 MAX_POINTS = 500
+MAX_BARS = 120  # bars beyond this are unreadable and slow to lay out
 MAX_TITLE = 120
 MAX_LABEL = 60
 DIRECT_LABEL_MAX_SERIES = 4
@@ -75,6 +79,9 @@ def validate_spec(spec: dict) -> dict:
     length = len(series[0]["values"])
     if any(len(s["values"]) != length for s in series):
         raise ChartError("All series need the same number of values.")
+    if kind in ("bar", "horizontal_bar") and length * len(series) > MAX_BARS:
+        raise ChartError(f"That's {length * len(series)} bars; at most {MAX_BARS}. Show the top items "
+                         "and fold the rest into 'Other', or use a line chart for long time series.")
     categories = [_text(c, MAX_LABEL) for c in spec.get("categories") or []]
     x_values = [_number(x) for x in spec.get("x_values") or []]
     if kind == "scatter":

@@ -39,6 +39,9 @@ class ToolContext:
     research: Callable[[str], Awaitable[str]] | None = None  # question -> sourced report
     research_left: int = 1  # deep_research calls allowed per turn (each turn gets a fresh copy)
     send_photo: Callable[[bytes, str], Awaitable[None]] | None = None  # (png, caption) -> owner
+    notify_owner: Callable[[str], Awaitable[None]] | None = None  # a plain message from the bot itself
+    charts_left: int = 2  # per turn, like research_left
+    briefings_left: int = 1
     # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
     # untrusted email with nobody watching, so anything that reaches other people or plants
     # instructions for later needs the owner.
@@ -440,16 +443,30 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "make_chart":
         if ctx.send_photo is None:
             raise ValueError("Charts aren't available here.")
-        png = await asyncio.to_thread(render_chart, validate_spec(a))
+        if ctx.charts_left <= 0:
+            raise NeedsOwner("That's enough charts for one message; combine what's left into one.")
+        spec = validate_spec(a)
+        ctx.charts_left -= 1
+        png = await asyncio.to_thread(render_chart, spec)
         await ctx.send_photo(png, (a.get("caption") or "")[:1000])
         return {"sent": True, "note": "The owner can see the chart now; give the key numbers in words too."}
     if name == "create_briefing":
         _require_owner(ctx, "create briefings")
         repeat, when = _schedule(a, ctx)
+        if ctx.briefings_left <= 0:
+            raise NeedsOwner("One new briefing per message; ask the owner before adding more.")
         if ctx.db.active_briefing_count() >= MAX_BRIEFINGS:
             raise NeedsOwner(f"There are already {MAX_BRIEFINGS} briefings; cancel one first.")
-        briefing_id = ctx.db.add_reminder(" ".join(a["topic"].split())[:200], when, repeat, False, briefing=True)
+        ctx.briefings_left -= 1
+        topic = " ".join(a["topic"].split())[:200]
+        briefing_id = ctx.db.add_reminder(topic, when, repeat, False, briefing=True)
         ctx.schedule_reminder(briefing_id)
+        if ctx.notify_owner is not None:
+            # From the bot, not the model: an unrequested briefing can't slip by unnoticed.
+            await ctx.notify_owner(
+                f"🗞 New briefing: {topic} ({repeat}, first {when.astimezone(ctx.tz):%a %b %d %H:%M}). "
+                "Manage with /briefings."
+            )
         return {"scheduled": True, "briefing_id": briefing_id, "first_run": when.isoformat(), "repeat": repeat}
     if name == "set_reminder":
         repeat, when = _schedule(a, ctx)

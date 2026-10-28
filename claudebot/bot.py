@@ -176,6 +176,7 @@ class TelegramBot:
             prepare_file=self.uploader.to_block,
             research=lambda question: deep_research(client, self.tracker, config.model, question),
             send_photo=self.send_photo_to_owner,
+            notify_owner=self.send_to_owner,
         )
         self._register_handlers()
 

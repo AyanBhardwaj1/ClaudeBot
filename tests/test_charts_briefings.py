@@ -133,8 +133,10 @@ async def test_briefings_need_the_owner_and_are_capped(tmp_path):
     assert err
     ctx.owner_present = True
     for i in range(10):
+        ctx.briefings_left = 1  # each in its own turn
         _, err = await run_tool("create_briefing", {"topic": f"t{i}", "when": when, "repeat": "daily"}, ctx)
         assert not err
+    ctx.briefings_left = 1
     out, err = await run_tool("create_briefing", {"topic": "one too many", "when": when, "repeat": "daily"}, ctx)
     assert err and "10" in out
 
@@ -154,3 +156,50 @@ async def test_briefing_request_is_web_only_and_covers_only_whats_new(tmp_path):
     assert "AI news" in prompt and "2026-10-21" in prompt
     assert "private fact" not in json.dumps(request)
     assert db.usage_totals(datetime(2020, 1, 1, tzinfo=TZ), source="briefing")[0] == 1
+
+
+# --- review regressions ---
+
+
+def test_dollar_signs_are_plain_text_not_math():
+    from claudebot.charts import render_chart
+
+    spec = validate_spec({"type": "bar", "title": "Spending ($) vs budget ($)", "categories": ["$0-$50", "cost $x^$"],
+                          "series": [{"name": "Count", "values": [3, 5]}]})
+    assert render_chart(spec).startswith(b"\x89PNG")  # used to raise on the unbalanced math markup
+    import matplotlib
+
+    assert matplotlib.rcParams["text.parse_math"] is False
+
+
+def test_bar_charts_cap_the_number_of_bars():
+    with pytest.raises(ChartError) as error:
+        validate_spec({"type": "bar", "title": "t", "categories": [str(i) for i in range(100)],
+                       "series": [{"name": f"s{i}", "values": [1] * 100} for i in range(3)]})
+    assert "bars" in str(error.value).lower()
+
+
+async def test_charts_and_briefings_are_limited_per_turn(tmp_path):
+    db = Database(tmp_path / "t.db")
+    told, photos = [], []
+
+    async def send_photo(data, caption):
+        photos.append(caption)
+
+    async def notify_owner(text):
+        told.append(text)
+
+    ctx = make_context(db)
+    ctx.send_photo, ctx.notify_owner = send_photo, notify_owner
+    for _ in range(2):
+        _, err = await run_tool("make_chart", LINE, ctx)
+        assert not err
+    _, err = await run_tool("make_chart", LINE, ctx)
+    assert err and len(photos) == 2
+
+    when = (datetime.now(TZ) + timedelta(hours=2)).replace(tzinfo=None).isoformat()
+    _, err = await run_tool("create_briefing", {"topic": "AI news", "when": when, "repeat": "weekly"}, ctx)
+    assert not err
+    _, err = await run_tool("create_briefing", {"topic": "more", "when": when, "repeat": "daily"}, ctx)
+    assert err and db.active_briefing_count() == 1
+    assert len(told) == 1 and "AI news" in told[0] and "/briefings" in told[0]  # owner always sees it
