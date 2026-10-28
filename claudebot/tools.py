@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from googleapiclient.errors import HttpError
 
+from .charts import CHART_TYPES, ChartError, render_chart, validate_spec
 from .db import Database
 from .files import UnsupportedFile, to_content_block
 from .google_services import Google, GoogleNotConnected
@@ -21,6 +22,7 @@ from .google_services import Google, GoogleNotConnected
 log = logging.getLogger(__name__)
 
 REPEAT_OPTIONS = ["none", "daily", "weekdays", "weekly"]
+MAX_BRIEFINGS = 10
 
 
 @dataclass
@@ -36,6 +38,7 @@ class ToolContext:
     prepare_file: Callable[[bytes, str, str], Awaitable[dict]] | None = None
     research: Callable[[str], Awaitable[str]] | None = None  # question -> sourced report
     research_left: int = 1  # deep_research calls allowed per turn (each turn gets a fresh copy)
+    send_photo: Callable[[bytes, str], Awaitable[None]] | None = None  # (png, caption) -> owner
     # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
     # untrusted email with nobody watching, so anything that reaches other people or plants
     # instructions for later needs the owner.
@@ -244,6 +247,68 @@ CLIENT_TOOLS = [
         ),
     },
     {
+        "name": "create_briefing",
+        "description": (
+            "Set up a recurring news briefing, like 'every Friday at 5pm, summarize AI news'. At "
+            "each run a separate web-only research pass covers what's new on the topic since the "
+            "previous briefing and sends it to the owner. Only when the owner asks for one."
+        ),
+        "input_schema": _schema(
+            {
+                "topic": {"type": "string", "description": "What to cover, e.g. 'AI news', 'Longhorns football'."},
+                "when": {
+                    "type": "string",
+                    "description": "ISO-8601 datetime of the first briefing; owner's local time if no offset.",
+                },
+                "repeat": {"type": "string", "enum": REPEAT_OPTIONS},
+            },
+            ["topic", "when", "repeat"],
+        ),
+    },
+    {
+        "name": "make_chart",
+        "description": (
+            "Draw a chart and send it to the owner as an image. Use for trends over time (line), "
+            "comparing categories (bar, or horizontal_bar for long labels or rankings) and "
+            "relationships between two numbers (scatter, with x_values). Get the real numbers "
+            "first (web search, emails, calendar); never invent data. One measure per chart: "
+            "two measures with different units means two charts. Also state the key numbers "
+            "in your reply."
+        ),
+        "input_schema": _schema(
+            {
+                "type": {"type": "string", "enum": list(CHART_TYPES)},
+                "title": {"type": "string", "description": "Says what the chart shows, with units."},
+                "categories": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Labels along the x axis (or y for horizontal_bar), one per value.",
+                },
+                "x_values": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "description": "Numeric x positions, required for scatter.",
+                },
+                "series": {
+                    "type": "array",
+                    "description": "Up to 8 series (3 for scatter), each with one value per category.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "values": {"type": "array", "items": {"type": "number"}},
+                        },
+                        "required": ["name", "values"],
+                    },
+                },
+                "x_label": {"type": "string"},
+                "y_label": {"type": "string"},
+                "caption": {"type": "string", "description": "One line shown under the image."},
+            },
+            ["type", "title", "series"],
+        ),
+    },
+    {
         "name": "list_reminders",
         "description": "List active reminders and scheduled tasks.",
         "input_schema": _schema({}, []),
@@ -279,7 +344,7 @@ async def run_tool(name: str, args: dict, ctx: ToolContext) -> tuple[str | list[
         if isinstance(result, ContentBlocks):
             return result.blocks, False
         return json.dumps(result, ensure_ascii=False, default=str), False
-    except (GoogleNotConnected, UnsupportedFile, NeedsOwner) as e:
+    except (GoogleNotConnected, UnsupportedFile, NeedsOwner, ChartError) as e:
         return str(e), True
     except HttpError as e:
         return f"Google API error {e.status_code}: {e.reason}", True
@@ -288,6 +353,19 @@ async def run_tool(name: str, args: dict, ctx: ToolContext) -> tuple[str | list[
     except Exception as e:  # report to the model rather than crash the turn
         log.exception("Tool %s failed", name)
         return f"{name} failed: {e!r}", True
+
+
+def _schedule(a: dict, ctx: ToolContext) -> tuple[str, datetime]:
+    """Validated (repeat, first run) for reminders and briefings."""
+    repeat = a.get("repeat", "none")
+    if repeat not in REPEAT_OPTIONS:
+        raise ValueError(f"repeat must be one of {REPEAT_OPTIONS}")
+    when = datetime.fromisoformat(a["when"])
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=ctx.tz)
+    if when < datetime.now(ctx.tz) and repeat == "none":
+        raise ValueError("That time is in the past.")
+    return repeat, when
 
 
 async def _dispatch(name: str, a: dict, ctx: ToolContext):
@@ -359,15 +437,22 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "forget":
         return {"deleted": ctx.db.delete_memory(int(a["memory_id"]))}
 
+    if name == "make_chart":
+        if ctx.send_photo is None:
+            raise ValueError("Charts aren't available here.")
+        png = await asyncio.to_thread(render_chart, validate_spec(a))
+        await ctx.send_photo(png, (a.get("caption") or "")[:1000])
+        return {"sent": True, "note": "The owner can see the chart now; give the key numbers in words too."}
+    if name == "create_briefing":
+        _require_owner(ctx, "create briefings")
+        repeat, when = _schedule(a, ctx)
+        if ctx.db.active_briefing_count() >= MAX_BRIEFINGS:
+            raise NeedsOwner(f"There are already {MAX_BRIEFINGS} briefings; cancel one first.")
+        briefing_id = ctx.db.add_reminder(" ".join(a["topic"].split())[:200], when, repeat, False, briefing=True)
+        ctx.schedule_reminder(briefing_id)
+        return {"scheduled": True, "briefing_id": briefing_id, "first_run": when.isoformat(), "repeat": repeat}
     if name == "set_reminder":
-        repeat = a.get("repeat", "none")
-        if repeat not in REPEAT_OPTIONS:
-            raise ValueError(f"repeat must be one of {REPEAT_OPTIONS}")
-        when = datetime.fromisoformat(a["when"])
-        if when.tzinfo is None:
-            when = when.replace(tzinfo=ctx.tz)
-        if when < datetime.now(ctx.tz) and repeat == "none":
-            raise ValueError("That time is in the past.")
+        repeat, when = _schedule(a, ctx)
         if a.get("run_as_task"):
             _require_owner(ctx, "schedule tasks")
         reminder_id = ctx.db.add_reminder(a["text"], when, repeat, bool(a.get("run_as_task", False)))
@@ -381,6 +466,7 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
                 "next_run": datetime.fromisoformat(r["due_at"]).astimezone(ctx.tz).isoformat(),
                 "repeat": r["repeat"],
                 "is_task": bool(r["run_as_task"]),
+                "is_briefing": bool(r["briefing"]),
             }
             for r in ctx.db.active_reminders()
         ]

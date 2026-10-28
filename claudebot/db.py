@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS reminders (
     due_at TEXT NOT NULL,
     repeat TEXT NOT NULL DEFAULT 'none',
     run_as_task INTEGER NOT NULL DEFAULT 0,
-    active INTEGER NOT NULL DEFAULT 1
+    active INTEGER NOT NULL DEFAULT 1,
+    briefing INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS notices (
     id INTEGER PRIMARY KEY,
@@ -92,6 +93,9 @@ class Database:
         columns = {r["name"] for r in self.conn.execute("PRAGMA table_info(threads)")}
         if "config_hash" not in columns:
             self.conn.execute("ALTER TABLE threads ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''")
+        reminder_columns = {r["name"] for r in self.conn.execute("PRAGMA table_info(reminders)")}
+        if "briefing" not in reminder_columns:
+            self.conn.execute("ALTER TABLE reminders ADD COLUMN briefing INTEGER NOT NULL DEFAULT 0")
 
     # --- conversation threads ---
 
@@ -158,10 +162,12 @@ class Database:
 
     # --- reminders ---
 
-    def add_reminder(self, text: str, due_at: datetime, repeat: str, run_as_task: bool) -> int:
+    def add_reminder(
+        self, text: str, due_at: datetime, repeat: str, run_as_task: bool, briefing: bool = False
+    ) -> int:
         cur = self.conn.execute(
-            "INSERT INTO reminders (text, due_at, repeat, run_as_task) VALUES (?, ?, ?, ?)",
-            (text, due_at.astimezone(timezone.utc).isoformat(), repeat, int(run_as_task)),
+            "INSERT INTO reminders (text, due_at, repeat, run_as_task, briefing) VALUES (?, ?, ?, ?, ?)",
+            (text, due_at.astimezone(timezone.utc).isoformat(), repeat, int(run_as_task), int(briefing)),
         )
         self.conn.commit()
         return cur.lastrowid
@@ -175,6 +181,11 @@ class Database:
         return self.conn.execute(
             "SELECT * FROM reminders WHERE active = 1 ORDER BY due_at"
         ).fetchall()
+
+    def active_briefing_count(self) -> int:
+        return self.conn.execute(
+            "SELECT COUNT(*) AS n FROM reminders WHERE active = 1 AND briefing = 1"
+        ).fetchone()["n"]
 
     def reschedule_reminder(self, reminder_id: int, due_at: datetime) -> None:
         self.conn.execute(

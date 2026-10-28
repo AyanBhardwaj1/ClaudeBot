@@ -12,6 +12,8 @@ Your personal assistant on Telegram, powered by Claude. Text it like a person:
 - Paste a link: "tl;dr this" (reads the page)
 - **Forward any message** and it explains it and fact-checks the claims: True / False / Misleading, with a source
 - `/research best budget laptop for a CS major` (DeepSearch-style: many searches and pages, a sourced report)
+- "chart my spending this week" / "plot BTC over the last month" / "compare my exam scores" (sends a clean chart image)
+- "every Friday at 5pm, catch me up on AI news" (scheduled briefings, like Grok Tasks)
 - Send a photo, PDF or text file with a question ("what's due in this syllabus?")
 - "what does the PDF in Prof Lee's email say?" (reads email attachments)
 
@@ -19,6 +21,14 @@ ClaudeBot also comes to you:
 
 - **Inbox alerts**: when important email lands (a professor, a recruiter, a real person writing to you), you get a ping like "📬 Prof Lee: moved Thursday's exam to Friday". Newsletters and promos are skipped, and it stays quiet overnight. Reply "tell her that works" and it knows which email you mean.
 - **Daily brief** at a time you choose (calendar, important email, reminders, and a few headlines picked for your interests), or anytime with `/brief`.
+
+### Scheduled briefings
+
+Ask for any recurring topic, like "every weekday at 8am, brief me on Longhorns football" or "every Sunday evening, what happened in AI this week". Each briefing looks for what's new since the last one, leads with the most important item, gives sources, and says so in one line when nothing happened. Briefings only search the web: they never see your email, calendar or memories. `/briefings` lists them, with a button to cancel each. Up to 10 at a time; each run counts toward your monthly budget.
+
+### Charts
+
+When numbers are easier to see than read, ClaudeBot draws a chart (line, bar, horizontal bar or scatter) and sends it as an image, with the key numbers in its reply too. It gathers the real data first (web search, your email, your calendar) and draws it locally: colorblind-safe colors, labeled lines, no clutter.
 
 ### Personality modes
 
@@ -90,7 +100,7 @@ ClaudeBot only works while `python -m claudebot` is running. Options:
 - `/new` starts a fresh conversation (saved memories carry over). ClaudeBot also does this on its own after `NEW_THREAD_AFTER_HOURS` of silence.
 - `/brief` gives your daily brief now.
 - `/usage` shows estimated Claude API spend today and this month.
-- `/mode` switches personality; `/research <question>` runs a deep dive.
+- `/mode` switches personality; `/research <question>` runs a deep dive; `/briefings` lists and cancels scheduled briefings.
 - In a group: `/enable` / `/disable` (owner only).
 
 ## Settings worth knowing
@@ -132,7 +142,8 @@ All in `.env` (see `.env.example`):
 | `claudebot/files.py` | PDFs, text files and images to Claude, via the Anthropic Files API |
 | `claudebot/usage.py` | Cost estimates and the monthly budget |
 | `claudebot/modes.py` | Personality modes |
-| `claudebot/web_agent.py` | Deep research and other web-only requests |
+| `claudebot/web_agent.py` | Deep research, briefings and other web-only requests |
+| `claudebot/charts.py` | Chart drawing |
 | `claudebot/groups.py` | Group mode |
 | `claudebot/db.py` | SQLite storage for chat history, memories, reminders, outbox and usage |
 

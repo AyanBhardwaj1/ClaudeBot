@@ -36,10 +36,10 @@ from .groups import GroupResponder
 from .inbox_watch import InboxWatcher
 from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
-from .reminders import next_occurrence
+from .reminders import next_occurrence, previous_window
 from .tools import ToolContext
 from .usage import BudgetExceeded, UsageTracker
-from .web_agent import deep_research
+from .web_agent import deep_research, run_briefing
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ PRIVATE_COMMANDS = [
     BotCommand("brief", "Daily brief now"),
     BotCommand("research", "Deep research on a question"),
     BotCommand("mode", "Switch personality (fun, brief, deep...)"),
+    BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("new", "Start a fresh conversation"),
     BotCommand("usage", "What I've cost you"),
 ]
@@ -174,6 +175,7 @@ class TelegramBot:
             approve_email=self.outbox.approve,
             prepare_file=self.uploader.to_block,
             research=lambda question: deep_research(client, self.tracker, config.model, question),
+            send_photo=self.send_photo_to_owner,
         )
         self._register_handlers()
 
@@ -195,6 +197,8 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("usage", self.on_usage, filters=owner))
         self.app.add_handler(CommandHandler("mode", self.on_mode, filters=owner))
         self.app.add_handler(CommandHandler("research", self.on_research, filters=owner))
+        self.app.add_handler(CommandHandler("briefings", self.on_briefings, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_briefing_cancel, pattern=r"^unbrief:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_mode_button, pattern=r"^mode:\w+$"))
         self.app.add_handler(CommandHandler("enable", self.on_group_enable, filters=owner_in_group))
         self.app.add_handler(CommandHandler("disable", self.on_group_disable, filters=owner_in_group))
@@ -249,6 +253,9 @@ class TelegramBot:
     async def send_to_owner(self, text: str) -> None:
         for chunk in split_message(text):
             await self.app.bot.send_message(chat_id=self.config.owner_id, text=chunk)
+
+    async def send_photo_to_owner(self, png: bytes, caption: str) -> None:
+        await self.app.bot.send_photo(chat_id=self.config.owner_id, photo=png, caption=caption or None)
 
     async def _ask_agent(self, content: list[dict], owner_present: bool = True) -> str:
         """Run the agent with a typing indicator, turning API failures into a short message."""
@@ -482,7 +489,9 @@ class TelegramBot:
         if row is None:
             return
         try:
-            if row["run_as_task"]:
+            if row["briefing"]:
+                await self._send_briefing(reminder_id, row)
+            elif row["run_as_task"]:
                 reply = await self._ask_agent(
                     [{"type": "text", "text": task_prompt(reminder_id, row["text"])}], owner_present=False
                 )
@@ -500,6 +509,51 @@ class TelegramBot:
             else:
                 self.db.reschedule_reminder(reminder_id, following)
                 self.schedule_reminder(reminder_id)
+
+    async def _send_briefing(self, briefing_id: int, row) -> None:
+        """A scheduled news briefing: a web-only request, with no access to the owner's data."""
+        topic = row["text"]
+        due = datetime.fromisoformat(row["due_at"]).astimezone(self.config.timezone)
+        since = due - previous_window(due, row["repeat"])
+        try:
+            text = await run_briefing(self.client, self.tracker, self.config.model, topic, since)
+        except BudgetExceeded as e:
+            text = str(e)
+        except anthropic.APIError:
+            log.exception("Briefing %s failed", briefing_id)
+            text = "I couldn't put this one together (Claude API error). I'll try again next time."
+        await self.send_to_owner(f"🗞 {topic}\n\n{text}")
+        self.db.add_notice(f"Briefing #{briefing_id} on {topic!r} was sent to the owner: {text[:450]}")
+
+    async def on_briefings(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        rows = [r for r in self.db.active_reminders() if r["briefing"]]
+        if not rows:
+            await update.effective_message.reply_text(
+                "No briefings yet. Just ask, e.g. \"every Friday at 5pm, brief me on AI news\"."
+            )
+            return
+        lines, buttons = [], []
+        for r in rows:
+            when = datetime.fromisoformat(r["due_at"]).astimezone(self.config.timezone)
+            lines.append(f"- {r['text']} ({r['repeat']}, next {when:%a %b %d %H:%M})")
+            buttons.append([InlineKeyboardButton(f"✖️ {r['text'][:40]}", callback_data=f"unbrief:{r['id']}")])
+        await update.effective_message.reply_text(
+            "🗞 Your briefings:\n" + "\n".join(lines), reply_markup=InlineKeyboardMarkup(buttons)
+        )
+
+    async def on_briefing_cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if query.from_user.id != self.config.owner_id:
+            await query.answer()
+            return
+        briefing_id = int(query.data.split(":")[1])
+        row = self.db.get_reminder(briefing_id)
+        if row is None or not row["briefing"]:
+            await query.answer("Already cancelled.")
+            return
+        self.db.deactivate_reminder(briefing_id)
+        self.unschedule_reminder(briefing_id)
+        await query.answer(f"Cancelled: {row['text']}")
 
     async def _brief_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._send_brief()
