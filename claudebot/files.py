@@ -87,19 +87,27 @@ class FileUploader:
         self.client = client
         self.db = db
 
-    async def to_block(self, data: bytes, mime_type: str, filename: str) -> dict:
+    async def to_block(self, data: bytes, mime_type: str, filename: str, origin: str = "owner") -> dict:
         """Validate, upload, and return a block that references the file by id.
 
         Falls back to the inline block when the upload fails, so a Files API hiccup never
-        loses the owner's file.
+        loses the owner's file. `origin` is "owner" or "attachment" (see Database.record_upload).
         """
         block = to_content_block(data, mime_type, filename)  # raises UnsupportedFile
         source = block["source"]
+        record_as = origin
         if source["type"] == "text":
             # Possibly truncated text. A .txt name keeps it stored as text/plain, the only text
             # type document blocks accept, whatever the original extension (.csv, .json, ...).
             name = filename if filename.lower().endswith(".txt") else f"{filename}.txt"
             upload = (name, source["data"].encode("utf-8"), "text/plain")
+            record_as = "preview"
+            if origin == "owner":
+                # The workbench gets the exact original (a truncated CSV would give wrong totals).
+                try:
+                    await self.store_raw(data, mime_type or "text/plain", filename)
+                except anthropic.APIError as e:
+                    log.warning("Couldn't store the original of %s for the workbench (%s)", filename, e)
         else:
             upload = (filename, data, source["media_type"])
         try:
@@ -110,7 +118,7 @@ class FileUploader:
         except anthropic.APIError as e:
             log.warning("Files API upload of %s failed (%s); sending it inline", filename, e)
             return block
-        self.db.record_upload(uploaded.id)
+        self.db.record_upload(uploaded.id, record_as)
         return {**block, "source": {"type": "file", "file_id": uploaded.id}}
 
     async def store_raw(self, data: bytes, mime_type: str, filename: str) -> str:

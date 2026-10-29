@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 MAX_STEPS = 25
 DEEP_EFFORTS = ("xhigh", "max")
 DEEP_MAX_TOKENS = 64_000  # room for long thinking at the top effort levels
+DEEP_MAX_STEPS = 8  # each deep step can think for up to DEEP_MAX_TOKENS: keep the worst case bounded
 MAX_NOTICES = 10
 MAX_NOTICE_CHARS = 600
 
@@ -244,9 +245,10 @@ class Agent:
         replies: list[str] = []
         sources = SourceList()  # citations across the whole turn, numbered once
         response = None
-        for _ in range(MAX_STEPS):
+        effort = effort or self.config.effort
+        for _ in range(DEEP_MAX_STEPS if effort in DEEP_EFFORTS else MAX_STEPS):
             self.tracker.check_budget()
-            response = await self._call(messages, effort or self.config.effort)
+            response = await self._call(messages, effort)
             self.tracker.record(response, "chat")
             if mode_change:
                 self._store(thread_id, {"role": "system", "content": mode_change["content"]})

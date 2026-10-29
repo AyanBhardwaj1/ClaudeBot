@@ -361,6 +361,8 @@ SERVER_TOOLS = [
         "max_uses": 5,
         "max_content_tokens": 20_000,
         "url_sources": {"client_tool_results": {"type": "none"}},
+        # Uploaded documents have citations on; documents in one request must all agree.
+        "citations": {"enabled": True},
     },
 ]
 

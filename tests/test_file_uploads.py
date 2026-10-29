@@ -31,11 +31,13 @@ async def test_text_is_uploaded_as_plain_text_and_images_as_images(tmp_path):
     db, client = Database(tmp_path / "t.db"), FakeClient([])
     uploader = FileUploader(client, db)
     text = await uploader.to_block("héllo".encode(), "text/csv", "grades.csv")
-    assert text["source"]["type"] == "file" and client.files.uploaded[0] == ("grades.csv.txt", "héllo".encode(), "text/plain")
+    assert text["source"]["type"] == "file"
+    assert ("grades.csv.txt", "héllo".encode(), "text/plain") in client.files.uploaded  # the chat copy
+    assert ("grades.csv", "héllo".encode(), "text/csv") in client.files.uploaded  # the original, for code
     assert text["title"] == "grades.csv"  # Claude still sees the real name
     png = b"\x89PNG\r\n\x1a\n" + b"\0" * 8
     image = await uploader.to_block(png, "image/png", "a.png")
-    assert image == {"type": "image", "source": {"type": "file", "file_id": "file_2"}}
+    assert image == {"type": "image", "source": {"type": "file", "file_id": "file_3"}}
 
 
 async def test_upload_failure_falls_back_to_sending_the_file_inline(tmp_path):

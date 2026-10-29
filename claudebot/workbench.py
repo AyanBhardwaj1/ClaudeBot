@@ -84,6 +84,30 @@ async def run_workbench(
     container: dict = {"skills": skills}
     generated: list[str] = []
     response = None
+    try:
+        response = await _rounds(client, tracker, model, messages, skills, container, generated)
+    except BaseException:
+        await _discard(client, generated)  # don't leave half-built files in storage
+        raise
+    files = await _collect(client, generated)
+    if response is None or response.stop_reason == "refusal":
+        return WorkbenchResult("I can't help with that one.", files)
+    text = render([response])
+    if response.stop_reason == "pause_turn":
+        text += "\n\n(I ran out of time on this one; the result may be incomplete.)"
+    return WorkbenchResult(text or "Done.", files)
+
+
+async def _discard(client: anthropic.AsyncAnthropic, file_ids: list[str]) -> None:
+    for file_id in dict.fromkeys(file_ids):
+        try:
+            await client.files.delete(file_id)
+        except anthropic.APIError:
+            log.warning("Couldn't delete generated file %s", file_id)
+
+
+async def _rounds(client, tracker, model, messages, skills, container, generated):
+    response = None
     for _ in range(MAX_ROUNDS):
         tracker.check_budget()
         response = await client.beta.messages.create(
@@ -108,10 +132,4 @@ async def run_workbench(
             "role": "assistant",
             "content": [b.model_dump(mode="json", by_alias=True, exclude_none=True) for b in response.content],
         })
-    files = await _collect(client, generated)
-    if response is None or response.stop_reason == "refusal":
-        return WorkbenchResult("I can't help with that one.", files)
-    text = render([response])
-    if response.stop_reason == "pause_turn":
-        text += "\n\n(I ran out of time on this one; the result may be incomplete.)"
-    return WorkbenchResult(text or "Done.", files)
+    return response

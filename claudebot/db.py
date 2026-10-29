@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS seen_emails (
 CREATE TABLE IF NOT EXISTS uploaded_files (
     file_id TEXT PRIMARY KEY,
     thread_id INTEGER,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    origin TEXT NOT NULL DEFAULT 'owner'
 );
 CREATE TABLE IF NOT EXISTS outbox (
     id INTEGER PRIMARY KEY,
@@ -93,6 +94,9 @@ class Database:
         columns = {r["name"] for r in self.conn.execute("PRAGMA table_info(threads)")}
         if "config_hash" not in columns:
             self.conn.execute("ALTER TABLE threads ADD COLUMN config_hash TEXT NOT NULL DEFAULT ''")
+        upload_columns = {r["name"] for r in self.conn.execute("PRAGMA table_info(uploaded_files)")}
+        if "origin" not in upload_columns:
+            self.conn.execute("ALTER TABLE uploaded_files ADD COLUMN origin TEXT NOT NULL DEFAULT 'owner'")
         reminder_columns = {r["name"] for r in self.conn.execute("PRAGMA table_info(reminders)")}
         if "briefing" not in reminder_columns:
             self.conn.execute("ALTER TABLE reminders ADD COLUMN briefing INTEGER NOT NULL DEFAULT 0")
@@ -332,17 +336,20 @@ class Database:
 
     # --- files uploaded to the Anthropic Files API ---
 
-    def record_upload(self, file_id: str) -> None:
+    def record_upload(self, file_id: str, origin: str = "owner") -> None:
+        """origin: "owner" (sent by the owner), "preview" (a truncated text copy for chat), or
+        "attachment" (opened from an email) - only "owner" files may go into a workbench job."""
         self.conn.execute(
-            "INSERT OR IGNORE INTO uploaded_files (file_id, created_at) VALUES (?, ?)",
-            (file_id, _now().isoformat()),
+            "INSERT OR IGNORE INTO uploaded_files (file_id, created_at, origin) VALUES (?, ?, ?)",
+            (file_id, _now().isoformat(), origin),
         )
         self.conn.commit()
 
     def recent_upload_ids(self, limit: int, within: timedelta = timedelta(days=1)) -> list[str]:
-        """The owner's most recent uploads, newest first."""
+        """Files the owner sent recently, newest first: never email attachments or text previews."""
         rows = self.conn.execute(
-            "SELECT file_id FROM uploaded_files WHERE created_at >= ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            "SELECT file_id FROM uploaded_files WHERE origin = 'owner' AND created_at >= ? "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
             ((_now() - within).isoformat(), limit),
         ).fetchall()
         return [r["file_id"] for r in rows]

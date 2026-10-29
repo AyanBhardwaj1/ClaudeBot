@@ -20,6 +20,7 @@ def web_tools(max_searches: int, max_fetches: int, max_page_tokens: int, fetch_f
         "name": "web_fetch",
         "max_uses": max_fetches,
         "max_content_tokens": max_page_tokens,
+        "citations": {"enabled": True},
     }
     if not fetch_from_prompt:
         # Only pages the searches found: a URL written into the prompt (which the main model

@@ -79,6 +79,20 @@ def task_prompt(reminder_id: int, text: str) -> str:
     return f"[Scheduled task #{reminder_id} that I set earlier - do it now]\n{defang_urls(text)}"
 
 
+WORKBENCH_HINT = "use code_workbench with attach_recent_files to open it"
+
+
+def workbench_file_note(filename: str, forwarded_from: str | None) -> str:
+    """What the agent is told about an Excel/Word/PowerPoint file it can only open in the workbench."""
+    name = defang_urls(filename)
+    if forwarded_from:
+        # Someone else named this file: their words stay fenced, never the owner's voice.
+        fenced = fence_external("forwarded_message", forwarded_from, f"(a file named {name})")
+        return f"{fenced}\n[That forwarded file can't be read directly; {WORKBENCH_HINT}.]"
+    safe = name.replace("<", "‹").replace(">", "›").replace("[", "(").replace("]", ")")
+    return f"[I sent the file {safe}. You can't read it directly: {WORKBENCH_HINT}.]"
+
+
 def display_name(message: Message) -> str:
     if message.from_user:
         return message.from_user.full_name
@@ -181,7 +195,8 @@ class TelegramBot:
             unschedule_reminder=self.unschedule_reminder,
             send_email=self.outbox.submit,
             approve_email=self.outbox.approve,
-            prepare_file=self.uploader.to_block,
+            # Email attachments are marked as such, so they never join a workbench job.
+            prepare_file=lambda data, mime, name: self.uploader.to_block(data, mime, name, origin="attachment"),
             research=lambda question: deep_research(client, self.tracker, config.model, question),
             send_photo=self.send_photo_to_owner,
             notify_owner=self.send_to_owner,
@@ -392,12 +407,21 @@ class TelegramBot:
         """Run a code workbench job and deliver whatever files it made."""
         file_ids = self.db.recent_upload_ids(limit=5) if attach_recent_files else []
         result = await run_workbench(self.client, self.tracker, self.config.model, task, file_ids)
-        for name, data in result.files:
-            if name.lower().endswith((".png", ".jpg", ".jpeg")):
-                await self.send_photo_to_owner(data, name)
-            else:
-                await self.app.bot.send_document(chat_id=self.config.owner_id, document=data, filename=name)
-        return {"summary": result.text, "files_sent_to_owner": [name for name, _ in result.files]}
+        delivered, failed = [], []
+        for name, data in result.files:  # already deleted from storage: one bad send mustn't lose the rest
+            try:
+                if name.lower().endswith((".png", ".jpg", ".jpeg")):
+                    try:
+                        await self.send_photo_to_owner(data, name)
+                    except TelegramError:  # too big or odd-shaped for a photo: send the file instead
+                        await self.app.bot.send_document(chat_id=self.config.owner_id, document=data, filename=name)
+                else:
+                    await self.app.bot.send_document(chat_id=self.config.owner_id, document=data, filename=name)
+                delivered.append(name)
+            except TelegramError:
+                log.exception("Couldn't send %s", name)
+                failed.append(name)
+        return {"summary": result.text, "files_sent_to_owner": delivered, "files_that_failed_to_send": failed}
 
     async def on_research(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         question = " ".join(context.args or [])
@@ -470,13 +494,16 @@ class TelegramBot:
                 if is_workbench_file(document.mime_type or ""):
                     # Excel/Word/PowerPoint: Claude opens these with code in the workbench.
                     await self.uploader.store_raw(data, document.mime_type, name)
-                    safe = name.replace("<", "‹").replace(">", "›").replace("[", "(").replace("]", ")")
-                    block = {"type": "text", "text": f"[I sent the file {safe}. You can't read it directly: "
-                             "use code_workbench with attach_recent_files to open it.]"}
+                    origin = origin_name(message.forward_origin) if message.forward_origin else None
+                    block = {"type": "text", "text": workbench_file_note(name, origin)}
                 else:
                     block = await self.uploader.to_block(data, document.mime_type or "", name)
             except UnsupportedFile as e:
                 await message.reply_text(str(e))
+                return
+            except anthropic.APIError:
+                log.exception("Storing %s failed", name)
+                await message.reply_text(f"I couldn't save {name} just now. Please send it again.")
                 return
             await self._ask_about_file(block, message)
 

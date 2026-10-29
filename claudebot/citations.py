@@ -49,8 +49,9 @@ class SourceList:
             if key not in self._numbers:
                 self._lines.append(line)
                 self._numbers[key] = len(self._lines)
-            if self._numbers[key] not in numbers:
-                numbers.append(self._numbers[key])
+            number = self._numbers[key]
+            if number <= MAX_SOURCES and number not in numbers:  # only point at listed sources
+                numbers.append(number)
         if not numbers:
             return block.text
         markers = "".join(f"[{n}]" for n in numbers)
