@@ -82,9 +82,10 @@ def make_agent(tmp_path: Path, db: Database, client, budget=None, google=None) -
     return agent
 
 
-def message(stop_reason: str, content: list[dict], model="claude-opus-5-5", usage=None) -> BetaMessage:
+def message(stop_reason: str, content: list[dict], model="claude-opus-5-5", usage=None, container=None) -> BetaMessage:
     return BetaMessage.model_validate(
         {
+            "container": container,
             "id": "msg_1",
             "type": "message",
             "role": "assistant",
@@ -104,6 +105,7 @@ class FakeFiles:
         self.uploaded, self.deleted = [], []
         self.fail_upload = None
         self.fail_delete = {}
+        self.generated = {}  # files made in the code execution sandbox: {file_id: (filename, bytes)}
 
     async def upload(self, *, file):
         if self.fail_upload:
@@ -115,6 +117,18 @@ class FakeFiles:
         if file_id in self.fail_delete:
             raise self.fail_delete[file_id]
         self.deleted.append(file_id)
+
+    async def retrieve_metadata(self, file_id):
+        return SimpleNamespace(id=file_id, filename=self.generated[file_id][0])
+
+    async def download(self, file_id):
+        data = self.generated[file_id][1]
+
+        class Body:
+            async def read(self):
+                return data
+
+        return Body()
 
 
 class FakeClient:
@@ -133,3 +147,19 @@ class FakeClient:
         if isinstance(response, Exception):
             raise response
         return response
+
+    def stream(self, **kwargs):
+        """Like messages.stream(): an async context manager whose final message is the next response."""
+        client = self
+
+        class Stream:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def get_final_message(self):
+                return await client.create(**kwargs, _streamed=True)
+
+        return Stream()

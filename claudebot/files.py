@@ -18,6 +18,15 @@ MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # the API's per-image limit
 MAX_TEXT_CHARS = 200_000  # roughly 50k tokens
 TEXT_TYPES = {"application/json", "application/xml", "application/csv"}
+# Files Claude can't read in a message but the code workbench can open with Python.
+WORKBENCH_TYPES = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.ms-powerpoint",
+}
 
 # Senders choose the declared type, so check the bytes really are what they claim to be.
 IMAGE_SIGNATURES = {
@@ -48,13 +57,13 @@ def to_content_block(data: bytes, mime_type: str, filename: str) -> dict:
             raise UnsupportedFile(f"{filename} says it's a PDF but isn't one.")
         source = {"type": "base64", "media_type": "application/pdf",
                   "data": base64.standard_b64encode(data).decode()}
-        return {"type": "document", "source": source, "title": filename}
+        return {"type": "document", "source": source, "title": filename, "citations": {"enabled": True}}
     if mime_type.startswith("text/") or mime_type in TEXT_TYPES:
         text = data.decode("utf-8", errors="replace")
         if len(text) > MAX_TEXT_CHARS:
             text = text[:MAX_TEXT_CHARS] + f"\n[... truncated, {len(text)} characters total]"
         return {"type": "document", "source": {"type": "text", "media_type": "text/plain", "data": text},
-                "title": filename}
+                "title": filename, "citations": {"enabled": True}}
     if mime_type in IMAGE_SIGNATURES:
         if not IMAGE_SIGNATURES[mime_type](data):
             raise UnsupportedFile(f"{filename} says it's {mime_type} but isn't.")
@@ -103,6 +112,19 @@ class FileUploader:
             return block
         self.db.record_upload(uploaded.id)
         return {**block, "source": {"type": "file", "file_id": uploaded.id}}
+
+    async def store_raw(self, data: bytes, mime_type: str, filename: str) -> str:
+        """Upload a file only the code workbench can open (Excel, Word, PowerPoint); return its id."""
+        if len(data) > MAX_FILE_BYTES:
+            raise UnsupportedFile(f"{filename} is {_megabytes(len(data))} MB; the limit is "
+                                  f"{_megabytes(MAX_FILE_BYTES)} MB.")
+        uploaded = await self.client.files.upload(file=(filename, data, mime_type))
+        self.db.record_upload(uploaded.id)  # not in any message, so cleanup removes it after a day
+        return uploaded.id
+
+
+def is_workbench_file(mime_type: str) -> bool:
+    return (mime_type or "").split(";")[0].strip().lower() in WORKBENCH_TYPES
 
 
 def file_ids_in(content: list[dict]) -> list[str]:

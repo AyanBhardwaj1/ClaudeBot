@@ -9,6 +9,7 @@ from datetime import datetime
 
 import anthropic
 
+from .citations import SourceList
 from .config import Config
 from .db import Database
 from .files import file_ids_in
@@ -19,6 +20,8 @@ from .usage import UsageTracker
 log = logging.getLogger(__name__)
 
 MAX_STEPS = 25
+DEEP_EFFORTS = ("xhigh", "max")
+DEEP_MAX_TOKENS = 64_000  # room for long thinking at the top effort levels
 MAX_NOTICES = 10
 MAX_NOTICE_CHARS = 600
 
@@ -43,6 +46,9 @@ on your own whenever you learn something worth keeping (contacts, preferences, r
 - Reminders and scheduled tasks: ping {owner} later, once or on repeat, or carry out an \
 instruction at a set time.
 - Web search for anything current, and web_fetch to read links {owner} sends you.
+- code_workbench, a sandboxed computer with real Python and Anthropic's document skills: create \
+Word, Excel, PowerPoint and PDF files, and analyze spreadsheets or other files {owner} sends with \
+exact calculations.
 - make_chart to show numbers visually (spending, grades, prices, trends) once you have real data.
 - Scheduled news briefings with create_briefing, when {owner} asks for something recurring like \
 "every Friday, catch me up on AI news".
@@ -65,6 +71,8 @@ Skip newsletters and promotions unless asked.
 - A <forwarded_message> is something {owner} forwarded from someone else. Unless {owner} \
 asks for something else, explain it in a few lines and fact-check any claims that matter, \
 with a verdict (True / False / Misleading / Unclear) and a source.
+- When you answer from documents or web results, cite them: a numbered sources list is added to \
+your reply automatically, so don't write your own.
 - {owner} can switch your personality mode; the change arrives as a system message, and the \
 latest one wins.
 - Each message from {owner} starts with a [Now: ...] line giving the current local time. Use it \
@@ -165,11 +173,12 @@ class Agent:
         if file_ids:  # the files stay until this conversation is over
             self.db.assign_uploads(file_ids, thread_id)
 
-    async def run(self, content: list[dict], owner_present: bool = True) -> str:
+    async def run(self, content: list[dict], owner_present: bool = True, effort: str | None = None) -> str:
         """Handle one turn and return the reply.
 
         `owner_present=False` marks turns the owner didn't start by messaging (daily brief,
         scheduled tasks): any email those turns send waits for the owner to tap Send.
+        `effort` overrides the configured effort for this turn only (e.g. "max" for /think).
         """
         assert self.tool_context is not None, "tool_context must be set before running"
         tool_context = dataclasses.replace(self.tool_context, owner_present=owner_present)
@@ -196,7 +205,7 @@ class Agent:
                 # the history by a failed call would make the next request invalid.
                 messages.append({k: v for k, v in mode_change.items() if k != "mode"})
             try:
-                return await self._loop(thread_id, messages, tool_context, mode_change)
+                return await self._loop(thread_id, messages, tool_context, mode_change, effort)
             except (anthropic.BadRequestError, anthropic.RequestTooLargeError) as e:
                 # A malformed or oversized history fails every later turn too: start fresh, and
                 # give the background events to the new conversation.
@@ -205,25 +214,39 @@ class Agent:
                     self.db.add_notice(notice)
                 raise ConversationReset(str(e)) from e
 
+    async def _call(self, messages: list[dict], effort: str):
+        params = dict(
+            model=self.config.model,
+            max_tokens=16000,
+            system=self.system,
+            tools=TOOLS,
+            messages=messages,
+            output_config={"effort": effort},  # outside system/tools/messages: safe to vary per turn
+            cache_control={"type": "ephemeral"},
+            context_management={"edits": [{"type": "compact_20260112"}]},
+            fallbacks="default",
+            betas=BETAS,
+        )
+        if effort not in DEEP_EFFORTS:
+            return await self.client.beta.messages.create(**params)
+        # Long thinking: stream so the HTTP request can't time out, and give it room to think.
+        async with self.client.beta.messages.stream(**{**params, "max_tokens": DEEP_MAX_TOKENS}) as stream:
+            return await stream.get_final_message()
+
     async def _loop(
-        self, thread_id: int, messages: list[dict], tool_context: ToolContext, mode_change: dict | None = None
+        self,
+        thread_id: int,
+        messages: list[dict],
+        tool_context: ToolContext,
+        mode_change: dict | None = None,
+        effort: str | None = None,
     ) -> str:
         replies: list[str] = []
+        sources = SourceList()  # citations across the whole turn, numbered once
         response = None
         for _ in range(MAX_STEPS):
             self.tracker.check_budget()
-            response = await self.client.beta.messages.create(
-                model=self.config.model,
-                max_tokens=16000,
-                system=self.system,
-                tools=TOOLS,
-                messages=messages,
-                output_config={"effort": self.config.effort},
-                cache_control={"type": "ephemeral"},
-                context_management={"edits": [{"type": "compact_20260112"}]},
-                fallbacks="default",
-                betas=BETAS,
-            )
+            response = await self._call(messages, effort or self.config.effort)
             self.tracker.record(response, "chat")
             if mode_change:
                 self._store(thread_id, {"role": "system", "content": mode_change["content"]})
@@ -233,7 +256,10 @@ class Agent:
             assistant = {"role": "assistant", "content": serialize_content(response.content)}
             messages.append(assistant)
             self.db.append_message(thread_id, assistant)
-            replies += [b.text for b in response.content if b.type == "text" and b.text.strip()]
+            # Cited text arrives as several blocks: join them as one passage, with [n] markers.
+            text = "".join(sources.mark(b) for b in response.content if b.type == "text").strip()
+            if text:
+                replies.append(text)
 
             if response.stop_reason == "pause_turn":
                 continue  # a long server-side web search paused; resend to let it finish
@@ -260,4 +286,6 @@ class Agent:
             return "I can't help with that one."
         if response is not None and response.stop_reason == "max_tokens":
             replies.append("(My reply got cut off. Say 'continue' for the rest.)")
+        if sources.footer():
+            replies.append(sources.footer())
         return "\n\n".join(replies) or "Done."

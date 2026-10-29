@@ -41,6 +41,8 @@ class ToolContext:
     send_photo: Callable[[bytes, str], Awaitable[None]] | None = None  # (png, caption) -> owner
     notify_owner: Callable[[str], Awaitable[None]] | None = None  # a plain message from the bot itself
     charts_left: int = 2  # per turn, like research_left
+    workbench: Callable[[str, bool], Awaitable[dict]] | None = None  # (task, attach_recent_files)
+    workbench_left: int = 1
     briefings_left: int = 1
     # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
     # untrusted email with nobody watching, so anything that reaches other people or plants
@@ -269,6 +271,31 @@ CLIENT_TOOLS = [
         ),
     },
     {
+        "name": "code_workbench",
+        "description": (
+            "Claude's sandboxed computer with real Python and document skills. Use it to: create "
+            "Word, Excel, PowerPoint or PDF files (study guides, budgets, slide decks, reports), "
+            "and to analyze files the owner sent (Excel, Word, CSV, PDF) with exact calculations. "
+            "Files it creates are sent to the owner automatically. It has no internet: put any "
+            "facts it needs (from web search, emails) into the task. Slower and pricier than "
+            "answering directly, so use it when a file or exact numbers are the point."
+        ),
+        "input_schema": _schema(
+            {
+                "task": {
+                    "type": "string",
+                    "description": "Complete instructions: what to analyze or build, the content and "
+                    "data to use, the file type(s) to produce and how they should look.",
+                },
+                "attach_recent_files": {
+                    "type": "boolean",
+                    "description": "Attach the files the owner sent in the last day (up to 5).",
+                },
+            },
+            ["task", "attach_recent_files"],
+        ),
+    },
+    {
         "name": "make_chart",
         "description": (
             "Draw a chart and send it to the owner as an image. Use for trends over time (line), "
@@ -440,6 +467,14 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "forget":
         return {"deleted": ctx.db.delete_memory(int(a["memory_id"]))}
 
+    if name == "code_workbench":
+        _require_owner(ctx, "use the code workbench")
+        if ctx.workbench is None:
+            raise ValueError("The code workbench isn't available.")
+        if ctx.workbench_left <= 0:
+            raise NeedsOwner("One workbench job per message; put everything into one task.")
+        ctx.workbench_left -= 1
+        return await ctx.workbench(a["task"], bool(a.get("attach_recent_files")))
     if name == "make_chart":
         if ctx.send_photo is None:
             raise ValueError("Charts aren't available here.")

@@ -14,6 +14,9 @@ Your personal assistant on Telegram, powered by Claude. Text it like a person:
 - `/research best budget laptop for a CS major` (DeepSearch-style: many searches and pages, a sourced report)
 - "chart my spending this week" / "plot BTC over the last month" / "compare my exam scores" (sends a clean chart image)
 - "every Friday at 5pm, catch me up on AI news" (scheduled briefings, like Grok Tasks)
+- "make a 5-slide deck for my BA 324H pitch" / "turn this into a study guide doc" (real Word, Excel, PowerPoint and PDF files)
+- Send a spreadsheet: "how much did I spend on food in October?" (exact numbers, computed with code)
+- `/think should I take the Google or the Meta offer?` (Claude at maximum reasoning effort)
 - Send a photo, PDF or text file with a question ("what's due in this syllabus?")
 - "what does the PDF in Prof Lee's email say?" (reads email attachments)
 
@@ -21,6 +24,13 @@ ClaudeBot also comes to you:
 
 - **Inbox alerts**: when important email lands (a professor, a recruiter, a real person writing to you), you get a ping like "📬 Prof Lee: moved Thursday's exam to Friday". Newsletters and promos are skipped, and it stays quiet overnight. Reply "tell her that works" and it knows which email you mean.
 - **Daily brief** at a time you choose (calendar, important email, reminders, and a few headlines picked for your interests), or anytime with `/brief`.
+
+### Only-on-Claude features
+
+- **Answers with receipts.** When ClaudeBot answers from a PDF you sent or from the web, the reply ends with numbered sources: the exact quoted line and page from your document (`[1] syllabus.pdf, p. 3: "The final exam is on December 12..."`) or the article and link. Research, briefings and group fact-checks get them too.
+- **Document studio.** ClaudeBot uses Anthropic's Agent Skills to build real files (Word study guides, Excel budgets, PowerPoint decks, PDF reports) in Claude's sandboxed computer and sends them to you in Telegram.
+- **Data analysis.** Send an Excel, Word, CSV or PDF file and ask about it. ClaudeBot runs actual Python over it, so totals and averages are calculated, not estimated. The sandbox has no internet access, so nothing in your files can be sent anywhere.
+- **`/think`.** For your hardest questions (decisions, proofs, tricky code, essays), Claude thinks at maximum effort before answering. Slower and pricier, so it's opt-in per question.
 
 ### Scheduled briefings
 
@@ -100,7 +110,7 @@ ClaudeBot only works while `python -m claudebot` is running. Options:
 - `/new` starts a fresh conversation (saved memories carry over). ClaudeBot also does this on its own after `NEW_THREAD_AFTER_HOURS` of silence.
 - `/brief` gives your daily brief now.
 - `/usage` shows estimated Claude API spend today and this month.
-- `/mode` switches personality; `/research <question>` runs a deep dive; `/briefings` lists and cancels scheduled briefings.
+- `/mode` switches personality; `/research <question>` runs a deep dive; `/think <question>` reasons at maximum effort; `/briefings` lists and cancels scheduled briefings.
 - In a group: `/enable` / `/disable` (owner only).
 
 ## Settings worth knowing
@@ -144,6 +154,8 @@ All in `.env` (see `.env.example`):
 | `claudebot/modes.py` | Personality modes |
 | `claudebot/web_agent.py` | Deep research, briefings and other web-only requests |
 | `claudebot/charts.py` | Chart drawing |
+| `claudebot/workbench.py` | Code execution sandbox with Word/Excel/PowerPoint/PDF skills |
+| `claudebot/citations.py` | Numbered sources from Claude's citations |
 | `claudebot/groups.py` | Group mode |
 | `claudebot/db.py` | SQLite storage for chat history, memories, reminders, outbox and usage |
 

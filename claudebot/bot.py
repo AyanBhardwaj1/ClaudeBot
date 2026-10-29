@@ -30,7 +30,13 @@ from telegram.ext import (
 from .agent import Agent, ConversationReset
 from .config import Config
 from .db import Database
-from .files import MAX_FILE_BYTES, FileUploader, UnsupportedFile, clean_up_uploads
+from .files import (
+    MAX_FILE_BYTES,
+    FileUploader,
+    UnsupportedFile,
+    clean_up_uploads,
+    is_workbench_file,
+)
 from .google_services import Google, GoogleNotConnected
 from .groups import GroupResponder
 from .inbox_watch import InboxWatcher
@@ -40,6 +46,7 @@ from .reminders import next_occurrence, previous_window
 from .tools import ToolContext
 from .usage import BudgetExceeded, UsageTracker
 from .web_agent import deep_research, run_briefing
+from .workbench import run_workbench
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +61,7 @@ BRIEF_PROMPT = (
 FORWARD_PROMPT = "(I forwarded this.)"
 PRIVATE_COMMANDS = [
     BotCommand("brief", "Daily brief now"),
+    BotCommand("think", "Think as hard as possible about one question"),
     BotCommand("research", "Deep research on a question"),
     BotCommand("mode", "Switch personality (fun, brief, deep...)"),
     BotCommand("briefings", "Your scheduled briefings"),
@@ -177,6 +185,7 @@ class TelegramBot:
             research=lambda question: deep_research(client, self.tracker, config.model, question),
             send_photo=self.send_photo_to_owner,
             notify_owner=self.send_to_owner,
+            workbench=self._workbench,
         )
         self._register_handlers()
 
@@ -198,6 +207,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("usage", self.on_usage, filters=owner))
         self.app.add_handler(CommandHandler("mode", self.on_mode, filters=owner))
         self.app.add_handler(CommandHandler("research", self.on_research, filters=owner))
+        self.app.add_handler(CommandHandler("think", self.on_think, filters=owner))
         self.app.add_handler(CommandHandler("briefings", self.on_briefings, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_briefing_cancel, pattern=r"^unbrief:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_mode_button, pattern=r"^mode:\w+$"))
@@ -258,12 +268,12 @@ class TelegramBot:
     async def send_photo_to_owner(self, png: bytes, caption: str) -> None:
         await self.app.bot.send_photo(chat_id=self.config.owner_id, photo=png, caption=caption or None)
 
-    async def _ask_agent(self, content: list[dict], owner_present: bool = True) -> str:
+    async def _ask_agent(self, content: list[dict], owner_present: bool = True, effort: str | None = None) -> str:
         """Run the agent with a typing indicator, turning API failures into a short message."""
         stop = asyncio.Event()
         typing = asyncio.create_task(self._keep_typing(stop))
         try:
-            return await self.agent.run(content, owner_present=owner_present)
+            return await self.agent.run(content, owner_present=owner_present, effort=effort)
         except BudgetExceeded as e:
             return str(e)
         except ConversationReset:
@@ -367,6 +377,28 @@ class TelegramBot:
         await query.answer(label)
         await query.edit_message_text(f"Mode: {label}")
 
+    async def on_think(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        question = " ".join(context.args or [])
+        if not question:
+            await update.effective_message.reply_text(
+                "What should I think hard about? e.g. /think should I take the Google or the Meta offer?"
+            )
+            return
+        async with self._message_order:
+            await update.effective_message.reply_text("🧠 Thinking hard. This can take a few minutes.")
+            await self.send_to_owner(await self._ask_agent([{"type": "text", "text": question}], effort="max"))
+
+    async def _workbench(self, task: str, attach_recent_files: bool) -> dict:
+        """Run a code workbench job and deliver whatever files it made."""
+        file_ids = self.db.recent_upload_ids(limit=5) if attach_recent_files else []
+        result = await run_workbench(self.client, self.tracker, self.config.model, task, file_ids)
+        for name, data in result.files:
+            if name.lower().endswith((".png", ".jpg", ".jpeg")):
+                await self.send_photo_to_owner(data, name)
+            else:
+                await self.app.bot.send_document(chat_id=self.config.owner_id, document=data, filename=name)
+        return {"summary": result.text, "files_sent_to_owner": [name for name, _ in result.files]}
+
     async def on_research(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         question = " ".join(context.args or [])
         if not question:
@@ -433,8 +465,16 @@ class TelegramBot:
                 await message.reply_text(f"{document.file_name} is too big for me (10 MB max).")
                 return
             data = bytes(await (await document.get_file()).download_as_bytearray())
+            name = " ".join((document.file_name or "file").split())[:80]
             try:
-                block = await self.uploader.to_block(data, document.mime_type or "", document.file_name or "file")
+                if is_workbench_file(document.mime_type or ""):
+                    # Excel/Word/PowerPoint: Claude opens these with code in the workbench.
+                    await self.uploader.store_raw(data, document.mime_type, name)
+                    safe = name.replace("<", "‹").replace(">", "›").replace("[", "(").replace("]", ")")
+                    block = {"type": "text", "text": f"[I sent the file {safe}. You can't read it directly: "
+                             "use code_workbench with attach_recent_files to open it.]"}
+                else:
+                    block = await self.uploader.to_block(data, document.mime_type or "", name)
             except UnsupportedFile as e:
                 await message.reply_text(str(e))
                 return

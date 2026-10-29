@@ -339,6 +339,14 @@ class Database:
         )
         self.conn.commit()
 
+    def recent_upload_ids(self, limit: int, within: timedelta = timedelta(days=1)) -> list[str]:
+        """The owner's most recent uploads, newest first."""
+        rows = self.conn.execute(
+            "SELECT file_id FROM uploaded_files WHERE created_at >= ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            ((_now() - within).isoformat(), limit),
+        ).fetchall()
+        return [r["file_id"] for r in rows]
+
     def assign_uploads(self, file_ids: list[str], thread_id: int) -> None:
         self.conn.executemany(
             "UPDATE uploaded_files SET thread_id = ? WHERE file_id = ?",

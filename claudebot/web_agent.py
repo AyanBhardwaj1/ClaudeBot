@@ -7,6 +7,7 @@ from datetime import datetime
 
 import anthropic
 
+from .citations import render
 from .usage import UsageTracker
 
 MAX_ROUNDS = 4  # pause_turn resumptions for long server-side searches
@@ -66,7 +67,7 @@ async def ask_with_web(
         })
     if response is None or response.stop_reason == "refusal":
         return "I can't help with that one."
-    text = "\n\n".join(b.text for b in response.content if b.type == "text" and b.text.strip())
+    text = render([response])
     if response.stop_reason == "pause_turn":
         text += "\n\n(I ran out of time searching; this is partial.)"
     return text or "I couldn't find anything useful on that."

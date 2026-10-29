@@ -22,7 +22,8 @@ def api_error(status):
 async def test_upload_returns_a_file_reference_block(tmp_path):
     db, client = Database(tmp_path / "t.db"), FakeClient([])
     block = await FileUploader(client, db).to_block(PDF, "application/pdf", "syllabus.pdf")
-    assert block == {"type": "document", "source": {"type": "file", "file_id": "file_1"}, "title": "syllabus.pdf"}
+    assert block == {"type": "document", "source": {"type": "file", "file_id": "file_1"}, "title": "syllabus.pdf",
+                     "citations": {"enabled": True}}
     assert client.files.uploaded == [("syllabus.pdf", PDF, "application/pdf")]
 
 
