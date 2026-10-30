@@ -274,6 +274,19 @@ class Database:
         )
         self.conn.commit()
 
+    def delete_setting(self, key: str) -> None:
+        self.conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+        self.conn.commit()
+
+    def prune_settings(self, prefix: str, keep: int) -> None:
+        """Delete all but the `keep` most recently added settings whose key starts with `prefix`."""
+        self.conn.execute(
+            "DELETE FROM settings WHERE key LIKE ? AND rowid NOT IN "
+            "(SELECT rowid FROM settings WHERE key LIKE ? ORDER BY rowid DESC LIMIT ?)",
+            (prefix + "%", prefix + "%", keep),
+        )
+        self.conn.commit()
+
     # --- emails the inbox watcher has already looked at ---
 
     def unseen_emails(self, message_ids: list[str]) -> list[str]:

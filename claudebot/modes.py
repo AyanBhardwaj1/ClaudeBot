@@ -61,6 +61,10 @@ _URLISH = re.compile(
 )
 
 
+def contains_url(text: str) -> bool:
+    return bool(_URLISH.search(text))
+
+
 def defang_urls(text: str) -> str:
     """Make links readable but not fetchable: "https://a.com/x" -> "https[:]//a[.]com/x".
 

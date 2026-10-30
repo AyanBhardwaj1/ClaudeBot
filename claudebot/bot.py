@@ -330,7 +330,8 @@ class TelegramBot(ButtonHandlers):
                 log.debug("Couldn't add follow-up buttons", exc_info=True)
 
     def _followups_on(self) -> bool:
-        return self.config.followups and self.db.get_setting("followups") != "off"
+        choice = self.db.get_setting("followups")  # /followups on|off beats the env default
+        return choice == "on" if choice in ("on", "off") else self.config.followups
 
     async def _run_agent(
         self, content: list[dict], owner_present: bool = True, effort: str | None = None, live: bool = False
@@ -370,7 +371,7 @@ class TelegramBot(ButtonHandlers):
     async def _keep_typing(self, stop: asyncio.Event, preview: LivePreview | None = None) -> None:
         while not stop.is_set():
             try:
-                if preview:
+                if preview and preview.enabled:
                     await preview.keepalive()  # the draft is the indicator; keep it from expiring
                 else:
                     await self.app.bot.send_chat_action(self.config.owner_id, ChatAction.TYPING)
@@ -427,7 +428,8 @@ class TelegramBot(ButtonHandlers):
                 content = [{"type": "text", "text": fenced}, {"type": "text", "text": FORWARD_PROMPT}]
             else:
                 content = [*self._reply_context(message, context), {"type": "text", "text": message.text}]
-            await self._converse(content, message.text)
+            # The suggester sees the owner's words, never a forward's (that's someone else's text).
+            await self._converse(content, FORWARD_PROMPT if message.forward_origin else message.text)
 
     def _reply_context(self, message: Message, context: ContextTypes.DEFAULT_TYPE) -> list[dict]:
         """For a swipe-reply: the quoted part (or the whole message) being replied to."""
@@ -586,7 +588,8 @@ class TelegramBot(ButtonHandlers):
             question = f"{caption}\n{FORWARD_PROMPT}"
         else:
             question = message.caption or "(sent with no message: say briefly what it is and anything I need to act on)"
-        await self._converse([block, {"type": "text", "text": question}], message.caption or "(a file)")
+        asked = "(a forwarded file)" if message.forward_origin else (message.caption or "(a file)")
+        await self._converse([block, {"type": "text", "text": question}], asked)
 
     async def on_outbox_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -714,6 +717,9 @@ class TelegramBot(ButtonHandlers):
         await self.outbox.deliver(context.job.data)
 
     async def _cleanup_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        # Button bookkeeping only matters for recent messages.
+        self.db.prune_settings("followups:", keep=50)
+        self.db.prune_settings("alert:", keep=200)
         if self.agent.busy:
             # A brief or task may still be replaying a conversation /new just retired; its files
             # aren't safe to delete yet. The next run picks them up.

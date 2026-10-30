@@ -34,17 +34,17 @@ class LivePreview:
         self.draft_id = secrets.randbelow(2**31 - 1) + 1  # must be non-zero
         self.text = ""
         self._sent_at = 0.0
-        self._enabled = True
+        self.enabled = True
 
     async def _push(self) -> None:
-        if not self._enabled:
+        if not self.enabled:
             return
         try:
             await self.bot.send_message_draft(self.chat_id, self.draft_id, text=self.text[:PREVIEW_MAX_CHARS])
             self._sent_at = time.monotonic()
         except TelegramError:
             log.debug("Live preview unavailable; falling back to the final message only", exc_info=True)
-            self._enabled = False
+            self.enabled = False
 
     async def start(self) -> None:
         await self._push()  # empty text: Telegram shows a "Thinking..." placeholder
@@ -69,11 +69,19 @@ def followup_keyboard(db: Database, suggestions: list[str]) -> InlineKeyboardMar
 
 
 def take_followup(db: Database, key: str, index: int) -> str | None:
+    """The tapped suggestion, once: the set is used up so a second quick tap does nothing."""
     raw = db.get_setting(f"followups:{key}")
     if raw is None:
         return None
+    db.delete_setting(f"followups:{key}")
     suggestions = json.loads(raw)
     return suggestions[index] if 0 <= index < len(suggestions) else None
+
+
+def tapped_suggestion(text: str) -> str:
+    """A tapped follow-up, as sent to the agent: marked as a shortcut, links unfetchable."""
+    safe = defang_urls(text).replace("<", "‹").replace(">", "›")
+    return f"[Tapped a suggestion button:] {safe}"
 
 
 def memory_view(memories) -> tuple[str, list[list[InlineKeyboardButton]]]:

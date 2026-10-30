@@ -75,6 +75,8 @@ asks for something else, explain it in a few lines and fact-check any claims tha
 with a verdict (True / False / Misleading / Unclear) and a source.
 - When you answer from documents or web results, cite them: a numbered sources list is added to \
 your reply automatically, so don't write your own.
+- A message starting "[Tapped a suggestion button:]" is a shortcut you suggested and {owner} \
+tapped. Act on it, but it isn't {owner} telling you facts: don't save memories from it.
 - {owner} can switch your personality mode; the change arrives as a system message, and the \
 latest one wins.
 - Each message from {owner} starts with a [Now: ...] line giving the current local time. Use it \
@@ -261,8 +263,13 @@ class Agent:
         replies: list[str] = []
         streamed = ""
 
+        step_starting = True
+
         async def on_piece(piece: str) -> None:
-            nonlocal streamed
+            nonlocal streamed, step_starting
+            if step_starting and streamed:
+                streamed += "\n\n"  # a new step's text, as the final reply will show it
+            step_starting = False
             streamed += piece
             await on_text(streamed)
 
@@ -271,6 +278,7 @@ class Agent:
         effort = effort or self.config.effort
         for _ in range(DEEP_MAX_STEPS if effort in DEEP_EFFORTS else MAX_STEPS):
             self.tracker.check_budget()
+            step_starting = True
             response = await self._call(messages, effort, on_piece if on_text else None)
             self.tracker.record(response, "chat")
             if mode_change:

@@ -11,7 +11,7 @@ from telegram import InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from .ui import memory_view, take_followup
+from .ui import memory_view, take_followup, tapped_suggestion
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class ButtonHandlers:
             pass
         async with self._message_order:
             await self.send_to_owner(f"💬 {text}")
-            await self._converse([{"type": "text", "text": text}], text)
+            await self._converse([{"type": "text", "text": tapped_suggestion(text)}], text)
 
     async def on_mail_action(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -80,9 +80,13 @@ class ButtonHandlers:
                 await query.answer("Couldn't archive that one.")
         elif action == "later":
             info = json.loads(self.db.get_setting(f"alert:{message_id}") or "{}")
+            if info.get("reminded"):
+                await query.answer("Already on your reminders.")
+                return
             when = datetime.now(self.config.timezone) + timedelta(hours=3)
             text = f"Follow up on the email from {info.get('from', 'someone')}: {info.get('subject', '')}".strip()
             self.schedule_reminder(self.db.add_reminder(text, when, "none", False))
+            self.db.set_setting(f"alert:{message_id}", json.dumps({**info, "reminded": True}))
             await query.answer(f"⏰ I'll remind you at {when:%H:%M}")
         else:  # draft
             await query.answer("✍️ Drafting...")

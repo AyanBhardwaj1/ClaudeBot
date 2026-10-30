@@ -1,6 +1,7 @@
 """Settings loaded from environment variables (or a .env file)."""
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -64,6 +65,14 @@ class Config:
         return self.data_dir / "claudebot.db"
 
 
+def _country(value: str | None) -> str | None:
+    if not value or not value.strip():
+        return None
+    if not re.fullmatch(r"[A-Za-z]{2}", value.strip()):
+        raise ValueError(f"CLAUDEBOT_COUNTRY must be a two-letter code like US or IN, got {value!r}")
+    return value.strip().upper()
+
+
 def load_config() -> Config:
     data_dir = Path(os.getenv("CLAUDEBOT_DATA_DIR", "data"))
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -90,6 +99,6 @@ def load_config() -> Config:
         group_monthly_budget_usd=_float_or_none(os.getenv("GROUP_MONTHLY_BUDGET_USD", "5")),
         city=os.getenv("CLAUDEBOT_CITY") or None,
         region=os.getenv("CLAUDEBOT_REGION") or None,
-        country=os.getenv("CLAUDEBOT_COUNTRY") or None,
+        country=_country(os.getenv("CLAUDEBOT_COUNTRY")),
         followups=_flag(os.getenv("FOLLOWUPS"), True),
     )

@@ -6,22 +6,25 @@ garnish: any failure, or being over budget, just means no buttons.
 
 import json
 import logging
+import re
 
 import anthropic
 
 from .config import Config
+from .modes import contains_url
 from .usage import BudgetExceeded, UsageTracker
 
 log = logging.getLogger(__name__)
 
 MAX_SUGGESTIONS = 3
-MAX_LENGTH = 60  # fits a Telegram button
+MAX_LENGTH = 35  # the whole text stays visible on a phone-width button
+_EMAIL = re.compile(r"\S+@\S+\.\S+")
 MAX_QUESTION_CHARS = 1_000
 MAX_ANSWER_CHARS = 3_000
 
 FOLLOWUP_PROMPT = """Suggest what {owner} might tap next after this exchange with their assistant.
 
-- Up to 3 suggestions, each under 50 characters, written as {owner}'s own message to the \
+- Up to 3 suggestions, each under 30 characters, written as {owner}'s own message to the \
 assistant ("Draft a reply to Sam", "Compare it with the M4 Air", "Remind me Friday at 9").
 - Concrete next steps or natural follow-up questions only; nothing generic like "Tell me more".
 - Return an empty list when the conversation is clearly finished (thanks, ok, a joke).
@@ -40,6 +43,10 @@ def _clean(items) -> list[str]:
     for item in items if isinstance(items, list) else []:
         text = " ".join(str(item).split())
         if not text or len(text) > MAX_LENGTH or text.lower() in seen:
+            continue
+        if contains_url(text) or _EMAIL.search(text):
+            # A tap sends this as the owner's message: never let it carry a link or an address
+            # that came from an email or web page ("Save sam@evil.co as Sam's email").
             continue
         seen.add(text.lower())
         out.append(text)
