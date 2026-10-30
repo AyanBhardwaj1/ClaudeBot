@@ -25,6 +25,15 @@ ClaudeBot also comes to you:
 - **Inbox alerts**: when important email lands (a professor, a recruiter, a real person writing to you), you get a ping like "📬 Prof Lee: moved Thursday's exam to Friday". Newsletters and promos are skipped, and it stays quiet overnight. Reply "tell her that works" and it knows which email you mean.
 - **Daily brief** at a time you choose (calendar, important email, reminders, and a few headlines picked for your interests), or anytime with `/brief`.
 
+### Feels fast and easy
+
+- **Live replies.** Answers stream into the chat as Claude writes them, after a "Thinking..." placeholder, instead of after a long pause.
+- **Follow-up buttons.** Under each answer, up to three tappable next steps ("Draft a reply to Sam", "Add it to my calendar"). Picked by Claude Haiku for a fraction of a cent; `/followups off` to hide them.
+- **Inbox alerts you can act on.** Every alert has 🗄 Archive, ✍️ Reply (shows you a draft first) and ⏰ Later (reminds you in 3 hours) buttons.
+- **Swipe to reply.** Reply to any earlier message, or quote just part of it, and ClaudeBot knows exactly what "this" means.
+- **`/memory`.** See everything ClaudeBot remembers about you and delete anything with a tap.
+- **Knows where you live.** Set `CLAUDEBOT_CITY` (and region/country) and "best tacos near me" gets local results, and the daily brief opens with your weather.
+
 ### Only-on-Claude features
 
 - **Answers with receipts.** When ClaudeBot answers from a PDF you sent or from the web, the reply ends with numbered sources: the exact quoted line and page from your document (`[1] syllabus.pdf, p. 3: "The final exam is on December 12..."`) or the article and link. Research, briefings and group fact-checks get them too.
@@ -111,6 +120,7 @@ ClaudeBot only works while `python -m claudebot` is running. Options:
 - `/brief` gives your daily brief now.
 - `/usage` shows estimated Claude API spend today and this month.
 - `/mode` switches personality; `/research <question>` runs a deep dive; `/think <question>` reasons at maximum effort; `/briefings` lists and cancels scheduled briefings.
+- `/memory` shows and deletes what ClaudeBot remembers; `/followups on|off` toggles suggestion buttons.
 - In a group: `/enable` / `/disable` (owner only).
 
 ## Settings worth knowing
@@ -156,6 +166,8 @@ All in `.env` (see `.env.example`):
 | `claudebot/charts.py` | Chart drawing |
 | `claudebot/workbench.py` | Code execution sandbox with Word/Excel/PowerPoint/PDF skills |
 | `claudebot/citations.py` | Numbered sources from Claude's citations |
+| `claudebot/followups.py` | Follow-up suggestions |
+| `claudebot/ui.py`, `claudebot/buttons.py` | Live previews, buttons and the memory view |
 | `claudebot/groups.py` | Group mode |
 | `claudebot/db.py` | SQLite storage for chat history, memories, reminders, outbox and usage |
 

@@ -160,7 +160,7 @@ async def test_think_streams_at_max_effort(tmp_path):
     assert think["_streamed"] and think["output_config"]["effort"] == "max" and think["max_tokens"] >= 64000
     await agent.run([{"type": "text", "text": "thanks"}])
     normal = client.requests[1]
-    assert "_streamed" not in normal and normal["output_config"]["effort"] == "medium"
+    assert normal["output_config"]["effort"] == "medium" and normal["max_tokens"] == 16000
     assert normal["messages"][:2] == think["messages"][:1] + [normal["messages"][1]]  # same conversation
 
 

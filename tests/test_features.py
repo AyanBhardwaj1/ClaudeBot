@@ -228,7 +228,7 @@ def make_watcher(tmp_path, google, responses, notes, quiet=None):
     db = Database(tmp_path / "t.db")
     client = FakeClient(responses)
 
-    async def notify(text):
+    async def notify(text, actions=None):
         notes.append(text)
 
     config = make_config(tmp_path, quiet_hours=quiet)
@@ -440,7 +440,7 @@ async def test_inbox_alert_is_retried_when_telegram_fails(tmp_path):
     google = FakeGoogle(inbox=[])
     attempts = []
 
-    async def flaky_notify(text):
+    async def flaky_notify(text, actions=None):
         attempts.append(text)
         if len(attempts) == 1:
             raise RuntimeError("telegram down")

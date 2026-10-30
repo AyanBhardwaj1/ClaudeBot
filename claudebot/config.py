@@ -46,6 +46,18 @@ class Config:
     undo_send_seconds: int = 20
     group_daily_limit: int = 30
     group_monthly_budget_usd: float | None = 5.0
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    followups: bool = True
+
+    @property
+    def location(self) -> dict | None:
+        """Where the owner lives, for local web results (approximate, never coordinates)."""
+        fields = {"city": self.city, "region": self.region,
+                  "country": self.country.upper() if self.country else None}
+        fields = {k: v.strip() for k, v in fields.items() if v and v.strip()}
+        return fields or None
 
     @property
     def db_path(self) -> Path:
@@ -76,4 +88,8 @@ def load_config() -> Config:
         undo_send_seconds=max(int(os.getenv("UNDO_SEND_SECONDS", "20")), 0),
         group_daily_limit=max(int(os.getenv("GROUP_DAILY_LIMIT", "30")), 0),
         group_monthly_budget_usd=_float_or_none(os.getenv("GROUP_MONTHLY_BUDGET_USD", "5")),
+        city=os.getenv("CLAUDEBOT_CITY") or None,
+        region=os.getenv("CLAUDEBOT_REGION") or None,
+        country=os.getenv("CLAUDEBOT_COUNTRY") or None,
+        followups=_flag(os.getenv("FOLLOWUPS"), True),
     )

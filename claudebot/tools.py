@@ -366,7 +366,21 @@ SERVER_TOOLS = [
     },
 ]
 
-TOOLS = CLIENT_TOOLS + SERVER_TOOLS
+
+
+def build_tools(location: dict | None, tz: ZoneInfo | None) -> list[dict]:
+    """The full tool list, with web search localized to where the owner lives when configured.
+
+    Fixed for the life of the process: it's part of every conversation's fingerprint.
+    """
+    server = [dict(t) for t in SERVER_TOOLS]
+    if location:
+        search = next(t for t in server if t["name"] == "web_search")
+        search["user_location"] = {"type": "approximate", **location, **({"timezone": str(tz)} if tz else {})}
+    return CLIENT_TOOLS + server
+
+
+TOOLS = build_tools(None, None)
 
 
 async def run_tool(name: str, args: dict, ctx: ToolContext) -> tuple[str | list[dict], bool]:

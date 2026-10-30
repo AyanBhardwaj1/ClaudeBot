@@ -149,17 +149,38 @@ class FakeClient:
         return response
 
     def stream(self, **kwargs):
-        """Like messages.stream(): an async context manager whose final message is the next response."""
+        """Like messages.stream(): text events (in two pieces per block), then the final message."""
         client = self
 
         class Stream:
+            def __init__(self):
+                self._response = None
+
             async def __aenter__(self):
                 return self
 
             async def __aexit__(self, *exc):
                 return False
 
+            async def _final(self):
+                if self._response is None:
+                    self._response = await client.create(**kwargs, _streamed=True)
+                return self._response
+
+            def __aiter__(self):
+                return self._events()
+
+            async def _events(self):
+                for block in (await self._final()).content:
+                    if block.type != "text":
+                        continue
+                    half = len(block.text) // 2
+                    snapshot = ""
+                    for piece in (block.text[:half], block.text[half:]):
+                        snapshot += piece
+                        yield SimpleNamespace(type="text", text=piece, snapshot=snapshot)
+
             async def get_final_message(self):
-                return await client.create(**kwargs, _streamed=True)
+                return await self._final()
 
         return Stream()

@@ -28,6 +28,7 @@ from telegram.ext import (
 )
 
 from .agent import Agent, ConversationReset
+from .buttons import ButtonHandlers
 from .config import Config
 from .db import Database
 from .files import (
@@ -37,6 +38,7 @@ from .files import (
     clean_up_uploads,
     is_workbench_file,
 )
+from .followups import suggest_followups
 from .google_services import Google, GoogleNotConnected
 from .groups import GroupResponder
 from .inbox_watch import InboxWatcher
@@ -44,6 +46,11 @@ from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
 from .reminders import next_occurrence, previous_window
 from .tools import ToolContext
+from .ui import (
+    LivePreview,
+    followup_keyboard,
+    reply_context,
+)
 from .usage import BudgetExceeded, UsageTracker
 from .web_agent import deep_research, run_briefing
 from .workbench import run_workbench
@@ -65,6 +72,7 @@ PRIVATE_COMMANDS = [
     BotCommand("research", "Deep research on a question"),
     BotCommand("mode", "Switch personality (fun, brief, deep...)"),
     BotCommand("briefings", "Your scheduled briefings"),
+    BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
     BotCommand("usage", "What I've cost you"),
 ]
@@ -155,7 +163,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot:
+class TelegramBot(ButtonHandlers):
     def __init__(self, config: Config):
         self.config = config
         self.db = Database(config.db_path)
@@ -163,6 +171,7 @@ class TelegramBot:
         self.client = client
         self.uploader = FileUploader(client, self.db)
         google = Google(config)
+        self.google = google
         self.tracker = UsageTracker(self.db, config.timezone, config.monthly_budget_usd)
         self.agent = Agent(config, self.db, client, self.tracker)
         # Concurrent updates so an Undo tap is handled while a reply is still being written;
@@ -180,7 +189,7 @@ class TelegramBot:
         self.outbox = Outbox(
             self.db, google, config.undo_send_seconds, self.schedule_outbox, TelegramOutboxUI(self)
         )
-        self.watcher = InboxWatcher(self.db, google, client, self.tracker, config, self.send_to_owner)
+        self.watcher = InboxWatcher(self.db, google, client, self.tracker, config, self.send_alert)
         self.groups = GroupResponder(self.db, client, self.tracker, config)
         self._warned_google_missing = False
         # Updates are handled concurrently (so button taps aren't stuck behind a reply), but the
@@ -224,6 +233,13 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("research", self.on_research, filters=owner))
         self.app.add_handler(CommandHandler("think", self.on_think, filters=owner))
         self.app.add_handler(CommandHandler("briefings", self.on_briefings, filters=owner))
+        self.app.add_handler(CommandHandler("memory", self.on_memory, filters=owner))
+        self.app.add_handler(CommandHandler("followups", self.on_followups_toggle, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_memory_delete, pattern=r"^mem:del:\d+$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_followup, pattern=r"^fu:[0-9a-f]{8}:\d$"))
+        self.app.add_handler(
+            CallbackQueryHandler(self.on_mail_action, pattern=r"^mail:(arch|draft|later):[0-9a-f]{6,32}$")
+        )
         self.app.add_handler(CallbackQueryHandler(self.on_briefing_cancel, pattern=r"^unbrief:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_mode_button, pattern=r"^mode:\w+$"))
         self.app.add_handler(CommandHandler("enable", self.on_group_enable, filters=owner_in_group))
@@ -276,44 +292,88 @@ class TelegramBot:
 
     # --- messaging helpers ---
 
-    async def send_to_owner(self, text: str) -> None:
-        for chunk in split_message(text):
-            await self.app.bot.send_message(chat_id=self.config.owner_id, text=chunk)
+    async def send_to_owner(self, text: str, reply_markup=None) -> Message | None:
+        """Send (in Telegram-sized chunks); buttons go on the last chunk. Returns the last message."""
+        chunks = split_message(text)
+        last = None
+        for i, chunk in enumerate(chunks):
+            markup = reply_markup if i == len(chunks) - 1 else None
+            last = await self.app.bot.send_message(chat_id=self.config.owner_id, text=chunk, reply_markup=markup)
+        return last
+
+    async def send_alert(self, text: str, actions: list[tuple[str, str]] | None = None) -> None:
+        """An inbox alert, with Archive / Reply / Later buttons (three per email, one row each)."""
+        rows = [
+            [InlineKeyboardButton(label, callback_data=data) for label, data in actions[i : i + 3]]
+            for i in range(0, len(actions or []), 3)
+        ]
+        await self.send_to_owner(text, InlineKeyboardMarkup(rows) if rows else None)
 
     async def send_photo_to_owner(self, png: bytes, caption: str) -> None:
         await self.app.bot.send_photo(chat_id=self.config.owner_id, photo=png, caption=caption or None)
 
     async def _ask_agent(self, content: list[dict], owner_present: bool = True, effort: str | None = None) -> str:
-        """Run the agent with a typing indicator, turning API failures into a short message."""
+        """Run the agent (no live preview), turning API failures into a short message."""
+        return (await self._run_agent(content, owner_present, effort))[0]
+
+    async def _converse(self, content: list[dict], question: str, effort: str | None = None) -> None:
+        """An owner turn: live preview while Claude writes, the reply, then follow-up buttons."""
+        reply, ok = await self._run_agent(content, owner_present=True, effort=effort, live=True)
+        last = await self.send_to_owner(reply)
+        if not ok or last is None or not self._followups_on():
+            return
+        suggestions = await suggest_followups(self.client, self.tracker, self.config, question, reply)
+        if suggestions:
+            try:
+                await last.edit_reply_markup(followup_keyboard(self.db, suggestions))
+            except TelegramError:
+                log.debug("Couldn't add follow-up buttons", exc_info=True)
+
+    def _followups_on(self) -> bool:
+        return self.config.followups and self.db.get_setting("followups") != "off"
+
+    async def _run_agent(
+        self, content: list[dict], owner_present: bool = True, effort: str | None = None, live: bool = False
+    ) -> tuple[str, bool]:
+        """(reply, ok). API failures become a short message with ok=False."""
+        preview = LivePreview(self.app.bot, self.config.owner_id) if live else None
+        if preview:
+            await preview.start()
         stop = asyncio.Event()
-        typing = asyncio.create_task(self._keep_typing(stop))
+        typing = asyncio.create_task(self._keep_typing(stop, preview))
         try:
-            return await self.agent.run(content, owner_present=owner_present, effort=effort)
+            reply = await self.agent.run(
+                content, owner_present=owner_present, effort=effort, on_text=preview.update if preview else None
+            )
+            return reply, True
         except BudgetExceeded as e:
-            return str(e)
+            return str(e), False
         except ConversationReset:
             log.exception("Conversation reset")
             return (
                 "That conversation got too big for me (usually from large files), so I've started a "
                 "fresh one. Please send that again."
-            )
+            ), False
         except anthropic.AuthenticationError:
-            return "My Anthropic API key isn't working. Check ANTHROPIC_API_KEY."
+            return "My Anthropic API key isn't working. Check ANTHROPIC_API_KEY.", False
         except anthropic.RateLimitError:
-            return "I'm being rate-limited by the Claude API. Try again in a minute."
+            return "I'm being rate-limited by the Claude API. Try again in a minute.", False
         except anthropic.APIStatusError as e:
             log.exception("Claude API error")
-            return f"The Claude API returned an error ({e.status_code}). Try again shortly."
+            return f"The Claude API returned an error ({e.status_code}). Try again shortly.", False
         except anthropic.APIConnectionError:
-            return "I can't reach the Claude API right now. Network trouble?"
+            return "I can't reach the Claude API right now. Network trouble?", False
         finally:
             stop.set()
             await typing
 
-    async def _keep_typing(self, stop: asyncio.Event) -> None:
+    async def _keep_typing(self, stop: asyncio.Event, preview: LivePreview | None = None) -> None:
         while not stop.is_set():
             try:
-                await self.app.bot.send_chat_action(self.config.owner_id, ChatAction.TYPING)
+                if preview:
+                    await preview.keepalive()  # the draft is the indicator; keep it from expiring
+                else:
+                    await self.app.bot.send_chat_action(self.config.owner_id, ChatAction.TYPING)
             except Exception:
                 log.debug("typing indicator failed", exc_info=True)
             try:
@@ -343,9 +403,10 @@ class TelegramBot:
             "I'll also ping you when important email arrives.\n\n"
             "- (forward any message) is this true?\n"
             "- /research best budget laptop for CS\n\n"
-            "/mode switches my personality (try fun), /new starts fresh, /brief gives you the "
-            "daily brief, /usage shows what I've cost you. Add me to a group and send /enable "
-            "there, and people can tag me like Grok."
+            "/mode switches my personality (try fun), /think for hard questions, /memory shows "
+            "what I remember, /new starts fresh, /brief gives you the daily brief, /usage shows "
+            "what I've cost you. Add me to a group and send /enable there, and people can tag "
+            "me like Grok."
         )
 
     async def on_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -365,8 +426,20 @@ class TelegramBot:
                 fenced = fence_external("forwarded_message", origin_name(message.forward_origin), message.text)
                 content = [{"type": "text", "text": fenced}, {"type": "text", "text": FORWARD_PROMPT}]
             else:
-                content = [{"type": "text", "text": message.text}]
-            await self.send_to_owner(await self._ask_agent(content))
+                content = [*self._reply_context(message, context), {"type": "text", "text": message.text}]
+            await self._converse(content, message.text)
+
+    def _reply_context(self, message: Message, context: ContextTypes.DEFAULT_TYPE) -> list[dict]:
+        """For a swipe-reply: the quoted part (or the whole message) being replied to."""
+        replied = message.reply_to_message
+        if replied is None:
+            return []
+        quoted = (message.quote.text if message.quote else None) or replied.text or replied.caption
+        if not quoted:
+            return []
+        from_bot = bool(replied.from_user and replied.from_user.id == context.bot.id)
+        forwarded = origin_name(replied.forward_origin) if replied.forward_origin else None
+        return [{"type": "text", "text": reply_context(quoted, from_bot, forwarded)}]
 
     async def on_mode(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message
@@ -400,8 +473,7 @@ class TelegramBot:
             )
             return
         async with self._message_order:
-            await update.effective_message.reply_text("🧠 Thinking hard. This can take a few minutes.")
-            await self.send_to_owner(await self._ask_agent([{"type": "text", "text": question}], effort="max"))
+            await self._converse([{"type": "text", "text": question}], question, effort="max")
 
     async def _workbench(self, task: str, attach_recent_files: bool) -> dict:
         """Run a code workbench job and deliver whatever files it made."""
@@ -431,7 +503,7 @@ class TelegramBot:
         async with self._message_order:
             await update.effective_message.reply_text("🔎 Digging in. This takes a minute or two.")
             prompt = f"Do deep research on this and give me the findings with sources: {question}"
-            await self.send_to_owner(await self._ask_agent([{"type": "text", "text": prompt}]))
+            await self._converse([{"type": "text", "text": prompt}], question)
 
     async def on_group_enable(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         self.groups.enable(update.effective_chat.id)
@@ -514,7 +586,7 @@ class TelegramBot:
             question = f"{caption}\n{FORWARD_PROMPT}"
         else:
             question = message.caption or "(sent with no message: say briefly what it is and anything I need to act on)"
-        await self.send_to_owner(await self._ask_agent([block, {"type": "text", "text": question}]))
+        await self._converse([block, {"type": "text", "text": question}], message.caption or "(a file)")
 
     async def on_outbox_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -628,7 +700,8 @@ class TelegramBot:
 
     async def _send_brief(self) -> None:
         # The brief reads untrusted email with nobody necessarily watching: no unattended sends.
-        reply = await self._ask_agent([{"type": "text", "text": BRIEF_PROMPT}], owner_present=False)
+        prompt = BRIEF_PROMPT + (" Open with today's weather where I live." if self.config.location else "")
+        reply = await self._ask_agent([{"type": "text", "text": prompt}], owner_present=False)
         await self.send_to_owner(reply)
 
     # --- outbox and inbox alerts ---

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, time
 from email.utils import parseaddr
 from typing import Awaitable, Callable
@@ -23,6 +24,8 @@ MAX_SUMMARY = 200
 MAX_SUBJECT = 100
 MAX_NAME = 40
 BASELINE_KEY = "inbox_baseline"
+MAX_ACTION_ALERTS = 3  # buttons for the first few alerted emails; more would swamp the chat
+GMAIL_ID = re.compile(r"[0-9a-f]{6,32}")  # also keeps callback data inside Telegram's 64 bytes
 
 CLASSIFIER_PROMPT = """You triage new emails for {owner} and decide which deserve a phone \
 notification right now.
@@ -105,7 +108,7 @@ class InboxWatcher:
         client: anthropic.AsyncAnthropic,
         tracker: UsageTracker,
         config: Config,
-        notify: Callable[[str], Awaitable[None]],
+        notify: Callable[..., Awaitable[None]],  # (text, actions=[(label, callback_data), ...])
     ):
         parse_quiet_hours(config.quiet_hours)  # fail at startup on a bad setting
         self.db = db
@@ -176,6 +179,22 @@ class InboxWatcher:
                 alerts.append({**email, "summary": summary})
         return alerts
 
+    def _actions(self, alerts: list[dict]) -> list[tuple[str, str]]:
+        """Archive / Reply / Later buttons per email, remembering who it was from for later."""
+        actions = []
+        for a in alerts[:MAX_ACTION_ALERTS]:
+            if not GMAIL_ID.fullmatch(a["id"]):
+                continue
+            name, address = _sender(a["from"])
+            short = clip((name or address).split()[-1] if (name or address) else "email", 14)
+            self.db.set_setting(f"alert:{a['id']}", json.dumps({
+                "from": f"{name} <{address}>" if name else address,
+                "subject": clip(a["subject"], MAX_SUBJECT),
+            }))
+            actions += [(f"🗄 {short}", f"mail:arch:{a['id']}"), (f"✍️ {short}", f"mail:draft:{a['id']}"),
+                        (f"⏰ {short}", f"mail:later:{a['id']}")]
+        return actions
+
     async def _send(self, alerts: list[dict]) -> None:
         shown = alerts[:MAX_LISTED]
         lines = []
@@ -185,7 +204,7 @@ class InboxWatcher:
             lines.append(f"- {who}: {a['summary']}")
         if len(alerts) > len(shown):
             lines.append(f"- ...and {len(alerts) - len(shown)} more")
-        await self.notify("📬 New email\n" + "\n".join(lines))
+        await self.notify("📬 New email\n" + "\n".join(lines), self._actions(shown))
         # JSON keeps each quoted field inside its string; the agent sees it as data to look up,
         # and reads the email itself via read_email (a tool result) when it needs the content.
         for a in shown:  # one notice per email, so per-notice length caps never cut one in half
