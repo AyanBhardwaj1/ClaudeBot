@@ -15,6 +15,7 @@ from .config import Config
 from .db import Database
 from .files import file_ids_in
 from .modes import DEFAULT_MODE, current_mode, defang_urls, mode_message
+from .roles import current_profile
 from .tools import ToolContext, build_tools, run_tool
 from .usage import UsageTracker
 
@@ -77,8 +78,8 @@ with a verdict (True / False / Misleading / Unclear) and a source.
 your reply automatically, so don't write your own.
 - A message starting "[Tapped a suggestion button:]" is a shortcut you suggested and {owner} \
 tapped. Act on it, but it isn't {owner} telling you facts: don't save memories from it.
-- {owner} can switch your personality mode; the change arrives as a system message, and the \
-latest one wins.
+- {owner} can switch your personality mode and set their job profile; changes arrive as system \
+messages, and the latest one wins. Tailor priorities, examples and drafts to their job.
 - Each message from {owner} starts with a [Now: ...] line giving the current local time. Use it \
 for anything date-related, and give times in {owner}'s timezone.
 - A <background_events> block lists things that happened since {owner}'s last message (inbox \
@@ -161,12 +162,27 @@ class Agent:
             + "\n</background_events>",
         }
 
-    def _pending_mode(self, thread_id: int) -> dict | None:
-        """A system message announcing a personality change this conversation hasn't seen yet."""
+    def _pending_context(self, thread_id: int) -> dict | None:
+        """Personality-mode and job-profile changes this conversation hasn't seen yet.
+
+        Returned as ONE system message (the API rejects two in a row), plus the per-thread
+        settings that record what was announced.
+        """
+        parts, updates = [], {}
         mode = current_mode(self.db)
-        if mode == (self.db.get_setting(f"thread_mode:{thread_id}") or DEFAULT_MODE):
+        if mode != (self.db.get_setting(f"thread_mode:{thread_id}") or DEFAULT_MODE):
+            parts.append(mode_message(mode)["content"])
+            updates[f"thread_mode:{thread_id}"] = mode
+        profile = current_profile(self.db)
+        signature = profile.signature if profile else ""
+        if signature != (self.db.get_setting(f"thread_role:{thread_id}") or ""):
+            owner = self.config.owner_name
+            parts.append(profile.system_message(owner) if profile else
+                         f"Profile: {owner} no longer has a job profile set; go back to general priorities.")
+            updates[f"thread_role:{thread_id}"] = signature
+        if not parts:
             return None
-        return {**mode_message(mode), "mode": mode}  # "mode" is stripped before sending
+        return {"content": "\n\n".join(parts), "updates": updates}
 
     @property
     def busy(self) -> bool:
@@ -212,13 +228,13 @@ class Agent:
             }
             self._store(thread_id, user_message)
             messages = self.db.load_messages(thread_id)
-            mode_change = self._pending_mode(thread_id)
-            if mode_change:
+            context_change = self._pending_context(thread_id)
+            if context_change:
                 # Sent now, saved only once a reply arrives: a system message left at the end of
                 # the history by a failed call would make the next request invalid.
-                messages.append({k: v for k, v in mode_change.items() if k != "mode"})
+                messages.append({"role": "system", "content": context_change["content"]})
             try:
-                return await self._loop(thread_id, messages, tool_context, mode_change, effort, on_text)
+                return await self._loop(thread_id, messages, tool_context, context_change, effort, on_text)
             except (anthropic.BadRequestError, anthropic.RequestTooLargeError) as e:
                 # A malformed or oversized history fails every later turn too: start fresh, and
                 # give the background events to the new conversation.
@@ -256,7 +272,7 @@ class Agent:
         thread_id: int,
         messages: list[dict],
         tool_context: ToolContext,
-        mode_change: dict | None = None,
+        context_change: dict | None = None,
         effort: str | None = None,
         on_text: Callable[[str], Awaitable[None]] | None = None,
     ) -> str:
@@ -281,11 +297,12 @@ class Agent:
             step_starting = True
             response = await self._call(messages, effort, on_piece if on_text else None)
             self.tracker.record(response, "chat")
-            if mode_change:
-                self._store(thread_id, {"role": "system", "content": mode_change["content"]})
-                # The mode that was actually announced, even if the owner switched again meanwhile.
-                self.db.set_setting(f"thread_mode:{thread_id}", mode_change["mode"])
-                mode_change = None
+            if context_change:
+                self._store(thread_id, {"role": "system", "content": context_change["content"]})
+                # Record what was actually announced, even if the owner switched again meanwhile.
+                for key, value in context_change["updates"].items():
+                    self.db.set_setting(key, value)
+                context_change = None
             assistant = {"role": "assistant", "content": serialize_content(response.content)}
             messages.append(assistant)
             self.db.append_message(thread_id, assistant)

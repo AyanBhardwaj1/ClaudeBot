@@ -12,6 +12,7 @@ import anthropic
 
 from .config import Config
 from .modes import contains_url
+from .roles import Profile
 from .usage import BudgetExceeded, UsageTracker
 
 log = logging.getLogger(__name__)
@@ -56,7 +57,12 @@ def _clean(items) -> list[str]:
 
 
 async def suggest_followups(
-    client: anthropic.AsyncAnthropic, tracker: UsageTracker, config: Config, question: str, answer: str
+    client: anthropic.AsyncAnthropic,
+    tracker: UsageTracker,
+    config: Config,
+    question: str,
+    answer: str,
+    profile: "Profile | None" = None,
 ) -> list[str]:
     try:
         tracker.check_budget()
@@ -66,7 +72,8 @@ async def suggest_followups(
             system=FOLLOWUP_PROMPT.format(owner=config.owner_name),
             messages=[{
                 "role": "user",
-                "content": f"<message>{question[:MAX_QUESTION_CHARS]}</message>\n"
+                "content": (f"<owner_job>{profile.describe()}</owner_job>\n" if profile else "")
+                           + f"<message>{question[:MAX_QUESTION_CHARS]}</message>\n"
                            f"<reply>{answer[:MAX_ANSWER_CHARS]}</reply>",
             }],
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},

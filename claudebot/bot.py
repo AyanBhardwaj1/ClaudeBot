@@ -45,6 +45,14 @@ from .inbox_watch import InboxWatcher
 from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
 from .reminders import next_occurrence, previous_window
+from .roles import (
+    Profile,
+    clear_role,
+    current_profile,
+    pick_role,
+    role_keyboard,
+    set_role,
+)
 from .tools import ToolContext
 from .ui import (
     LivePreview,
@@ -66,11 +74,13 @@ BRIEF_PROMPT = (
     "Keep it tight."
 )
 FORWARD_PROMPT = "(I forwarded this.)"
+ROLE_HINT = "Or describe it: /role nurse in the ER, /role student CS at UT Austin, /role product manager"
 PRIVATE_COMMANDS = [
     BotCommand("brief", "Daily brief now"),
     BotCommand("think", "Think as hard as possible about one question"),
     BotCommand("research", "Deep research on a question"),
     BotCommand("mode", "Switch personality (fun, brief, deep...)"),
+    BotCommand("role", "Tell me your job so I can tailor everything to it"),
     BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
@@ -80,6 +90,15 @@ GROUP_COMMANDS = [
     BotCommand("enable", "Let me answer when tagged here (owner only)"),
     BotCommand("disable", "Stop answering here (owner only)"),
 ]
+
+
+def brief_prompt(config: Config, profile: Profile | None) -> str:
+    prompt = BRIEF_PROMPT
+    if config.location:
+        prompt += " Open with today's weather where I live."
+    if profile:
+        prompt += f" Since my job is {profile.describe()}, also cover {profile.role.brief_focus}."
+    return prompt
 
 
 def task_prompt(reminder_id: int, text: str) -> str:
@@ -230,6 +249,7 @@ class TelegramBot(ButtonHandlers):
         self.app.add_handler(CommandHandler("brief", self.on_brief, filters=owner))
         self.app.add_handler(CommandHandler("usage", self.on_usage, filters=owner))
         self.app.add_handler(CommandHandler("mode", self.on_mode, filters=owner))
+        self.app.add_handler(CommandHandler("role", self.on_role, filters=owner))
         self.app.add_handler(CommandHandler("research", self.on_research, filters=owner))
         self.app.add_handler(CommandHandler("think", self.on_think, filters=owner))
         self.app.add_handler(CommandHandler("briefings", self.on_briefings, filters=owner))
@@ -242,6 +262,7 @@ class TelegramBot(ButtonHandlers):
         )
         self.app.add_handler(CallbackQueryHandler(self.on_briefing_cancel, pattern=r"^unbrief:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_mode_button, pattern=r"^mode:\w+$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_role_button, pattern=r"^role:\w+$"))
         self.app.add_handler(CommandHandler("enable", self.on_group_enable, filters=owner_in_group))
         self.app.add_handler(CommandHandler("disable", self.on_group_disable, filters=owner_in_group))
         self.app.add_handler(
@@ -322,7 +343,9 @@ class TelegramBot(ButtonHandlers):
         last = await self.send_to_owner(reply)
         if not ok or last is None or not self._followups_on():
             return
-        suggestions = await suggest_followups(self.client, self.tracker, self.config, question, reply)
+        suggestions = await suggest_followups(
+            self.client, self.tracker, self.config, question, reply, current_profile(self.db)
+        )
         if suggestions:
             try:
                 await last.edit_reply_markup(followup_keyboard(self.db, suggestions))
@@ -404,6 +427,7 @@ class TelegramBot(ButtonHandlers):
             "I'll also ping you when important email arrives.\n\n"
             "- (forward any message) is this true?\n"
             "- /research best budget laptop for CS\n\n"
+            "/role tells me your job so I can tailor everything to it, "
             "/mode switches my personality (try fun), /think for hard questions, /memory shows "
             "what I remember, /new starts fresh, /brief gives you the daily brief, /usage shows "
             "what I've cost you. Add me to a group and send /enable there, and people can tag "
@@ -466,6 +490,41 @@ class TelegramBot(ButtonHandlers):
         label = MODES[current_mode(self.db)][0]
         await query.answer(label)
         await query.edit_message_text(f"Mode: {label}")
+
+    async def on_role(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        message = update.effective_message
+        text = " ".join(context.args or [])
+        if text.lower() in ("off", "clear", "none"):
+            clear_role(self.db)
+            await message.reply_text("Job profile cleared. Back to general priorities.")
+            return
+        if text:
+            await self._role_set(set_role(self.db, text))
+            return
+        profile = current_profile(self.db)
+        current = f"Your job: {profile.describe()}." if profile else "No job set yet."
+        await message.reply_text(
+            f"{current} Pick one and I'll tailor your inbox alerts, daily brief and answers to it.\n\n{ROLE_HINT}",
+            reply_markup=role_keyboard(),
+        )
+
+    async def on_role_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        profile = pick_role(self.db, query.data.split(":")[1]) if query.from_user.id == self.config.owner_id else None
+        if profile is None:
+            await query.answer()
+            return
+        await query.answer(profile.role.label)
+        await query.edit_message_text(f"Job: {profile.role.label}")
+        await self._role_set(profile)
+
+    async def _role_set(self, profile: Profile) -> None:
+        """Confirm, and offer one-tap starters for the job."""
+        await self.send_to_owner(
+            f"Got it: {profile.describe()}. Inbox alerts, your daily brief and my answers now "
+            "fit your job. Some things to try:",
+            followup_keyboard(self.db, list(profile.role.starters)),
+        )
 
     async def on_think(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         question = " ".join(context.args or [])
@@ -703,7 +762,7 @@ class TelegramBot(ButtonHandlers):
 
     async def _send_brief(self) -> None:
         # The brief reads untrusted email with nobody necessarily watching: no unattended sends.
-        prompt = BRIEF_PROMPT + (" Open with today's weather where I live." if self.config.location else "")
+        prompt = brief_prompt(self.config, current_profile(self.db))
         reply = await self._ask_agent([{"type": "text", "text": prompt}], owner_present=False)
         await self.send_to_owner(reply)
 

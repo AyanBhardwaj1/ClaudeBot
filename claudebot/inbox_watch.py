@@ -12,6 +12,7 @@ import anthropic
 
 from .config import Config
 from .db import Database
+from .roles import current_profile
 from .usage import BudgetExceeded, UsageTracker
 
 log = logging.getLogger(__name__)
@@ -151,13 +152,17 @@ class InboxWatcher:
             {"id": e["id"], "from": e["from"], "subject": e["subject"], "snippet": e["snippet"]}
             for e in emails
         ]
+        owner = self.config.owner_name
+        profile = current_profile(self.db)
+        job = (f"{owner}'s job: {profile.describe()}. For this job, also notify for: "
+               f"{profile.role.inbox_priorities}.\n\n") if profile else ""
         response = await self.client.messages.create(
             model=self.config.fast_model,
             max_tokens=8000,
             system=CLASSIFIER_PROMPT.format(owner=self.config.owner_name),
             messages=[{
                 "role": "user",
-                "content": f"What I know about {self.config.owner_name}:\n{memories}\n\n"
+                "content": f"{job}What I know about {owner}:\n{memories}\n\n"
                            f"<emails>{json.dumps(payload, ensure_ascii=False)}</emails>",
             }],
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": CLASSIFIER_SCHEMA}},

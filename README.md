@@ -53,6 +53,17 @@ When numbers are easier to see than read, ClaudeBot draws a chart (line, bar, ho
 
 `/mode` switches how ClaudeBot talks: **😈 Fun** (witty, roasty, opinionated, like Grok's fun mode), **⚡ Brief** (one-liners), **🧠 Deep** (thorough, with sources) or **😌 Default**. It sticks until you change it. Emails it writes always stay in your own voice.
 
+### Made for your job
+
+Tell ClaudeBot what you do with `/role` and everything adapts: pick a preset (🎓 Student, 💻 Engineer, 🚀 Founder, 📈 Sales, 🩺 Healthcare, ⚖️ Legal, 🍎 Teacher, 🎬 Creator, 💹 Finance) or describe your job in your own words (`/role nurse in the ER`, `/role product manager at Stripe`). Your job shapes:
+
+- **Answers and drafts**: a student gets study plans and quizzes (not homework written for them), an engineer gets precise technical answers, a founder gets crisp numbers-first drafts.
+- **Inbox alerts**: what counts as important, e.g. professors and deadline changes for a student, incidents and code reviews for an engineer.
+- **The daily brief**: it adds what matters for your job, e.g. exams due this week, or investor emails waiting on you.
+- **Suggestions**: follow-up buttons fit your work, and picking a role offers one-tap starters such as a weekly news briefing for your field.
+
+`/role off` clears it.
+
 ### Group mode: "@ClaudeBot is this true?"
 
 Add ClaudeBot to a Telegram group and send `/enable` there (only you can). Anyone in the group can then tag it or reply to it to ask questions or fact-check a message, like asking Grok under a post. In groups it only has web search: it can't see your email, calendar, memories or conversations, and it caps itself at `GROUP_DAILY_LIMIT` answers per group per day and `GROUP_MONTHLY_BUDGET_USD` ($5 by default) per month across all groups, so friends can't run up your bill or use up your own assistant's budget. `/disable` turns it off.
@@ -119,7 +130,7 @@ ClaudeBot only works while `python -m claudebot` is running. Options:
 - `/new` starts a fresh conversation (saved memories carry over). ClaudeBot also does this on its own after `NEW_THREAD_AFTER_HOURS` of silence.
 - `/brief` gives your daily brief now.
 - `/usage` shows estimated Claude API spend today and this month.
-- `/mode` switches personality; `/research <question>` runs a deep dive; `/think <question>` reasons at maximum effort; `/briefings` lists and cancels scheduled briefings.
+- `/role` tells ClaudeBot your job; `/mode` switches personality; `/research <question>` runs a deep dive; `/think <question>` reasons at maximum effort; `/briefings` lists and cancels scheduled briefings.
 - `/memory` shows and deletes what ClaudeBot remembers; `/followups on|off` toggles suggestion buttons.
 - In a group: `/enable` / `/disable` (owner only).
 
@@ -162,6 +173,7 @@ All in `.env` (see `.env.example`):
 | `claudebot/files.py` | PDFs, text files and images to Claude, via the Anthropic Files API |
 | `claudebot/usage.py` | Cost estimates and the monthly budget |
 | `claudebot/modes.py` | Personality modes |
+| `claudebot/roles.py` | Job profiles |
 | `claudebot/web_agent.py` | Deep research, briefings and other web-only requests |
 | `claudebot/charts.py` | Chart drawing |
 | `claudebot/workbench.py` | Code execution sandbox with Word/Excel/PowerPoint/PDF skills |
