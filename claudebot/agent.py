@@ -306,6 +306,10 @@ class Agent:
             assistant = {"role": "assistant", "content": serialize_content(response.content)}
             messages.append(assistant)
             self.db.append_message(thread_id, assistant)
+            if any(b.type == "compaction" for b in response.content):
+                # The summary replaces earlier messages, mode and profile included: announce them again.
+                self.db.delete_setting(f"thread_mode:{thread_id}")
+                self.db.delete_setting(f"thread_role:{thread_id}")
             # Cited text arrives as several blocks: join them as one passage, with [n] markers.
             text = "".join(sources.mark(b) for b in response.content if b.type == "text").strip()
             if text:

@@ -242,8 +242,13 @@ class TelegramBot(ButtonHandlers):
         owner = filters.User(user_id=self.config.owner_id) & filters.ChatType.PRIVATE
         # New messages only: an edit to an old message shouldn't re-run (and re-bill) it.
         new_owner_message = owner & filters.UpdateType.MESSAGE
-        owner = new_owner_message  # commands too: editing "/research ..." shouldn't run it again
-        owner_in_group = filters.User(user_id=self.config.owner_id) & filters.ChatType.GROUPS & filters.UpdateType.MESSAGE
+        # Commands: not from edits (editing "/research ..." shouldn't run it again), and not from
+        # forwards, whose text is someone else's ("/role ..." would plant their words in a profile).
+        owner = new_owner_message & ~filters.FORWARDED
+        owner_in_group = (
+            filters.User(user_id=self.config.owner_id) & filters.ChatType.GROUPS
+            & filters.UpdateType.MESSAGE & ~filters.FORWARDED
+        )
         self.app.add_handler(CommandHandler("start", self.on_start, filters=owner))
         self.app.add_handler(CommandHandler("new", self.on_new, filters=owner))
         self.app.add_handler(CommandHandler("brief", self.on_brief, filters=owner))
@@ -274,8 +279,11 @@ class TelegramBot(ButtonHandlers):
         self.app.add_handler(CallbackQueryHandler(self.on_outbox_button, pattern=r"^(undo|send):\d+$"))
         self.app.add_handler(MessageHandler(new_owner_message & filters.PHOTO, self.on_photo))
         self.app.add_handler(MessageHandler(new_owner_message & filters.Document.ALL, self.on_document))
-        self.app.add_handler(MessageHandler(owner & (filters.VOICE | filters.AUDIO), self.on_voice))
-        self.app.add_handler(MessageHandler(new_owner_message & filters.TEXT & ~filters.COMMAND, self.on_text))
+        self.app.add_handler(MessageHandler(new_owner_message & (filters.VOICE | filters.AUDIO), self.on_voice))
+        # A forwarded "/command" is just someone's text: it goes to on_text, fenced as a forward.
+        self.app.add_handler(
+            MessageHandler(new_owner_message & filters.TEXT & (~filters.COMMAND | filters.FORWARDED), self.on_text)
+        )
         # Everyone else is ignored silently.
 
     async def _post_init(self, app: Application) -> None:
@@ -498,8 +506,9 @@ class TelegramBot(ButtonHandlers):
             clear_role(self.db)
             await message.reply_text("Job profile cleared. Back to general priorities.")
             return
-        if text:
-            await self._role_set(set_role(self.db, text))
+        profile = set_role(self.db, text) if text else None
+        if profile:
+            await self._role_set(profile)
             return
         profile = current_profile(self.db)
         current = f"Your job: {profile.describe()}." if profile else "No job set yet."

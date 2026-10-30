@@ -157,10 +157,12 @@ class Profile:
         return f"Profile: {owner}'s job is {self.describe()}. {self.role.guidance}"
 
 
-def set_role(db: Database, text: str) -> Profile:
-    """From "/role student CS at UT Austin", "nurse", or any job description."""
+def set_role(db: Database, text: str) -> Profile | None:
+    """From "/role student CS at UT Austin", "nurse", or any job description. None if empty."""
     cleaned = _clean(text)
     words = cleaned.split()
+    if not words:
+        return None
     key, used = None, 0
     for size in (2, 1):  # "software engineer at Google" before "software ..."
         if len(words) >= size and " ".join(words[:size]).lower() in ALIASES:
