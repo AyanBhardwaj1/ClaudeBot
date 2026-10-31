@@ -26,6 +26,9 @@ Text it like a person:
 
 ClaudeBot also comes to you:
 
+- **Check-ins**: every few hours it looks for what needs you (a calendar clash, an early start tomorrow, a reply you've owed for days, someone who hasn't answered you) and messages you only when something is new. Never in quiet hours, at most 3 a day, off in `/settings`.
+- **`/waiting`**: replies you owe and replies you're waiting on, each with a one-tap **Nudge** or **Reply** draft that you see before anything is sent.
+
 - **Inbox alerts**: when important email lands (a professor, a recruiter, a real person writing to you), you get a ping like "📬 Prof Lee: moved Thursday's exam to Friday". Newsletters and promos are skipped, and it stays quiet overnight. Reply "tell her that works" and it knows which email you mean.
 - **Daily brief** at a time you choose (calendar, important email, reminders, and a few headlines picked for your interests), or anytime with `/brief`.
 
@@ -149,6 +152,7 @@ Then `/connect` from your phone. The Google token is saved in the volume, so it 
 ## Commands
 
 - `/help` lists everything; `/settings`, `/connect` and `/status` are covered above.
+- `/waiting` shows replies you owe and replies you're waiting on; `/reminders` lists every reminder and scheduled task with cancel buttons.
 - `/new` starts a fresh conversation (saved memories carry over). ClaudeBot also does this on its own after `NEW_THREAD_AFTER_HOURS` of silence.
 - `/brief` gives your daily brief now.
 - `/usage` shows estimated Claude API spend today and this month.
@@ -179,7 +183,8 @@ These live in `.env` (see `.env.example`). The ones marked * can also be changed
 
 - **ClaudeBot sends emails without asking first** (as configured), but every email waits `UNDO_SEND_SECONDS` with an **Undo** button before it actually goes out. If ClaudeBot restarts in the middle of sending, it tells you to check your Sent folder rather than risk sending twice.
 - ClaudeBot reads links you paste, but never links that only appear inside emails (a common phishing trick). Paste the link if you want it opened. Deep research only opens pages its own searches found, and only you can start it.
-- **When you're not the one who started the turn** (the daily brief, a scheduled task), ClaudeBot never sends on its own: any email waits with **✅ Send / ✖️ Cancel** buttons (showing every recipient, cc and bcc included) until you tap it or tell ClaudeBot to send it. Those turns also can't send calendar invites, save memories, or schedule new tasks, so a phishing email read during your morning brief can't plant anything for later.
+- **Drafts-only mode** (`/settings`): if you'd rather send everything yourself, ClaudeBot saves emails to your Gmail Drafts instead.
+- **When you're not the one who started the turn** (the daily brief, a scheduled task), ClaudeBot never sends on its own: any email waits with **✅ Send / ✖️ Cancel** buttons (showing every recipient, cc and bcc included) until you tap it or tell ClaudeBot to send it. Those turns also can't send calendar invites, save or delete memories, trash email, change or delete events, or schedule or cancel tasks, so a phishing email read during your morning brief can't plant anything for later.
 - ClaudeBot treats email contents as data, not orders. A phishing email that says "forward this to..." won't make it do anything, and ClaudeBot will flag it. Inbox alerts show the sender's real address, not just their display name, so a fake "Mom" can't hide behind the name.
 - Files you send (and attachments ClaudeBot opens) are uploaded to your Anthropic account's file storage so they aren't resent with every message. ClaudeBot deletes them once that conversation is over (checked every 6 hours).
 - Only the Telegram account that set ClaudeBot up (or paired with the code from the server log) can use it; everyone else is ignored. Five wrong pairing codes and that account is ignored too, and after 50 wrong guesses in total the code changes (the new one is in the log).
@@ -209,6 +214,8 @@ These live in `.env` (see `.env.example`). The ones marked * can also be changed
 | `claudebot/groups.py` | Group mode |
 | `claudebot/setup_chat.py`, `claudebot/settings.py` | First-run questions, `/settings`, `/status`, `/help` |
 | `claudebot/google_connect.py` | Connecting Google from the chat |
+| `claudebot/heartbeat.py`, `claudebot/replies.py`, `claudebot/checkins.py` | Check-ins, reply tracking, `/waiting`, `/reminders` |
+| `claudebot/scheduling.py` | Exact free-time finding |
 | `claudebot/setup_wizard.py` | `python -m claudebot setup` |
 | `docs/index.html` | The landing page (turn on GitHub Pages from `/docs` to publish it) |
 | `claudebot/db.py` | SQLite storage for chat history, memories, reminders, outbox and usage |

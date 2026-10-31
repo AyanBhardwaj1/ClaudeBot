@@ -24,9 +24,11 @@ from .google_connect import (
     save_client,
     start,
 )
+from .heartbeat import CHECKINS_KEY
 from .modes import MODES, current_mode
 from .roles import ROLES, current_profile, pick_role, set_role
 from .settings import FIELDS, ONBOARDED_KEY, InvalidSetting, resolve_place, save
+from .tools import DRAFTS_ONLY_KEY
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +44,8 @@ WELCOME = (
     "- what's on my calendar tomorrow?\n"
     "- remind me at 6pm to call mom\n"
     "- every Friday at 5pm, brief me on AI news\n"
+    "- when am I free for an hour on Thursday?\n"
+    "- (send a photo of a flyer or ticket) add this to my calendar\n"
     "- (send a PDF or photo) what's due in this?\n"
     "- (forward any message) is this true?\n\n"
     "I'll ping you when important email arrives. /help lists everything I can do."
@@ -51,6 +55,8 @@ HELP = (
     "Talk to me like a person: ask, tell me to do things, forward messages, send photos and files.\n\n"
     "Everyday\n"
     "/brief – your daily brief now\n"
+    "/waiting – replies you owe, and replies you're waiting on\n"
+    "/reminders – everything I'll remind you of (tap to cancel)\n"
     "/briefings – scheduled news briefings\n"
     "/memory – what I remember (tap to forget)\n"
     "/new – start a fresh conversation\n\n"
@@ -303,6 +309,8 @@ class SetupHandlers:
             f"↩️ Undo window: {c.undo_send_seconds}s\n"
             f"💰 Budget: {budget}\n"
             f"💬 Suggestions: {'on' if self._followups_on() else 'off'}\n"
+            f"👋 Check-ins: {'off' if self.db.get_setting(CHECKINS_KEY) == 'off' else 'on'}\n"
+            f"✉️ Email: {'drafts only' if self.db.get_setting(DRAFTS_ONLY_KEY) == 'on' else 'send with Undo'}\n"
             f"🔗 Google: {'connected' if self.google.is_connected() else 'not connected'}\n\n"
             "Tap to change:"
         )
@@ -312,7 +320,8 @@ class SetupHandlers:
             [("👤 Name", "set:name"), ("📍 Location", "set:place"), ("💼 Job", "set:role")],
             [("🎭 Mode", "set:mode"), ("☀️ Brief", "set:brief"), ("🌙 Quiet hours", "set:quiet")],
             [("📬 Alerts on/off", "set:alerts"), ("↩️ Undo", "set:undo"), ("💰 Budget", "set:budget")],
-            [("💬 Suggestions on/off", "set:followups"), ("🔗 Google", "set:google")],
+            [("💬 Suggestions on/off", "set:followups"), ("👋 Check-ins on/off", "set:checkins")],
+            [("✉️ Send / drafts only", "set:drafts"), ("🔗 Google", "set:google")],
         ])
 
     async def on_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -363,6 +372,18 @@ class SetupHandlers:
         elif key == "followups":
             self.db.set_setting("followups", "off" if self._followups_on() else "on")
             await self.send_to_owner(f"Suggestions {'on' if self._followups_on() else 'off'}.")
+        elif key == "checkins":
+            on = self.db.get_setting(CHECKINS_KEY) == "off"
+            self.db.set_setting(CHECKINS_KEY, "on" if on else "off")
+            await self.send_to_owner(
+                "👋 Check-ins on: I'll message you when something needs you (at most 3 a day)." if on
+                else "Check-ins off. /waiting still shows what needs a reply.")
+        elif key == "drafts":
+            drafts = self.db.get_setting(DRAFTS_ONLY_KEY) != "on"
+            self.db.set_setting(DRAFTS_ONLY_KEY, "on" if drafts else "off")
+            await self.send_to_owner(
+                "✉️ Drafts only: emails I write go to your Gmail Drafts, and you send them yourself." if drafts
+                else "✉️ Emails send after the Undo window again.")
         elif key == "google":
             await self._connect_start()
 

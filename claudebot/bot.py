@@ -31,6 +31,7 @@ from telegram.ext import (
 
 from .agent import Agent, ConversationReset
 from .buttons import ButtonHandlers
+from .checkins import CheckinHandlers
 from .config import Config
 from .db import Database
 from .files import (
@@ -41,8 +42,9 @@ from .files import (
     is_workbench_file,
 )
 from .followups import suggest_followups
-from .google_services import Google, GoogleNotConnected
+from .google_services import Google
 from .groups import GroupResponder
+from .heartbeat import HEARTBEAT_HOURS
 from .inbox_watch import InboxWatcher
 from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
@@ -86,6 +88,8 @@ PRIVATE_COMMANDS = [
     BotCommand("research", "Deep research on a question"),
     BotCommand("mode", "Switch personality (fun, brief, deep...)"),
     BotCommand("role", "Tell me your job so I can tailor everything to it"),
+    BotCommand("reminders", "Your reminders and scheduled tasks"),
+    BotCommand("waiting", "Replies you owe, and replies you're waiting on"),
     BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
@@ -192,7 +196,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -231,7 +235,6 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
         )
         self.watcher = InboxWatcher(self.db, google, client, self.tracker, config, self.send_alert)
         self.groups = GroupResponder(self.db, client, self.tracker, config)
-        self._warned_google_missing = False
         # Updates are handled concurrently (so button taps aren't stuck behind a reply), but the
         # owner's messages must reach the agent in the order sent: a file, then "what's due in this?".
         # Each message handler takes this FIFO lock before its first await.
@@ -286,6 +289,8 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
         self.app.add_handler(CommandHandler("research", self.on_research, filters=owner))
         self.app.add_handler(CommandHandler("think", self.on_think, filters=owner))
         self.app.add_handler(CommandHandler("briefings", self.on_briefings, filters=owner))
+        self.app.add_handler(CommandHandler("reminders", self.on_reminders, filters=owner))
+        self.app.add_handler(CommandHandler("waiting", self.on_waiting, filters=owner))
         self.app.add_handler(CommandHandler("memory", self.on_memory, filters=owner))
         self.app.add_handler(CommandHandler("followups", self.on_followups_toggle, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_memory_delete, pattern=r"^mem:del:\d+$"))
@@ -294,6 +299,11 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
             CallbackQueryHandler(self.on_mail_action, pattern=r"^mail:(arch|draft|later):[0-9a-f]{6,32}$")
         )
         self.app.add_handler(CallbackQueryHandler(self.on_briefing_cancel, pattern=r"^unbrief:\d+$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_reminder_cancel, pattern=r"^unrem:\d+$"))
+        self.app.add_handler(
+            CallbackQueryHandler(self.on_reply_tracking, pattern=r"^rt:(nudge|reply):[0-9a-f]{6,32}$")
+        )
+        self.app.add_handler(CallbackQueryHandler(self.on_checkin_button, pattern=r"^chk:waiting$"))
         self.app.add_handler(CallbackQueryHandler(self.on_mode_button, pattern=r"^mode:\w+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_role_button, pattern=r"^role:\w+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_onboard_button, pattern=r"^ob:\w+(:\w+)?$"))
@@ -338,6 +348,9 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
             app.job_queue.run_repeating(
                 self._inbox_job, interval=self.config.inbox_check_minutes * 60, first=30, name="inbox-watch"
             )
+        app.job_queue.run_repeating(
+            self._heartbeat_job, interval=HEARTBEAT_HOURS * 3600, first=15 * 60, name="check-ins"
+        )
         app.job_queue.run_repeating(
             self._cleanup_job, interval=UPLOAD_CLEANUP_HOURS * 3600, first=60, name="file-cleanup"
         )
@@ -866,12 +879,3 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
         if deleted:
             log.info("Deleted %d uploaded files from finished conversations", deleted)
 
-    async def _inbox_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
-        try:
-            await self.watcher.check()
-        except GoogleNotConnected:
-            if not self._warned_google_missing:
-                log.warning("Inbox alerts are on but Google isn't connected yet.")
-                self._warned_google_missing = True
-        except Exception:
-            log.exception("Inbox check failed")

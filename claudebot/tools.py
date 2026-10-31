@@ -8,7 +8,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from typing import Awaitable, Callable
 from zoneinfo import ZoneInfo
 
@@ -17,7 +17,8 @@ from googleapiclient.errors import HttpError
 from .charts import CHART_TYPES, ChartError, render_chart, validate_spec
 from .db import Database
 from .files import UnsupportedFile, to_content_block
-from .google_services import Google, GoogleNotConnected
+from .google_services import MAX_EVENTS, Google, GoogleNotConnected
+from .scheduling import busy_from_events, free_slots
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +49,9 @@ class ToolContext:
     # untrusted email with nobody watching, so anything that reaches other people or plants
     # instructions for later needs the owner.
     owner_present: bool = True
+
+
+DRAFTS_ONLY_KEY = "drafts_only"  # /settings: "on" saves emails as Gmail drafts instead of sending
 
 
 class NeedsOwner(PermissionError):
@@ -158,10 +162,32 @@ CLIENT_TOOLS = [
         "name": "list_calendar_events",
         "description": (
             "List events on the owner's primary Google Calendar between two ISO-8601 datetimes "
-            "(owner's local time if no offset is given)."
+            "(owner's local time if no offset is given). Returns up to max_results (default 50, "
+            "max 250); for free time use find_free_time instead of working it out from this list."
         ),
         "input_schema": _schema(
-            {"start": {"type": "string"}, "end": {"type": "string"}}, ["start", "end"]
+            {"start": {"type": "string"}, "end": {"type": "string"},
+             "max_results": {"type": "integer", "minimum": 1, "maximum": 250}},
+            ["start", "end"],
+        ),
+    },
+    {
+        "name": "find_free_time",
+        "description": (
+            "Find open slots on the owner's calendar between two ISO-8601 datetimes, computed "
+            "exactly from their events, inside working hours (default 09:00-18:00 local). Use it "
+            "for \"when am I free\" and to propose meeting times."
+        ),
+        "input_schema": _schema(
+            {
+                "start": {"type": "string"},
+                "end": {"type": "string"},
+                "duration_minutes": {"type": "integer", "minimum": 5, "maximum": 600},
+                "max_slots": {"type": "integer", "minimum": 1, "maximum": 10},
+                "day_start": {"type": "string", "description": "HH:MM, default 09:00"},
+                "day_end": {"type": "string", "description": "HH:MM, default 18:00"},
+            },
+            ["start", "end", "duration_minutes"],
         ),
     },
     {
@@ -414,6 +440,27 @@ def _schedule(a: dict, ctx: ToolContext) -> tuple[str, datetime]:
     return repeat, when
 
 
+async def _find_free_time(a: dict, ctx: ToolContext) -> dict:
+    start, end = (datetime.fromisoformat(a[k]) for k in ("start", "end"))
+    start, end = (d if d.tzinfo else d.replace(tzinfo=ctx.tz) for d in (start, end))
+    if end <= start or end - start > timedelta(days=31):
+        raise ValueError("end must be after start, and at most 31 days later")
+    day_start = time.fromisoformat(a.get("day_start") or "09:00")
+    day_end = time.fromisoformat(a.get("day_end") or "18:00")
+    events = await asyncio.to_thread(
+        ctx.google.list_events, start.isoformat(), end.isoformat(), MAX_EVENTS)
+    truncated = len(events) >= MAX_EVENTS
+    if truncated:  # later busy time is unknown: only trust slots before the last event we saw
+        end = min(end, max(datetime.fromisoformat(e["start"]) if len(e["start"]) > 10 else end for e in events))
+    slots = free_slots(busy_from_events(events, ctx.tz), start, end,
+                       timedelta(minutes=int(a["duration_minutes"])), day_start, day_end, ctx.tz,
+                       limit=min(int(a.get("max_slots", 3)), 10))
+    return {"slots": [{"start": s.isoformat(), "end": e.isoformat()} for s, e in slots],
+            "note": "Computed from the calendar; none means no gap that long in working hours."
+                    + (" The calendar was too full to read past the last slot shown; ask about a shorter "
+                       "period for later times." if truncated else "")}
+
+
 async def _dispatch(name: str, a: dict, ctx: ToolContext):
     g = ctx.google
     email_args = lambda: dict(  # noqa: E731
@@ -437,6 +484,11 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
             block = to_content_block(data, mime_type, a["filename"])
         return ContentBlocks([{"type": "text", "text": f"Attachment {a['filename']}:"}, block])
     if name == "send_email":
+        if ctx.db.get_setting(DRAFTS_ONLY_KEY) == "on":
+            # The owner chose drafts-only in /settings: nothing leaves their outbox from here.
+            await asyncio.to_thread(g.create_draft, **email_args())
+            return {"status": "saved as a Gmail draft (not sent): drafts-only mode is on",
+                    "note": "Tell the owner it's in their Drafts folder, ready to send from Gmail."}
         return await ctx.send_email(email_args(), needs_approval=not ctx.owner_present)
     if name == "approve_held_email":
         _require_owner(ctx, "release a held email")
@@ -446,9 +498,18 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "create_draft":
         return await asyncio.to_thread(g.create_draft, **email_args())
     if name == "modify_email":
+        if a["action"] == "trash":
+            _require_owner(ctx, "trash emails")
         return await asyncio.to_thread(g.modify_email, a["message_id"], a["action"])
     if name == "list_calendar_events":
-        return await asyncio.to_thread(g.list_events, a["start"], a["end"])
+        limit = min(int(a.get("max_results", 50)), MAX_EVENTS)
+        events = await asyncio.to_thread(g.list_events, a["start"], a["end"], limit)
+        if len(events) >= limit:
+            return {"events": events, "truncated": True,
+                    "note": f"Only the first {limit} events; ask again for a shorter period to see the rest."}
+        return events
+    if name == "find_free_time":
+        return await _find_free_time(a, ctx)
     if name == "create_calendar_event":
         if a.get("attendees"):
             _require_owner(ctx, "send calendar invites")
@@ -462,9 +523,11 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
             a.get("attendees"),
         )
     if name == "update_calendar_event":
+        _require_owner(ctx, "change calendar events")
         fields = {k: a.get(k) for k in ("summary", "start", "end", "description", "location")}
         return await asyncio.to_thread(g.update_event, a["event_id"], **fields)
     if name == "delete_calendar_event":
+        _require_owner(ctx, "delete calendar events")
         return await asyncio.to_thread(g.delete_event, a["event_id"])
 
     if name == "deep_research":
@@ -481,6 +544,7 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "list_memories":
         return [{"id": m["id"], "fact": m["text"]} for m in ctx.db.list_memories()]
     if name == "forget":
+        _require_owner(ctx, "delete memories")
         return {"deleted": ctx.db.delete_memory(int(a["memory_id"]))}
 
     if name == "code_workbench":
@@ -539,6 +603,7 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
             for r in ctx.db.active_reminders()
         ]
     if name == "cancel_reminder":
+        _require_owner(ctx, "cancel reminders")
         reminder_id = int(a["reminder_id"])
         cancelled = ctx.db.deactivate_reminder(reminder_id)
         ctx.unschedule_reminder(reminder_id)

@@ -42,8 +42,8 @@ chat on a phone, so a few short lines usually beat paragraphs. Use plain text wi
 for lists; Telegram will not render markdown headings or tables.
 
 What you can do:
-- Gmail: search, read, send, draft, archive, trash, star and label emails, and open attachments.
-- Google Calendar: view, create, move and delete events.
+- Gmail: search, read, send, draft, archive, trash, star and mark emails important or read, and open attachments.
+- Google Calendar: view, create, move and delete events, and find free time exactly with `find_free_time`.
 - Memory: save lasting facts about {owner} and the people in their life with `remember`. Do this \
 on your own whenever you learn something worth keeping (contacts, preferences, routines).
 - Reminders and scheduled tasks: ping {owner} later, once or on repeat, or carry out an \

@@ -23,6 +23,7 @@ SCOPES = [
 ]
 
 MAX_BODY_CHARS = 15000
+MAX_EVENTS = 250
 
 
 class GoogleNotConnected(RuntimeError):
@@ -119,6 +120,35 @@ class Google:
                 }
             )
         return results
+
+    def thread_states(self, query: str, max_threads: int = 25) -> list[dict]:
+        """Who spoke last in each matching thread (drafts don't count): metadata only."""
+        gmail = self._gmail()
+        listing = gmail.users().threads().list(userId="me", q=query, maxResults=min(max(max_threads, 1), 50)).execute()
+        states = []
+        for ref in listing.get("threads", []):
+            thread = (
+                gmail.users().threads()
+                .get(userId="me", id=ref["id"], format="metadata", metadataHeaders=["From", "To", "Subject"])
+                .execute()
+            )
+            messages = [m for m in thread.get("messages", []) if "DRAFT" not in m.get("labelIds", [])]
+            if not messages:
+                continue
+            last = messages[-1]
+            headers = _headers(last)
+            states.append({
+                "thread_id": thread["id"],
+                "message_id": last["id"],
+                "from": headers.get("from", ""),
+                "to": headers.get("to", ""),
+                "subject": headers.get("subject", ""),
+                "snippet": html.unescape(last.get("snippet", "")),
+                "last_is_mine": "SENT" in last.get("labelIds", []),
+                "last_at": int(last.get("internalDate", "0")) / 1000,
+                "messages": len(messages),
+            })
+        return states
 
     def read_email(self, message_id: str) -> dict:
         msg = self._gmail().users().messages().get(userId="me", id=message_id, format="full").execute()
@@ -236,20 +266,26 @@ class Google:
 
     # --- calendar ---
 
-    def list_events(self, start: str, end: str, max_results: int = 25) -> list[dict]:
-        events = (
-            self._calendar()
-            .events()
-            .list(
+    def list_events(self, start: str, end: str, max_results: int = 50) -> list[dict]:
+        """Events in order, following pages up to max_results (at most MAX_EVENTS)."""
+        limit = min(max(max_results, 1), MAX_EVENTS)
+        events = self._calendar().events()
+        items: list[dict] = []
+        token = None
+        while len(items) < limit:
+            page = events.list(
                 calendarId="primary",
                 timeMin=self._to_datetime(start).isoformat(),
                 timeMax=self._to_datetime(end).isoformat(),
                 singleEvents=True,
                 orderBy="startTime",
-                maxResults=min(max(max_results, 1), 100),
-            )
-            .execute()
-        )
+                maxResults=min(limit - len(items), 100),
+                **({"pageToken": token} if token else {}),
+            ).execute()
+            items += page.get("items", [])
+            token = page.get("nextPageToken")
+            if not token:
+                break
         return [
             {
                 "id": e["id"],
@@ -259,8 +295,11 @@ class Google:
                 "location": e.get("location", ""),
                 "attendees": [a.get("email") for a in e.get("attendees", [])],
                 "description": (e.get("description") or "")[:500],
+                **({"transparency": e["transparency"]} if e.get("transparency") else {}),
+                **({"declined": True} if any(a.get("self") and a.get("responseStatus") == "declined"
+                                             for a in e.get("attendees", [])) else {}),
             }
-            for e in events.get("items", [])
+            for e in items[:limit]
         ]
 
     def create_event(
@@ -283,6 +322,8 @@ class Google:
             body["location"] = location
         if attendees:
             body["attendees"] = [{"email": a} for a in attendees]
+        if "date" in body["start"]:
+            body["transparency"] = "transparent"  # all-day notes ("Mom visiting") don't block the day
         event = (
             self._calendar()
             .events()

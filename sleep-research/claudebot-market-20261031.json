@@ -31,24 +31,36 @@
     },
     {
       "name": "triage",
-      "status": "running",
-      "accepted": false,
-      "at": "2026-10-31T09:17:36+00:00"
+      "status": "done",
+      "accepted": true,
+      "at": "2026-10-31T09:24:54+00:00",
+      "artifact": "sleep-research/IDEA_REPORT.md",
+      "verdict": "sleep-research/traces/triage/round1.md",
+      "reviewer": "same-family",
+      "accepted_at": "2026-10-31T09:24:54+00:00"
     },
     {
       "name": "pilots",
-      "status": "pending",
-      "accepted": false
+      "status": "skipped",
+      "accepted": false,
+      "at": "2026-10-31T09:37:32+00:00"
     },
     {
       "name": "plan",
-      "status": "pending",
-      "accepted": false
+      "status": "done",
+      "accepted": true,
+      "at": "2026-10-31T09:37:32+00:00",
+      "artifact": "sleep-research/PLAN.md",
+      "verdict": "sleep-research/traces/plan/round1.md",
+      "reviewer": "same-family",
+      "accepted_at": "2026-10-31T09:37:32+00:00"
     },
     {
       "name": "implement",
-      "status": "pending",
-      "accepted": false
+      "status": "done",
+      "accepted": false,
+      "at": "2026-10-31T09:37:33+00:00",
+      "artifact": "tests/test_release_11.py"
     },
     {
       "name": "audit",
@@ -71,5 +83,5 @@
       "accepted": false
     }
   ],
-  "updated": "2026-10-31T09:17:36+00:00"
+  "updated": "2026-10-31T09:37:33+00:00"
 }

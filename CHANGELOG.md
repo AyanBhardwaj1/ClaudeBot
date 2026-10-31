@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.0
+
+Based on market research into what people want from AI assistants and where they give up on them (`sleep-research/`).
+
+**Tells you first**
+- **Check-ins**: every few hours (never in quiet hours, at most 3 a day), ClaudeBot looks for things that need you: a calendar clash, an early start tomorrow, a reply you've owed for days, someone who hasn't answered you. It messages you only when something is new, and mentions each thing once. Turn it off in /settings.
+- **/waiting**: replies you owe, and replies you're waiting on, with one-tap **Nudge** and **Reply** drafts (shown to you first, never sent on their own). Claude Haiku filters out threads that don't need an answer.
+
+**You can check it**
+- **/reminders**: everything ClaudeBot will remind you of or do later, with cancel buttons. Works even when the monthly budget is used up.
+- **Drafts-only mode** (/settings): emails go to your Gmail Drafts and you send them yourself.
+- ClaudeBot tells you when inbox alerts stop working (Google signed out, access revoked) and when they're back.
+
+**Better answers**
+- **Exact free time**: "when am I free for an hour Thursday?" is computed from your calendar, not estimated. Busy weeks are read in full (up to 250 events, not 25).
+
+**Safer**
+- The daily brief and scheduled tasks run while you might be away. They can no longer trash email, change or delete events, delete memories or cancel reminders. They suggest it instead, and you decide.
+
 ## 1.0.0
 
 The first public release.

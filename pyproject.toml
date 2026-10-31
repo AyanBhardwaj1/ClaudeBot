@@ -1,6 +1,6 @@
 [project]
 name = "claudebot"
-version = "1.0.0"
+version = "1.1.0"
 description = "Your personal assistant on Telegram, powered by Claude: email, calendar, memory, reminders, research and documents."
 readme = "README.md"
 requires-python = ">=3.10"
