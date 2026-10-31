@@ -44,7 +44,7 @@ Caveat that applies to all three: the researchers' page fetches were blocked by 
 15. Birthdays and a personal CRM.
 
 **Where ClaudeBot already leads:**
-- Messenger channel, email, calendar, reminders, scheduled tasks, brief, memory, research, voice.
+- Messenger channel, email, calendar, reminders, scheduled tasks, brief, memory, research. (Not voice notes: there is no speech-to-text API in scope; see C27.)
 - Human-in-the-loop sends (undo, tap-to-send when unattended).
 - Untrusted-text fencing.
 - Budget cap.

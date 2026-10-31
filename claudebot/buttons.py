@@ -94,4 +94,5 @@ class ButtonHandlers:
             prompt = (f"Draft a reply to the email with message id {message_id}. Read it first. Show me "
                       "the draft here, and don't send or save it until I say so.")
             async with self._message_order:
-                await self._converse([{"type": "text", "text": prompt}], "Draft a reply to that email")
+                await self._converse([{"type": "text", "text": prompt}], "Draft a reply to that email",
+                                     owner_present=False)  # a draft only: a send would wait for ✅ Send

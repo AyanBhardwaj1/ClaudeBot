@@ -2,6 +2,7 @@
 buttons), check-ins, and telling the owner when inbox alerts stop working. Mixed into TelegramBot.
 """
 
+import json
 import logging
 from datetime import datetime
 
@@ -11,7 +12,7 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 from .google_services import GoogleNotConnected
-from .heartbeat import run_heartbeat
+from .heartbeat import record_sent, run_heartbeat
 from .inbox_watch import GMAIL_ID, in_quiet_hours
 from .replies import find_reply_gaps
 
@@ -94,6 +95,9 @@ class CheckinHandlers:
         owed, waiting = gaps["owed"][:MAX_LISTED], gaps["waiting"][:MAX_LISTED]
         if not owed and not waiting:
             return "✅ Nothing waiting: no replies owed, and nobody is keeping you waiting.", None
+        self.db.add_notice("Reply list shown to the owner (/waiting): " + json.dumps(
+            [{"kind": g.kind, "message_id": g.message_id, "with": g.counterpart, "subject": g.subject, "days": g.days}
+             for g in waiting + owed], ensure_ascii=False))
         lines, buttons = [], []
         if waiting:
             lines.append("⏳ Waiting on them:")
@@ -122,7 +126,8 @@ class CheckinHandlers:
         prompt = (NUDGE_PROMPT if action == "nudge" else REPLY_PROMPT).format(id=message_id)
         async with self._message_order:
             await self._converse([{"type": "text", "text": prompt}],
-                                 "Draft a follow-up" if action == "nudge" else "Draft a reply")
+                                 "Draft a follow-up" if action == "nudge" else "Draft a reply",
+                                 owner_present=False)  # a draft only: a send would wait for ✅ Send
 
     async def on_checkin_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -155,7 +160,13 @@ class CheckinHandlers:
         try:
             await self.send_to_owner(f"👋 {checkin.text}", markup)
         except TelegramError:
-            log.warning("Couldn't send a check-in", exc_info=True)
+            log.warning("Couldn't send a check-in; its items stay for the next one", exc_info=True)
+            return
+        now = datetime.now(self.config.timezone)
+        record_sent(self.db, checkin, now, self.config.timezone)
+        # So "move the dentist" or "nudge her" later knows what the owner was just shown.
+        self.db.add_notice("Check-in shown to the owner: " + json.dumps(
+            {"items": checkin.text.splitlines(), "signal_keys": list(checkin.keys)}, ensure_ascii=False))
 
     # --- inbox alerts health ---
 

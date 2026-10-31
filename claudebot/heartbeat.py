@@ -68,6 +68,7 @@ class Signal:
 class CheckIn:
     text: str
     kinds: frozenset[str]
+    keys: tuple[str, ...] = ()  # the signals in the message, marked seen once it was sent
 
 
 def _timed(events: list[dict], tz) -> list[tuple[datetime, datetime, dict]]:
@@ -141,30 +142,57 @@ async def _select(client, tracker: UsageTracker, config: Config, signals: list[S
 async def run_heartbeat(
     google, client, tracker: UsageTracker, config: Config, db: Database, now: datetime | None = None,
 ) -> CheckIn | None:
-    """One check: the message to send, or None. Marks what it mentioned as seen."""
+    """One check: the message to send, or None. Signals the model judged not worth a ping are
+    marked seen here; the ones in the message are marked by record_sent, once it was delivered."""
     now = now or datetime.now(config.timezone)
     local = now.astimezone(config.timezone)
-    count_key = f"{COUNT_PREFIX}{local.date().isoformat()}"
     if (db.get_setting(CHECKINS_KEY) == "off" or in_quiet_hours(local, config.quiet_hours)
-            or int(db.get_setting(count_key) or 0) >= MAX_PER_DAY):
+            or int(db.get_setting(_day_key(COUNT_PREFIX, local)) or 0) >= MAX_PER_DAY):
         return None
     events = await asyncio.to_thread(google.list_events, now.isoformat(), (now + LOOKAHEAD * 2).isoformat(), MAX_EVENTS)
     gaps = await find_reply_gaps(google, client, tracker, config, db, now=now, judged_only=True)
     signals = [s for s in calendar_signals(events, now, config.timezone) + reply_signals(gaps)
                if db.get_setting(SEEN_PREFIX + s.key) is None]
-    replies_key = f"{REPLIES_PREFIX}{local.date().isoformat()}"
-    if not signals or (all(s.kind == "replies" for s in signals) and db.get_setting(replies_key)):
+    replies_sent_today = db.get_setting(_day_key(REPLIES_PREFIX, local)) is not None
+    if not signals or (replies_sent_today and all(s.kind == "replies" for s in signals)):
         return None  # reply-only news waits: it rides along with the next calendar check-in, or /waiting
     chosen = await _select(client, tracker, config, signals)
-    for s in signals:  # mentioned, or judged not worth it: either way, not again
-        db.set_setting(SEEN_PREFIX + s.key, local.isoformat())
-    db.prune_settings(SEEN_PREFIX, MAX_SEEN)
-    if not chosen:
+    if replies_sent_today and all(s.kind == "replies" for s in chosen):  # they wait for tomorrow, unseen
+        _mark_seen(db, [s for s in signals if s.kind == "calendar"], local)
         return None
+    shown, length = [], 0
+    for s in chosen:  # whole lines only; what doesn't fit stays unseen for the next check-in
+        line = defang_urls(f"- {s.text}")
+        if shown and length + len(line) + 1 > MAX_MESSAGE:
+            break
+        shown.append((s, line[:MAX_MESSAGE]))
+        length += len(line) + 1
+    _mark_seen(db, [s for s in signals if s not in chosen], local)  # judged not worth a ping
+    if not shown:
+        return None
+    return CheckIn("\n".join(line for _, line in shown), frozenset(s.kind for s, _ in shown),
+                   tuple(s.key for s, _ in shown))
+
+
+def record_sent(db: Database, checkin: CheckIn, now: datetime, tz) -> None:
+    """After delivery: its items aren't mentioned again, and it counts toward today's limits."""
+    local = now.astimezone(tz)
+    for key in checkin.keys:
+        db.set_setting(SEEN_PREFIX + key, local.isoformat())
+    db.prune_settings(SEEN_PREFIX, MAX_SEEN)
+    count_key = _day_key(COUNT_PREFIX, local)
     db.set_setting(count_key, str(int(db.get_setting(count_key) or 0) + 1))
     db.prune_settings(COUNT_PREFIX, 7)
-    if all(s.kind == "replies" for s in chosen):
-        db.set_setting(replies_key, "1")
+    if checkin.kinds == {"replies"}:
+        db.set_setting(_day_key(REPLIES_PREFIX, local), "1")
         db.prune_settings(REPLIES_PREFIX, 7)
-    text = "\n".join(f"- {s.text}" for s in chosen)
-    return CheckIn(defang_urls(text)[:MAX_MESSAGE], frozenset(s.kind for s in chosen))
+
+
+def _day_key(prefix: str, local: datetime) -> str:
+    return f"{prefix}{local.date().isoformat()}"
+
+
+def _mark_seen(db: Database, signals: list[Signal], local: datetime) -> None:
+    for s in signals:
+        db.set_setting(SEEN_PREFIX + s.key, local.isoformat())
+    db.prune_settings(SEEN_PREFIX, MAX_SEEN)

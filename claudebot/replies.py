@@ -16,7 +16,7 @@ import anthropic
 
 from .config import Config
 from .db import Database
-from .inbox_watch import clip
+from .inbox_watch import _sender, clip
 from .usage import BudgetExceeded, UsageTracker
 
 log = logging.getLogger(__name__)
@@ -85,8 +85,9 @@ def _candidates(threads: list[dict], kind: str, now: datetime) -> list[tuple[Gap
         counterpart = t["to"] if mine else t["from"]
         if not mine and _automated(t["from"]):
             continue  # notifications never need a personal answer; skip them before any model call
-        gap = Gap(t["thread_id"], t["message_id"], clip(counterpart, 80), clip(t["subject"] or "(no subject)", 100),
-                  days, kind)
+        name, address = _sender(counterpart)  # a long display name can't push the real address out
+        gap = Gap(t["thread_id"], t["message_id"], f"{name} <{address}>" if name else address,
+                  clip(t["subject"] or "(no subject)", 100), days, kind)
         found.append((gap, clip(t.get("snippet", ""), 200)))
     return found
 

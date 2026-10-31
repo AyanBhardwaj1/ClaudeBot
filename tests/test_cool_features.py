@@ -253,7 +253,8 @@ async def test_mail_buttons_owner_only_no_duplicates_and_no_email_text_in_prompt
     bot.google = SimpleNamespace(modify_email=lambda mid, action: archived.append((mid, action)))
     bot.schedule_reminder = lambda rid: None
 
-    async def converse(content, question, effort=None):
+    async def converse(content, question, effort=None, owner_present=True):
+        assert owner_present is False  # the draft button can't send on its own
         conversed.append(content)
 
     bot._converse = converse

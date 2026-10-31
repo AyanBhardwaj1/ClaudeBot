@@ -404,9 +404,13 @@ class TelegramBot(SetupHandlers, CheckinHandlers, ButtonHandlers):
         """Run the agent (no live preview), turning API failures into a short message."""
         return (await self._run_agent(content, owner_present, effort))[0]
 
-    async def _converse(self, content: list[dict], question: str, effort: str | None = None) -> None:
-        """An owner turn: live preview while Claude writes, the reply, then follow-up buttons."""
-        reply, ok = await self._run_agent(content, owner_present=True, effort=effort, live=True)
+    async def _converse(
+        self, content: list[dict], question: str, effort: str | None = None, owner_present: bool = True
+    ) -> None:
+        """A turn for the owner: live preview while Claude writes, the reply, then follow-up buttons.
+        owner_present=False for turns a button started from a bot-written prompt (draft buttons):
+        anything they try to send waits for a ✅ Send tap."""
+        reply, ok = await self._run_agent(content, owner_present=owner_present, effort=effort, live=True)
         last = await self.send_to_owner(reply)
         if not ok or last is None or not self._followups_on():
             return
@@ -787,7 +791,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, ButtonHandlers):
                 )
                 await self.send_to_owner(reply)
             else:
-                await self.send_to_owner(f"⏰ {row['text']}")
+                # Reminders can be set in turns the owner didn't start: links in them stay unclickable.
+                await self.send_to_owner(f"⏰ {defang_urls(row['text'])}")
                 self.db.add_notice(f"Reminder #{reminder_id} fired: {row['text']}")
         finally:
             now = datetime.now(self.config.timezone)

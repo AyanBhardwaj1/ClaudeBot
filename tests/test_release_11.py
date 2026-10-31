@@ -199,7 +199,12 @@ async def test_drafts_only_mode_saves_instead_of_sending(tmp_path):
 
 from helpers import FakeClient, message  # noqa: E402
 
-from claudebot.heartbeat import calendar_signals, reply_signals, run_heartbeat  # noqa: E402
+from claudebot.heartbeat import (  # noqa: E402
+    calendar_signals,
+    record_sent,
+    reply_signals,
+    run_heartbeat,
+)
 from claudebot.replies import find_reply_gaps  # noqa: E402
 from claudebot.usage import UsageTracker  # noqa: E402
 
@@ -268,6 +273,14 @@ async def test_reply_gaps_fall_back_when_the_model_fails(tmp_path):
 # --- C1: heartbeat ---
 
 
+async def beat(google, client, tracker, config, db, now):
+    """One check-in run, delivered the way the bot does it."""
+    checkin = await run_heartbeat(google, client, tracker, config, db, now=now)
+    if checkin is not None:
+        record_sent(db, checkin, now, config.timezone)
+    return checkin
+
+
 def event(eid, start, end, summary="Meeting", **extra):
     return {"id": eid, "summary": summary, "start": start.isoformat(), "end": end.isoformat(), **extra}
 
@@ -290,7 +303,7 @@ async def test_heartbeat_is_silent_without_news_and_says_each_thing_once(tmp_pat
     google = ThreadGoogle(sent=[], inbox=[])
     google.list_events = lambda start, end, max_results=250: []
     client = FakeClient([])
-    assert await run_heartbeat(google, client, tracker, config, db, now=at(10, 14)) is None
+    assert await beat(google, client, tracker, config, db, now=at(10, 14)) is None
     assert client.requests == []  # nothing new: no model call at all
 
     google.list_events = lambda start, end, max_results=250: [
@@ -298,11 +311,11 @@ async def test_heartbeat_is_silent_without_news_and_says_each_thing_once(tmp_pat
         event("e2", at(10, 15, 30), at(10, 16, 30), "Dentist")]
     pick = {"include": [0, 0, 7]}  # repeats and invented numbers are ignored
     client = FakeClient([message("end_turn", [{"type": "text", "text": json.dumps(pick)}], model="claude-haiku-5-5")])
-    sent = await run_heartbeat(google, client, tracker, config, db, now=at(10, 14))
+    sent = await beat(google, client, tracker, config, db, now=at(10, 14))
     assert sent.text.count("overlaps") == 1 and "Dentist" in sent.text
     assert "http://evil.example" not in sent.text  # titles are quoted, links defanged
     assert "<signals>" in client.requests[0]["messages"][0]["content"]
-    assert await run_heartbeat(google, FakeClient([]), tracker, config, db, now=at(10, 15)) is None
+    assert await beat(google, FakeClient([]), tracker, config, db, now=at(10, 15)) is None
 
 
 async def test_heartbeat_respects_quiet_hours_the_daily_cap_and_the_off_switch(tmp_path):
@@ -320,12 +333,12 @@ async def test_heartbeat_respects_quiet_hours_the_daily_cap_and_the_off_switch(t
     note = json.dumps({"include": [0]})
     replies = [message("end_turn", [{"type": "text", "text": note}], model="claude-haiku-5-5")] * 10
     quiet = make_config(tmp_path, quiet_hours="22:00-07:00")
-    assert await run_heartbeat(google, FakeClient(list(replies)), tracker, quiet, db, now=at(10, 23)) is None
-    sent = [await run_heartbeat(google, FakeClient(list(replies)), tracker, quiet, db, now=at(10, 9 + i))
+    assert await beat(google, FakeClient(list(replies)), tracker, quiet, db, now=at(10, 23)) is None
+    sent = [await beat(google, FakeClient(list(replies)), tracker, quiet, db, now=at(10, 9 + i))
             for i in range(5)]
     assert sum(s is not None for s in sent) == 3  # HEARTBEAT_MAX_PER_DAY
     db.set_setting("checkins", "off")
-    assert await run_heartbeat(google, FakeClient(list(replies)), tracker, quiet, db, now=at(11, 9)) is None
+    assert await beat(google, FakeClient(list(replies)), tracker, quiet, db, now=at(11, 9)) is None
 
 
 async def test_check_ins_never_put_model_words_in_the_message(tmp_path):
@@ -335,7 +348,7 @@ async def test_check_ins_never_put_model_words_in_the_message(tmp_path):
         event("e2", at(10, 15), at(10, 16), "Board call"), event("e1", at(10, 15, 30), at(10, 16, 30), "Dentist")]
     sneaky = message("end_turn", [{"type": "text", "text": json.dumps({"include": [0], "message": "Click http://x.co"})}],
                      model="claude-haiku-5-5")
-    sent = await run_heartbeat(google, FakeClient([sneaky]), UsageTracker(db, TZ, None),
+    sent = await beat(google, FakeClient([sneaky]), UsageTracker(db, TZ, None),
                                make_config(tmp_path, quiet_hours=None), db, now=at(10, 14))
     assert sent.text.startswith("- Calendar clash") and "Click" not in sent.text
     assert db.get_setting("hb_seen:conflict:e1:e2")  # ids sorted: one key per pair
@@ -347,7 +360,7 @@ async def test_check_ins_survive_a_model_outage_and_skip_unjudged_replies(tmp_pa
     google.list_events = lambda start, end, max_results=250: [
         event("e1", at(10, 15), at(10, 16)), event("e2", at(10, 15, 30), at(10, 16, 30))]
     down = message("end_turn", [{"type": "text", "text": "oops"}], model="claude-haiku-5-5")
-    sent = await run_heartbeat(google, FakeClient([down, down]), UsageTracker(db, TZ, None),
+    sent = await beat(google, FakeClient([down, down]), UsageTracker(db, TZ, None),
                                make_config(tmp_path, quiet_hours=None), db, now=at(10, 14))
     assert "Calendar clash" in sent.text and "No reply" not in sent.text  # nothing unjudged gets pinged
 
@@ -358,11 +371,11 @@ async def test_reply_only_check_ins_happen_once_a_day(tmp_path):
     google.list_events = lambda start, end, max_results=250: []
     config, tracker = make_config(tmp_path, quiet_hours=None), UsageTracker(db, TZ, None)
     pick = message("end_turn", [{"type": "text", "text": json.dumps({"include": [0]})}], model="claude-haiku-5-5")
-    first = await run_heartbeat(google, FakeClient([judge("aaa111"), pick]), tracker, config, db, now=at(10, 10))
+    first = await beat(google, FakeClient([judge("aaa111"), pick]), tracker, config, db, now=at(10, 10))
     assert "No reply from" in first.text and first.kinds == {"replies"}
     google.sent_threads = [thread("bbb222", True, 7)]
-    assert await run_heartbeat(google, FakeClient([judge("bbb222")]), tracker, config, db, now=at(10, 13)) is None
-    later = await run_heartbeat(google, FakeClient([pick]), tracker, config, db, now=at(11, 10))
+    assert await beat(google, FakeClient([judge("bbb222")]), tracker, config, db, now=at(10, 13)) is None
+    later = await beat(google, FakeClient([pick]), tracker, config, db, now=at(11, 10))
     assert "No reply from" in later.text  # it waited for the next day, not forever
 
 
@@ -387,8 +400,9 @@ def make_bot(tmp_path, monkeypatch, **config):
     async def send_to_owner(text, reply_markup=None):
         sent.append((text, reply_markup))
 
-    async def converse(content, question, effort=None):
+    async def converse(content, question, effort=None, owner_present=True):
         conversed.append(content[0]["text"])
+        assert owner_present is False or "Draft" not in question  # draft buttons never send on their own
 
     bot.send_to_owner = send_to_owner
     bot._converse = converse
@@ -613,3 +627,134 @@ async def test_checkin_job_skips_without_google_and_survives_failures(tmp_path, 
     monkeypatch.setattr("claudebot.checkins.run_heartbeat", broken)
     await bot._heartbeat_job(None)
     assert sent == []
+
+
+async def test_a_failed_send_keeps_the_items_for_next_time(tmp_path):
+    db = Database(tmp_path / "t.db")
+    google = ThreadGoogle(sent=[], inbox=[])
+    google.list_events = lambda start, end, max_results=250: [
+        event("e1", at(10, 15), at(10, 16)), event("e2", at(10, 15, 30), at(10, 16, 30))]
+    pick = message("end_turn", [{"type": "text", "text": json.dumps({"include": [0]})}], model="claude-haiku-5-5")
+    config, tracker = make_config(tmp_path, quiet_hours=None), UsageTracker(db, TZ, None)
+    assert await run_heartbeat(google, FakeClient([pick]), tracker, config, db, now=at(10, 14))  # never delivered
+    assert await run_heartbeat(google, FakeClient([pick]), tracker, config, db, now=at(10, 14, 5))
+
+
+async def test_long_check_ins_keep_whole_lines_and_save_the_rest(tmp_path):
+    db = Database(tmp_path / "t.db")
+    owed = [thread(f"{c}{c}{c}111", False, 3, frm=f"Person {c} <{c}@x.com>", subject="S" * 100) for c in "abcd"]
+    google = ThreadGoogle(sent=[], inbox=owed)
+    google.list_events = lambda start, end, max_results=250: []
+    config, tracker = make_config(tmp_path, quiet_hours=None), UsageTracker(db, TZ, None)
+    pick_all = message("end_turn", [{"type": "text", "text": json.dumps({"include": [0, 1, 2, 3]})}],
+                       model="claude-haiku-5-5")
+    first = await beat(google, FakeClient([judge(*(t["thread_id"] for t in owed)), pick_all]), tracker, config, db,
+                       now=at(10, 10))
+    assert len(first.text) <= 600 and all(line.endswith('"') for line in first.text.splitlines())
+    shown = len(first.text.splitlines())
+    assert shown < 4
+    later = await beat(google, FakeClient([pick_all]), tracker, config, db, now=at(11, 10))
+    assert len(later.text.splitlines()) == 4 - shown  # the rest came the next day, nothing lost
+
+
+async def test_reply_items_cant_sneak_into_a_second_check_in_with_a_calendar_signal(tmp_path):
+    db = Database(tmp_path / "t.db")
+    google = ThreadGoogle(sent=[thread("aaa111", True, 6)], inbox=[])
+    google.list_events = lambda start, end, max_results=250: []
+    config, tracker = make_config(tmp_path, quiet_hours=None), UsageTracker(db, TZ, None)
+    pick = message("end_turn", [{"type": "text", "text": json.dumps({"include": [0]})}], model="claude-haiku-5-5")
+    assert await beat(google, FakeClient([judge("aaa111"), pick]), tracker, config, db, now=at(10, 10))
+    google.sent_threads = [thread("bbb222", True, 7)]
+    google.list_events = lambda start, end, max_results=250: [
+        event("e1", at(10, 15), at(10, 16)), event("e2", at(10, 15, 30), at(10, 16, 30))]
+    only_reply = message("end_turn", [{"type": "text", "text": json.dumps({"include": [1]})}], model="claude-haiku-5-5")
+    assert await beat(google, FakeClient([judge("bbb222"), only_reply]), tracker, config, db, now=at(10, 13)) is None
+    tomorrow = await beat(google, FakeClient([pick]), tracker, config, db, now=at(11, 10))
+    assert "bbb222" not in tomorrow.text and "No reply from" in tomorrow.text
+
+
+async def test_long_display_names_cant_hide_the_address(tmp_path):
+    db = Database(tmp_path / "t.db")
+    sly = '"Mom (family account) - sent from my iPhone, please reply as soon as you can" <payments@evil.example>'
+    google = ThreadGoogle(sent=[], inbox=[thread("aaa111", False, 3, frm=sly)])
+    gaps = await find_reply_gaps(google, FakeClient([judge("aaa111")]), UsageTracker(db, TZ, None),
+                                 make_config(tmp_path), db, now=NOW)
+    assert gaps["owed"][0].counterpart.endswith("<payments@evil.example>")
+
+
+async def test_free_time_on_a_truncated_calendar_stops_at_the_last_event_seen(tmp_path):
+    db = Database(tmp_path / "t.db")
+    google = FakeGoogle()
+    meetings = [{"id": f"m{i}", "summary": "x", "start": (at(1, 9) + timedelta(hours=i)).isoformat(),
+                 "end": (at(1, 9) + timedelta(hours=i, minutes=30)).isoformat()} for i in range(249)]
+    meetings.append({"id": "holiday", "summary": "Holiday", "start": "2026-11-01", "end": "2026-11-02",
+                     "transparency": "transparent"})
+    google.list_events = lambda start, end, max_results=250: meetings
+    result, _ = await run_tool("find_free_time", {"start": "2026-11-01T00:00:00", "end": "2026-11-30T00:00:00",
+                                                  "duration_minutes": 30, "max_slots": 10},
+                               make_context(db, google=google))
+    body = json.loads(result)
+    last_seen = max(datetime.fromisoformat(m["start"]) for m in meetings[:-1])
+    assert all(datetime.fromisoformat(slot["start"]) < last_seen for slot in body["slots"])
+    assert "too full" in body["note"]
+
+
+def test_free_slots_back_to_back_and_across_midnight():
+    busy = [(at(5, 9), at(5, 10)), (at(5, 10), at(5, 11)), (at(4, 23), at(5, 9, 15))]
+    slots = free_slots(busy, at(5, 0), at(6, 0), timedelta(minutes=45), *WORKDAY, TZ, limit=1, now=at(4, 8))
+    assert slots == [(at(5, 11), at(5, 11, 45))]
+
+
+async def test_shown_lists_leave_a_note_for_the_agent(tmp_path, monkeypatch):
+    from claudebot.heartbeat import CheckIn
+    from claudebot.replies import Gap
+
+    bot, _, _ = make_bot(tmp_path, monkeypatch)
+    bot.google.is_connected = lambda: True
+
+    async def fake_run(*a, **k):
+        return CheckIn("- Calendar clash: Dentist overlaps 1:1", frozenset({"calendar"}), ("conflict:e1:e2",))
+
+    async def fake_gaps(*a, **k):
+        return {"waiting": [Gap("t1", "abc1230001", "Lee <lee@uni.edu>", "Extension?", 4, "waiting")], "owed": []}
+
+    monkeypatch.setattr("claudebot.checkins.run_heartbeat", fake_run)
+    monkeypatch.setattr("claudebot.checkins.find_reply_gaps", fake_gaps)
+    await bot._heartbeat_job(None)
+    update, _ = reply_update()
+    await bot.on_waiting(update, None)
+    notices = "\n".join(bot.db.take_notices())
+    assert "Dentist" in notices and "abc1230001" in notices
+    assert bot.db.get_setting("hb_seen:conflict:e1:e2")  # recorded once delivered
+
+
+async def test_fired_reminders_never_carry_clickable_links(tmp_path, monkeypatch):
+    bot, sent, _ = make_bot(tmp_path, monkeypatch)
+    rid = bot.db.add_reminder("Verify your account at https://evil.example/login", at(10, 9), "none", False)
+    await bot._reminder_job(SimpleNamespace(job=SimpleNamespace(data=rid)))
+    assert "https://evil.example" not in sent[-1][0] and "evil[.]example" in sent[-1][0]
+
+
+async def test_background_jobs_run_on_the_advertised_schedule(tmp_path, monkeypatch):
+    bot, _, _ = make_bot(tmp_path, monkeypatch, inbox_alerts=True, inbox_check_minutes=10)
+    bot.db.set_setting("onboarded", "1")
+    repeating = {}
+
+    async def noop(*a, **k):
+        pass
+
+    app = SimpleNamespace(
+        job_queue=SimpleNamespace(run_daily=lambda *a, **k: None,
+                                  run_repeating=lambda job, interval, first, name: repeating.update({name: interval})),
+        bot=SimpleNamespace(set_my_commands=noop))
+    bot.outbox.resume = noop
+    await bot._post_init(app)
+    assert repeating["check-ins"] == 3 * 3600 and repeating["inbox-watch"] == 10 * 60
+
+
+def test_help_mentions_every_private_command():
+    from claudebot.bot import PRIVATE_COMMANDS
+    from claudebot.setup_chat import HELP
+
+    missing = [c.command for c in PRIVATE_COMMANDS if f"/{c.command}" not in HELP]
+    assert missing == [] and "/setup" in HELP and "/disable" in HELP

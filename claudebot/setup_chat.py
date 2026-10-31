@@ -48,7 +48,7 @@ WELCOME = (
     "- (send a photo of a flyer or ticket) add this to my calendar\n"
     "- (send a PDF or photo) what's due in this?\n"
     "- (forward any message) is this true?\n\n"
-    "I'll ping you when important email arrives. /help lists everything I can do."
+    "Once Gmail is connected, I'll ping you when important email arrives. /help lists everything I can do."
 )
 
 HELP = (
@@ -64,15 +64,18 @@ HELP = (
     "/think – think as hard as possible about one question\n"
     "/research – deep research with sources\n\n"
     "Make it yours\n"
-    "/settings – name, location, brief time, alerts, budget\n"
+    "/settings – name, location, brief time, alerts, check-ins, drafts-only, budget\n"
     "/role – your job, so I tailor everything to it\n"
     "/mode – personality (fun, brief, deep)\n"
     "/connect – connect Gmail and Calendar\n"
+    "/setup – the first-time questions again\n"
+    "/help – this list\n"
     "/followups – suggestion buttons on or off\n\n"
     "Check on me\n"
     "/status – what's connected and working\n"
     "/usage – what I've cost you\n\n"
-    "Groups: add me to a group and send /enable there; people can tag me to ask or fact-check."
+    "Send a photo of a flyer or a ticket and I'll add it to your calendar.\n\n"
+    "Groups: add me to a group and send /enable there (/disable to stop); people can tag me to ask or fact-check."
 )
 
 CLIENT_STEPS = (

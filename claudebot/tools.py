@@ -194,7 +194,8 @@ CLIENT_TOOLS = [
         "name": "create_calendar_event",
         "description": (
             "Create an event on the owner's primary calendar. start/end are ISO-8601 datetimes, "
-            "or YYYY-MM-DD for all-day events (end date is exclusive). Attendees get invites."
+            "or YYYY-MM-DD for all-day events (end date is exclusive). All-day events are created as "
+            "free so they don't block the day; to block time, use start and end times. Attendees get invites."
         ),
         "input_schema": _schema(
             {
@@ -451,7 +452,8 @@ async def _find_free_time(a: dict, ctx: ToolContext) -> dict:
         ctx.google.list_events, start.isoformat(), end.isoformat(), MAX_EVENTS)
     truncated = len(events) >= MAX_EVENTS
     if truncated:  # later busy time is unknown: only trust slots before the last event we saw
-        end = min(end, max(datetime.fromisoformat(e["start"]) if len(e["start"]) > 10 else end for e in events))
+        last_seen = max((datetime.fromisoformat(e["start"]) for e in events if len(e["start"]) > 10), default=start)
+        end = min(end, last_seen)
     slots = free_slots(busy_from_events(events, ctx.tz), start, end,
                        timedelta(minutes=int(a["duration_minutes"])), day_start, day_end, ctx.tz,
                        limit=min(int(a.get("max_slots", 3)), 10))
