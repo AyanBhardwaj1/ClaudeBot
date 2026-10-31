@@ -210,6 +210,7 @@ These live in `.env` (see `.env.example`). The ones marked * can also be changed
 | `claudebot/setup_chat.py`, `claudebot/settings.py` | First-run questions, `/settings`, `/status`, `/help` |
 | `claudebot/google_connect.py` | Connecting Google from the chat |
 | `claudebot/setup_wizard.py` | `python -m claudebot setup` |
+| `docs/index.html` | The landing page (turn on GitHub Pages from `/docs` to publish it) |
 | `claudebot/db.py` | SQLite storage for chat history, memories, reminders, outbox and usage |
 
 Run the tests with `pip install pytest pytest-asyncio && pytest`.

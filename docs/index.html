@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ClaudeBot</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Your personal assistant on Telegram, powered by Claude. Email, calendar, memory, reminders, research and real documents, on your own server.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a split hero (claim + quick start on the left, a live-looking chat on the right),
+   then plain full-width bands. The chat thread is the signature element; everything else stays quiet. */
+:root {
+  --bg: #eef1f5;          /* mist: a blue-leaning grey, the page ground */
+  --surface: #ffffff;     /* chat window, terminal frame */
+  --ink: #131a24;         /* text */
+  --muted: #5a6575;       /* secondary text */
+  --line: #d6dce5;        /* hairlines */
+  --accent: #2c45d8;      /* ultramarine: links, buttons, the bot's name */
+  --accent-ink: #ffffff;
+  --bubble-in: #f3f5f9;   /* messages from ClaudeBot */
+  --bubble-out: #dcefe5;  /* messages from you */
+  --button: #e6eafb;      /* Telegram-style inline buttons */
+  --term-bg: #121823;
+  --term-fg: #d9e1ee;
+  --term-dim: #7f8ba0;
+  --term-ok: #7fd3a2;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body: "Figtree", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141c; --surface: #171e29; --ink: #e8edf4; --muted: #98a3b4; --line: #283242;
+    --accent: #8a9bff; --accent-ink: #0f141c; --bubble-in: #1e2734; --bubble-out: #1f3a30;
+    --button: #232d48; --term-bg: #0a0e14; --term-fg: #d9e1ee; --term-dim: #7f8ba0; --term-ok: #7fd3a2;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141c; --surface: #171e29; --ink: #e8edf4; --muted: #98a3b4; --line: #283242;
+  --accent: #8a9bff; --accent-ink: #0f141c; --bubble-in: #1e2734; --bubble-out: #1f3a30;
+  --button: #232d48; --term-bg: #0a0e14; --term-fg: #d9e1ee; --term-dim: #7f8ba0; --term-ok: #7fd3a2;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 400 1.0625rem/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+.wrap {
+  max-width: 72rem; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1, h2, h3 { font-family: var(--display); line-height: 1.05; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(2.6rem, 6.4vw, 4.6rem); font-weight: 800; letter-spacing: -0.035em; }
+h2 { font-size: clamp(1.9rem, 3.6vw, 2.7rem); font-weight: 700; letter-spacing: -0.025em; }
+h3 { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
+p { margin: 0; }
+.eyebrow { font: 500 0.78rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 1.2rem; color: var(--muted); max-width: 34rem; }
+
+/* --- top bar --- */
+.top { padding-block: 22px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.mark { display: flex; align-items: center; gap: 10px; font: 800 1.15rem/1 var(--display); letter-spacing: -0.02em; color: var(--ink); text-decoration: none; }
+.mark svg { flex: none; }
+.top nav { display: flex; gap: 20px; font-size: 0.95rem; }
+.top nav a { color: var(--muted); text-decoration: none; }
+.top nav a:hover { color: var(--ink); }
+
+/* --- hero --- */
+.hero { padding-block: 32px 72px; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: 56px; align-items: start; }
+.hero-copy { display: grid; gap: 22px; padding-top: 28px; min-width: 0; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 999px; font: 600 1rem/1 var(--body); text-decoration: none; border: 1px solid transparent; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.ghost { border-color: var(--line); color: var(--ink); background: transparent; }
+.btn:hover { filter: brightness(1.06); }
+.facts { display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--muted); font-size: 0.92rem; }
+.facts span::before { content: "✓ "; color: var(--accent); font-weight: 600; }
+
+/* --- the chat --- */
+.phone {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 28px;
+  box-shadow: 0 30px 60px -30px rgba(19, 26, 36, 0.35);
+  overflow: hidden; min-width: 0;
+}
+.phone-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; flex: none; }
+.phone-head b { display: block; font: 700 1rem/1.2 var(--display); }
+.phone-head small { color: var(--muted); font-size: 0.8rem; }
+.thread { display: flex; flex-direction: column; gap: 10px; padding: 18px; font-size: 0.93rem; line-height: 1.45; }
+.day { align-self: center; font: 500 0.72rem/1 var(--mono); color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 0; }
+.msg { max-width: 88%; padding: 10px 13px; border-radius: 16px; background: var(--bubble-in); border-bottom-left-radius: 6px; }
+.msg.me { align-self: flex-end; background: var(--bubble-out); border-radius: 16px; border-bottom-right-radius: 6px; }
+.msg time { display: block; text-align: right; font-size: 0.7rem; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.msg .from { font-weight: 600; }
+.msg .addr { color: var(--muted); }
+.buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; max-width: 88%; margin-top: -4px; }
+.buttons.one { grid-template-columns: 1fr; max-width: 60%; }
+.buttons span { background: var(--button); color: var(--accent); text-align: center; padding: 7px 6px; border-radius: 10px; font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.typing { display: inline-flex; gap: 4px; padding: 12px 14px; background: var(--bubble-in); border-radius: 16px; border-bottom-left-radius: 6px; align-self: flex-start; }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); opacity: 0.5; }
+@media (prefers-reduced-motion: no-preference) {
+  .typing i { animation: blink 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: 0.2s; }
+  .typing i:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%, 60%, 100% { opacity: 0.35; } 30% { opacity: 1; } }
+}
+
+/* --- bands --- */
+.band { padding-block: 72px; border-top: 1px solid var(--line); }
+.band-head { display: grid; gap: 12px; margin-bottom: 40px; max-width: 42rem; }
+.band-head p { color: var(--muted); }
+
+.abilities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 36px; }
+.ability { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.ability p { color: var(--muted); font-size: 0.98rem; }
+.say { font: 400 0.84rem/1.5 var(--mono); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; margin-top: 4px; overflow-wrap: anywhere; }
+.say::before { content: "you › "; color: var(--muted); }
+
+.proactive { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.proactive > div { padding: 26px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.proactive > div + div { border-left: 1px solid var(--line); }
+.proactive .when { font: 500 0.78rem/1 var(--mono); color: var(--accent); }
+.proactive p { color: var(--muted); font-size: 0.98rem; }
+
+.rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 48px; }
+.rule { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); gap: 4px 12px; padding-block: 16px; border-top: 1px solid var(--line); }
+.rule svg { grid-row: span 2; margin-top: 2px; }
+.rule p { color: var(--muted); font-size: 0.98rem; }
+
+/* --- quick start --- */
+.start { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+.steps { display: grid; gap: 22px; counter-reset: step; }
+.step { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); gap: 4px 12px; }
+.step::before { counter-increment: step; content: counter(step); grid-row: span 2; width: 1.8rem; height: 1.8rem; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); display: grid; place-items: center; font: 700 0.9rem/1 var(--display); }
+.step p { color: var(--muted); font-size: 0.98rem; }
+.term { background: var(--term-bg); color: var(--term-fg); border-radius: 16px; overflow: hidden; min-width: 0; }
+.term-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); font: 500 0.78rem/1 var(--mono); color: var(--term-dim); }
+.term-bar button { font: 500 0.78rem/1 var(--mono); color: var(--term-fg); background: rgba(255, 255, 255, 0.08); border: 0; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+.term pre { margin: 0; padding: 18px; overflow-x: auto; font: 400 0.88rem/1.75 var(--mono); }
+.term .c { color: var(--term-dim); }
+.term .ok { color: var(--term-ok); }
+.deploy { margin-top: 28px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.deploy div { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--surface); min-width: 0; }
+.deploy b { display: block; font: 700 1rem/1.3 var(--display); }
+.deploy small { color: var(--muted); font-size: 0.86rem; }
+
+.cost { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.98rem; }
+th, td { text-align: left; padding: 12px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 0.78rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+td + td, th + th { padding-left: 20px; }
+td:first-child { font-weight: 600; white-space: nowrap; }
+td:nth-child(2) { white-space: nowrap; }
+
+footer { padding-block: 40px 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; }
+
+@media (max-width: 920px) {
+  .hero, .start, .cost { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .hero-copy { padding-top: 0; }
+  .abilities { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .top nav { display: none; }
+  .abilities, .rules, .deploy { grid-template-columns: minmax(0, 1fr); }
+  .proactive { grid-template-columns: minmax(0, 1fr); }
+  .proactive > div + div { border-left: 0; border-top: 1px solid var(--line); }
+  .band { padding-block: 56px; }
+  .phone { border-radius: 22px; }
+  .msg, .buttons { max-width: 94%; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <a class="mark" href="#">
+      <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect width="30" height="30" rx="9" style="fill:var(--accent)"/><path d="M8 11.5c0-1.9 1.6-3.5 3.5-3.5h7c1.9 0 3.5 1.6 3.5 3.5v4c0 1.9-1.6 3.5-3.5 3.5H14l-4 3.2V18.8A3.5 3.5 0 0 1 8 15.5z" style="fill:var(--accent-ink)"/><circle cx="12.6" cy="13.5" r="1.3" style="fill:var(--accent)"/><circle cx="17.4" cy="13.5" r="1.3" style="fill:var(--accent)"/></svg>
+      ClaudeBot
+    </a>
+    <nav aria-label="Sections">
+      <a href="#what">What it does</a>
+      <a href="#safety">Safety</a>
+      <a href="#start">Set up</a>
+      <a href="https://github.com/ayanbhardwaj1/claudebot">GitHub</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="hero-copy">
+      <span class="eyebrow">Personal assistant · Telegram · Claude</span>
+      <h1>The assistant that texts you first.</h1>
+      <p class="lede">ClaudeBot reads and answers your email, runs your calendar, remembers what matters, and pings you when something needs you. It's Claude, in the chat app you already have open.</p>
+      <div class="cta">
+        <a class="btn primary" href="#start">Set it up in 5 minutes</a>
+        <a class="btn ghost" href="https://github.com/ayanbhardwaj1/claudebot">View the code</a>
+      </div>
+      <div class="facts"><span>Runs on your own server</span><span>Only talks to you</span><span>Free and open source</span></div>
+    </div>
+
+    <div class="phone" role="img" aria-label="Example ClaudeBot chat: a morning brief, an email alert with buttons, and a reply sent with an Undo button">
+      <div class="phone-head">
+        <div class="avatar"><svg width="20" height="20" viewBox="0 0 30 30" aria-hidden="true"><path d="M5 10.5C5 8 7 6 9.5 6h11C23 6 25 8 25 10.5v5c0 2.5-2 4.5-4.5 4.5H14l-5.5 4.2V19.7A4.5 4.5 0 0 1 5 15.5z" style="fill:var(--accent-ink)"/></svg></div>
+        <div><b>ClaudeBot</b><small>bot · online</small></div>
+      </div>
+      <div class="thread">
+        <span class="day">Thursday</span>
+        <div class="msg">☀️ Morning, Ayan. 64° and clear in Austin.<br>Today: CS 314 at 10:00, coffee with Priya at 3:00.<br>2 emails need you, and your rent reminder is tomorrow.<time>8:00</time></div>
+        <div class="msg">📬 New email<br><span class="from">Prof. Lee</span> <span class="addr">&lt;lee@cs.utexas.edu&gt;</span>: moved Thursday's quiz to Friday, same room.<time>11:42</time></div>
+        <div class="buttons"><span>🗄 Archive</span><span>✍️ Reply</span><span>⏰ Later</span></div>
+        <div class="msg me">tell her friday works, thanks<time>11:43</time></div>
+        <div class="msg">Sending to Prof. Lee:<br>"Friday works for me. Thank you for letting us know!"<time>11:43</time></div>
+        <div class="buttons one"><span>↩️ Undo · 20s</span></div>
+        <div class="typing" aria-hidden="true"><i></i><i></i><i></i></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<section class="band" id="what">
+  <div class="wrap">
+    <div class="band-head">
+      <span class="eyebrow">What it does</span>
+      <h2>Ask like you'd ask a person.</h2>
+      <p>No commands to learn. Type it, forward it, send a photo or a voice note.</p>
+    </div>
+    <div class="abilities">
+      <div class="ability">
+        <h3>Email and calendar</h3>
+        <p>Searches, summarizes, drafts and sends from your Gmail. Every email waits 20 seconds with an Undo button.</p>
+        <div class="say">move my 3pm with Sam to 4</div>
+      </div>
+      <div class="ability">
+        <h3>Remembers and reminds</h3>
+        <p>Keeps the facts that matter, sets one-off and repeating reminders, and carries out tasks later.</p>
+        <div class="say">at 5pm check if Alex replied</div>
+      </div>
+      <div class="ability">
+        <h3>Research with receipts</h3>
+        <p>Live web search, deep research reports, and fact-checks of anything you forward, with the source for each claim.</p>
+        <div class="say">/research best laptop for a CS major</div>
+      </div>
+      <div class="ability">
+        <h3>Makes real files</h3>
+        <p>Word study guides, Excel budgets, PowerPoint decks and PDFs, built in Claude's sandbox and sent to the chat.</p>
+        <div class="say">make a 5-slide deck from these notes</div>
+      </div>
+      <div class="ability">
+        <h3>Reads what you send</h3>
+        <p>PDFs, photos, spreadsheets and attachments. Numbers are computed with code, never guessed.</p>
+        <div class="say">how much did I spend on food in October?</div>
+      </div>
+      <div class="ability">
+        <h3>Fits your job</h3>
+        <p>Tell it what you do and alerts, briefs and answers follow: exams for a student, incidents for an engineer.</p>
+        <div class="say">/role nurse in the ER</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <div class="band-head">
+      <span class="eyebrow">It comes to you</span>
+      <h2>Messages you before you ask.</h2>
+    </div>
+    <div class="proactive">
+      <div><span class="when">every 10 minutes</span><h3>Inbox alerts</h3><p>Real people, deadlines and schedule changes get a ping with Archive, Reply and Later buttons. Newsletters don't, and it stays quiet overnight.</p></div>
+      <div><span class="when">every morning</span><h3>Daily brief</h3><p>Weather, today's calendar, the email that needs you, reminders, and a few headlines picked for what you care about.</p></div>
+      <div><span class="when">on your schedule</span><h3>Briefings</h3><p>"Every Friday at 5, catch me up on AI." Only what's new since last time, with sources, or one line saying nothing happened.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="safety">
+  <div class="wrap">
+    <div class="band-head">
+      <span class="eyebrow">Safety</span>
+      <h2>Your inbox, your rules.</h2>
+      <p>An assistant with your email needs guardrails. These are built in, not settings you have to find.</p>
+    </div>
+    <div class="rules">
+      <div class="rule"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent)" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg><h3>Undo every send</h3><p>Each email waits with an Undo button before it leaves. You choose the window in /settings.</p></div>
+      <div class="rule"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent)" stroke-width="2" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><h3>Nothing sends while you're away</h3><p>Emails drafted during the morning brief or a scheduled task wait for your tap.</p></div>
+      <div class="rule"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent)" stroke-width="2" aria-hidden="true"><path d="M12 3l8 4v5c0 4.4-3.4 8.3-8 9-4.6-.7-8-4.6-8-9V7z"/></svg><h3>Emails are data, not orders</h3><p>"Forward this to..." inside a phishing email does nothing, and ClaudeBot flags it. Links inside emails are never opened.</p></div>
+      <div class="rule"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent)" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><h3>Only talks to you</h3><p>It pairs with your Telegram account once and ignores everyone else. Group answers can't see your email.</p></div>
+      <div class="rule"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent)" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg><h3>Runs on your machine</h3><p>Your copy, your server, your API key. No ClaudeBot company sits in the middle.</p></div>
+      <div class="rule"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="stroke:var(--accent)" stroke-width="2" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><h3>A spending cap</h3><p>Set a monthly budget and it stops calling Claude when it's reached. /usage shows where you are.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="start">
+  <div class="wrap">
+    <div class="band-head">
+      <span class="eyebrow">Set up</span>
+      <h2>Five minutes, start to first message.</h2>
+    </div>
+    <div class="start">
+      <div class="steps">
+        <div class="step"><h3>Run the setup command</h3><p>It asks for a Claude API key and a Telegram bot token from @BotFather, and checks each one as you paste it.</p></div>
+        <div class="step"><h3>Message your bot</h3><p>Setup recognizes you from your first message. From then on, ClaudeBot only answers you.</p></div>
+        <div class="step"><h3>Answer four questions</h3><p>Your name, your city, what you do, and when you want your brief. All of it changes later in /settings.</p></div>
+        <div class="step"><h3>Connect Gmail and Calendar</h3><p>Send /connect and sign in with Google from your phone. No browser on the server needed.</p></div>
+      </div>
+      <div>
+        <div class="term">
+          <div class="term-bar"><span>terminal</span><button type="button" id="copy-setup">Copy</button></div>
+<pre id="setup-commands"><span class="c"># Python 3.10+</span>
+git clone https://github.com/ayanbhardwaj1/claudebot
+cd claudebot
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt
+python -m claudebot setup
+<span class="ok">✓ Key works</span>
+<span class="ok">✓ Connected to @ayan_claudebot</span>
+<span class="ok">✓ ClaudeBot will only ever talk to you</span></pre>
+        </div>
+        <div class="deploy">
+          <div><b>Docker Compose</b><small>Any VPS, home server or Raspberry Pi</small></div>
+          <div><b>Fly.io</b><small>A few dollars a month, config included</small></div>
+          <div><b>Railway</b><small>Deploys straight from the repo</small></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap cost">
+    <div class="band-head">
+      <span class="eyebrow">What it costs</span>
+      <h2>Usually a few dollars a month.</h2>
+      <p>ClaudeBot is free. You pay Anthropic for the Claude API calls it makes on your key, billed separately from a Claude Pro or Max plan, plus your server if you use one.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Job</th><th>Model</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Conversation</td><td>Claude Opus 5.5</td><td>The smart part: email, plans, research, documents</td></tr>
+          <tr><td>Inbox triage</td><td>Claude Haiku 5.5</td><td>A fraction of a cent per check that finds new mail; nothing new costs nothing</td></tr>
+          <tr><td>Suggestions</td><td>Claude Haiku 5.5</td><td>The tap-to-ask buttons under replies</td></tr>
+          <tr><td>Your cap</td><td>/settings</td><td>A hard monthly stop, if you want one</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <footer>
+    <span>ClaudeBot 1.0 · <a href="https://github.com/ayanbhardwaj1/claudebot">Source on GitHub</a></span>
+    <span>An independent project built on the Claude API. Not made, endorsed or supported by Anthropic.</span>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var button = document.getElementById("copy-setup");
+    var lines = document.getElementById("setup-commands").innerText.split("\n")
+      .filter(function (l) { return l && l.charAt(0) !== "#" && l.charAt(0) !== "✓"; }).join("\n");
+    button.addEventListener("click", function () {
+      var done = function () { button.textContent = "Copied"; setTimeout(function () { button.textContent = "Copy"; }, 1600); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(lines).then(done, select);
+      } else { select(); }
+    });
+    function select() {
+      var range = document.createRange();
+      range.selectNodeContents(document.getElementById("setup-commands"));
+      var selection = window.getSelection();
+      selection.removeAllRanges(); selection.addRange(range);
+      button.textContent = "Press ⌘C";
+    }
+  })();
+</script>
+</body>
+</html>
