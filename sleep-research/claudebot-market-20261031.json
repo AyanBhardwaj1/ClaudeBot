@@ -1,0 +1,68 @@
+{
+  "run_id": "claudebot-market-20261031",
+  "created": "2026-10-31T09:04:29+00:00",
+  "phases": [
+    {
+      "name": "brief",
+      "status": "done",
+      "accepted": true,
+      "at": "2026-10-31T09:05:00+00:00",
+      "artifact": "sleep-research/BRIEF.md",
+      "verdict": "sleep-research/BRIEF.md",
+      "reviewer": "self",
+      "accepted_at": "2026-10-31T09:05:00+00:00"
+    },
+    {
+      "name": "literature",
+      "status": "running",
+      "accepted": false,
+      "at": "2026-10-31T09:05:00+00:00"
+    },
+    {
+      "name": "ideas",
+      "status": "pending",
+      "accepted": false
+    },
+    {
+      "name": "triage",
+      "status": "pending",
+      "accepted": false
+    },
+    {
+      "name": "pilots",
+      "status": "pending",
+      "accepted": false
+    },
+    {
+      "name": "plan",
+      "status": "pending",
+      "accepted": false
+    },
+    {
+      "name": "implement",
+      "status": "pending",
+      "accepted": false
+    },
+    {
+      "name": "audit",
+      "status": "pending",
+      "accepted": false
+    },
+    {
+      "name": "review",
+      "status": "pending",
+      "accepted": false
+    },
+    {
+      "name": "claims",
+      "status": "pending",
+      "accepted": false
+    },
+    {
+      "name": "report",
+      "status": "pending",
+      "accepted": false
+    }
+  ],
+  "updated": "2026-10-31T09:05:00+00:00"
+}
