@@ -181,6 +181,7 @@ def main() -> None:
             print("   ✓ ClaudeBot will only ever talk to you")
         else:
             print("   Skipped. When the bot starts it prints a pairing code; send it /start <code>.")
+            values["TELEGRAM_OWNER_ID"] = ""  # clear any old owner, or pairing would never start
             owner = None
     name = ask("   What should ClaudeBot call you?",
                current.get("CLAUDEBOT_OWNER_NAME") or (owner or {}).get("first_name", "") or "friend")

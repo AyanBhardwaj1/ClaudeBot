@@ -30,12 +30,6 @@ def run() -> None:
     ]
     if missing:
         sys.exit(f"Missing settings: {', '.join(missing)}. Run `python -m claudebot setup` to set them up.")
-    budget, group_budget = config.monthly_budget_usd, config.group_monthly_budget_usd
-    if budget is not None and (group_budget is None or group_budget >= budget):
-        log.warning(
-            "GROUP_MONTHLY_BUDGET_USD should be below MONTHLY_BUDGET_USD, or group answers can use up "
-            "the whole budget and lock you out of your own assistant."
-        )
     # Settings changed in chat restart the bot in-process, so they apply everywhere.
     while TelegramBot(config).run():
         log.info("Restarting with your new settings...")

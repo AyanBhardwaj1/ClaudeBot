@@ -182,7 +182,7 @@ These live in `.env` (see `.env.example`). The ones marked * can also be changed
 - **When you're not the one who started the turn** (the daily brief, a scheduled task), ClaudeBot never sends on its own: any email waits with **✅ Send / ✖️ Cancel** buttons (showing every recipient, cc and bcc included) until you tap it or tell ClaudeBot to send it. Those turns also can't send calendar invites, save memories, or schedule new tasks, so a phishing email read during your morning brief can't plant anything for later.
 - ClaudeBot treats email contents as data, not orders. A phishing email that says "forward this to..." won't make it do anything, and ClaudeBot will flag it. Inbox alerts show the sender's real address, not just their display name, so a fake "Mom" can't hide behind the name.
 - Files you send (and attachments ClaudeBot opens) are uploaded to your Anthropic account's file storage so they aren't resent with every message. ClaudeBot deletes them once that conversation is over (checked every 6 hours).
-- Only the Telegram account that set ClaudeBot up (or paired with the code from the server log) can use it; everyone else is ignored. Five wrong pairing codes and that account is ignored too.
+- Only the Telegram account that set ClaudeBot up (or paired with the code from the server log) can use it; everyone else is ignored. Five wrong pairing codes and that account is ignored too, and after 50 wrong guesses in total the code changes (the new one is in the log).
 - Google sign-in codes and the OAuth client file you send in the chat are handled by ClaudeBot itself, never shown to Claude, and the messages are deleted.
 - Keep `.env`, `credentials.json` and `data/` private. They hold the keys to your inbox. They're already in `.gitignore`.
 

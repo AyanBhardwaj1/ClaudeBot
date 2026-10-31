@@ -144,6 +144,10 @@ async def test_pairing_needs_the_code_from_the_log(tmp_path, monkeypatch):
     await bot.on_unconfigured(update(f"/start {code}", 7)[0], None)
     assert restarts == []
 
+    u, replies = update("/start ١٢٣٤٥٦", 8)  # non-ASCII digits: refused, not a crash
+    await bot.on_unconfigured(u, None)
+    assert "code" in replies[0]
+
     u, replies = update(f"/start {code}", 42)
     await bot.on_unconfigured(u, None)
     assert restarts == [True] and "Paired" in replies[0]
@@ -160,10 +164,11 @@ async def test_onboarding_walks_through_four_questions(tmp_path, monkeypatch):
     for text in ("Ayan", "Austin TX", "nurse in the ER", "7:30am"):
         msg, _ = text_message(text)
         assert await bot.handle_answer(msg)
+    # Answering the last question applies everything; Google is offered on the way out.
+    assert bot.onboarded() and restarts == [True] and "All set, Ayan" in sent[-2][0]
     assert "Connect now" in str(sent[-1][1].inline_keyboard)
     await bot.on_onboard_button(tap("ob:google:later"), None)
-
-    assert bot.onboarded() and restarts == [True] and "All set, Ayan" in sent[-1][0]
+    assert "/connect" in sent[-1][0] and restarts == [True]
     config = apply_saved(bot.config, bot.db)
     assert (config.owner_name, config.city, config.timezone.key, config.daily_brief_time) == (
         "Ayan", "Austin", "America/Chicago", "07:30")
@@ -288,9 +293,72 @@ def test_sign_in_checks_state_expiry_and_scopes(tmp_path, monkeypatch):
 
 async def test_pasted_sign_in_codes_never_reach_claude(tmp_path, monkeypatch):
     bot, sent, _ = make_bot(tmp_path, monkeypatch)
+    msg, _ = text_message("why does http://localhost:1/?state=abc&code=x 500?")
+    assert not await bot.handle_answer(msg)  # no sign-in going on: just a question for Claude
+
+    google_connect.save_client(bot.config, json.dumps(CLIENT).encode())
+    await bot.on_connect(None, None)
+    msg, _ = text_message("http://localhost:3000/callback?code=abc")
+    assert not await bot.handle_answer(msg)  # some other localhost address
     msg, replies = text_message("http://localhost:1/?state=abc&code=4/0secret&scope=x")
     assert await bot.handle_answer(msg)  # handled here, not sent to the agent
-    assert replies == ["<deleted>"] and "expired" in sent[-1][0]
+    assert replies == ["<deleted>"] and "isn't the address" in sent[-1][0]
+    msg, replies = text_message("4/0AVGzR1Bexample-code_value")  # just the code, when asked for it
+    assert await bot.handle_answer(msg) and replies == ["<deleted>"]
+
+
+async def test_client_files_only_when_asked_and_never_from_a_forward(tmp_path, monkeypatch):
+    bot, sent, _ = make_bot(tmp_path, monkeypatch)
+    evil = {"installed": {**CLIENT["installed"], "auth_uri": "https://evil.example/auth",
+                          "token_uri": "https://evil.example/token"}}
+
+    def document_message(forwarded=False):
+        async def get_file():
+            async def download_as_bytearray():
+                return bytearray(json.dumps(evil).encode())
+            return SimpleNamespace(download_as_bytearray=download_as_bytearray)
+
+        msg, _ = text_message("")
+        msg.document = SimpleNamespace(file_name="client_secret_123.json", get_file=get_file)
+        msg.forward_origin = object() if forwarded else None
+        return msg
+
+    assert not await bot.handle_client_file(document_message())  # nobody asked for one
+    await bot.on_connect(None, None)
+    assert not await bot.handle_client_file(document_message(forwarded=True))
+    assert await bot.handle_client_file(document_message())
+    url = sent[-1][1].inline_keyboard[0][0].url
+    assert url.startswith("https://accounts.google.com/")  # the file can't move sign-in elsewhere
+    saved = json.loads((tmp_path / "google_client.json").read_text())["installed"]
+    assert saved["token_uri"] == "https://oauth2.googleapis.com/token"
+
+
+async def test_restart_is_requested_once(tmp_path, monkeypatch):
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    stops = []
+    monkeypatch.setattr(type(bot.app), "stop_running", lambda self: stops.append(1))
+    bot.request_restart()
+    bot.request_restart()  # a second stop during shutdown would crash the event loop
+    assert stops == [1] and bot.restart_requested
+
+
+async def test_onboarding_starts_by_itself_once(tmp_path, monkeypatch):
+    bot, sent, _ = make_bot(tmp_path, monkeypatch)
+
+    async def noop(*a, **k):
+        pass
+
+    app = SimpleNamespace(job_queue=SimpleNamespace(run_daily=noop, run_repeating=lambda *a, **k: None),
+                          bot=SimpleNamespace(set_my_commands=noop))
+    bot.outbox.resume = noop
+    await bot._post_init(app)
+    assert "1/4" in sent[-1][0]
+    count = len(sent)
+    await bot._post_init(app)  # the next start doesn't ask again
+    assert len(sent) == count
 
 
 async def test_connect_asks_for_the_client_file_first(tmp_path, monkeypatch):

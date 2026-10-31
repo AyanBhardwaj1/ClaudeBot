@@ -20,7 +20,7 @@ from .google_connect import (
     ConnectError,
     client_file,
     finish,
-    looks_like_redirect,
+    is_sign_in_reply,
     save_client,
     start,
 )
@@ -32,7 +32,7 @@ log = logging.getLogger(__name__)
 
 AWAIT_KEY = "await"
 AWAIT_SECONDS = 15 * 60
-JUST_PAIRED_KEY = "just_paired"
+ONBOARDING_OFFERED_KEY = "onboarding_offered"
 ONBOARDING = ("name", "place", "role", "brief", "google")
 
 WELCOME = (
@@ -140,10 +140,11 @@ class SetupHandlers:
         """If this text answers a question ClaudeBot asked (or is a Google sign-in address),
         handle it and return True. Otherwise it's a normal message for Claude."""
         text = message.text or ""
-        if looks_like_redirect(text):  # never let a sign-in code reach Claude or the history
+        what = self._awaiting()
+        # Never let a sign-in code reach Claude or the history.
+        if is_sign_in_reply(self.db, text, expecting_code=what == "google:code"):
             await self._finish_connect(message, text)
             return True
-        what = self._awaiting()
         if what is None or what == "google:code" or what == "google:client":
             return False
         self._stop_expecting()
@@ -230,25 +231,24 @@ class SetupHandlers:
                 "4/4 · When should I send your daily brief (calendar, inbox, reminders, news)? "
                 "Tap one or type a time.", _keyboard(_choices("ob:brief", BRIEF_CHOICES)))
         elif step == "google":
-            self._stop_expecting()
-            if self.google.is_connected():
-                await self._finish_onboarding(connect=False)
-                return
-            await self.send_to_owner(
-                "Last thing: connect Gmail and Google Calendar so I can handle your email and "
-                "schedule? You can do it any time with /connect.",
-                _keyboard([[("🔗 Connect now", "ob:google:now"), ("Later", "ob:google:later")]]))
+            await self._finish_onboarding()
 
     async def _onboard_next(self, done_step: str) -> None:
         index = ONBOARDING.index(done_step)
         await self._ask(ONBOARDING[index + 1])
 
-    async def _finish_onboarding(self, connect: bool) -> None:
+    async def _finish_onboarding(self) -> None:
+        """Save, offer Google, and restart so the answers apply everywhere. The Google buttons
+        keep working after the restart: they don't depend on a pending question."""
+        self._stop_expecting()
         self.db.set_setting(ONBOARDED_KEY, datetime.now().isoformat())
         name = self.db.get_setting("cfg:owner_name") or self.config.owner_name
         await self.send_to_owner(f"✅ All set, {name}.\n\n{WELCOME}")
-        if connect:
-            await self._connect_start()
+        if not self.google.is_connected():
+            await self.send_to_owner(
+                "Last thing: connect Gmail and Google Calendar so I can handle your email and "
+                "schedule? You can do it any time with /connect.",
+                _keyboard([[("🔗 Connect now", "ob:google:now"), ("Later", "ob:google:later")]]))
         self.request_restart()  # apply name, time zone and brief time everywhere
 
     async def on_onboard_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -264,8 +264,10 @@ class SetupHandlers:
         except TelegramError:
             pass
         if parts[1] == "google":
-            if not self.onboarded():
-                await self._finish_onboarding(connect=parts[2] == "now")
+            if parts[2] == "now":
+                await self._connect_start()
+            else:
+                await self.send_to_owner("OK. Send /connect whenever you're ready.")
             return
         if step is None:
             return  # an old question's button
@@ -410,7 +412,9 @@ class SetupHandlers:
         """A Google OAuth client JSON sent in chat: saved for /connect, never shown to Claude."""
         document = message.document
         name = (document.file_name or "").lower()
-        if not name.endswith(".json") or not (self._awaiting() == "google:client" or name.startswith("client_secret")):
+        # Only right after /connect asked for it, and never a forward: a file someone sent the
+        # owner must not be able to replace how sign-in works.
+        if message.forward_origin or not name.endswith(".json") or self._awaiting() != "google:client":
             return False
         data = bytes(await (await document.get_file()).download_as_bytearray())
         await self._delete(message)  # it holds the client secret
@@ -421,6 +425,14 @@ class SetupHandlers:
             return True
         await self.send_to_owner("Got the Google client file. Now sign in:")
         await self._connect_start()
+        return True
+
+    async def handle_sign_in_caption(self, message: Message) -> bool:
+        """A sign-in address pasted as a photo or file caption: handled here, not sent to Claude."""
+        caption = message.caption or ""
+        if message.forward_origin or not caption or not is_sign_in_reply(self.db, caption):
+            return False
+        await self._finish_connect(message, caption)
         return True
 
     async def _finish_connect(self, message: Message, text: str) -> None:

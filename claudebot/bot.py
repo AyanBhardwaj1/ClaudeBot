@@ -56,7 +56,7 @@ from .roles import (
     set_role,
 )
 from .settings import apply_saved, brief_time, save_owner_id
-from .setup_chat import JUST_PAIRED_KEY, WELCOME, SetupHandlers
+from .setup_chat import ONBOARDING_OFFERED_KEY, WELCOME, SetupHandlers
 from .tools import ToolContext
 from .ui import (
     LivePreview,
@@ -200,6 +200,12 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
         self.started_at = datetime.now()
         self.restart_requested = False
         self.pairing_code = f"{secrets.randbelow(10**6):06d}" if config.owner_id is None else None
+        budget, group_budget = config.monthly_budget_usd, config.group_monthly_budget_usd
+        if budget is not None and (group_budget is None or group_budget >= budget):
+            log.warning(
+                "The group budget (GROUP_MONTHLY_BUDGET_USD) should be below your monthly budget, or "
+                "group answers can use up the whole budget and lock you out of your own assistant."
+            )
         self._pairing_tries: dict[int, int] = {}
         client = anthropic.AsyncAnthropic()
         self.client = client
@@ -342,8 +348,9 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
         except TelegramError:
             log.warning("Couldn't set the command menu", exc_info=True)
         log.info("ClaudeBot is online.")
-        if self.db.get_setting(JUST_PAIRED_KEY):
-            self.db.delete_setting(JUST_PAIRED_KEY)
+        if not self.onboarded() and self.db.get_setting(ONBOARDING_OFFERED_KEY) is None:
+            # First start with an owner (after the setup wizard or pairing): say hello first.
+            self.db.set_setting(ONBOARDING_OFFERED_KEY, datetime.now().isoformat())
             await self.begin_onboarding()
 
     def run(self) -> bool:
@@ -353,6 +360,8 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
 
     def request_restart(self) -> None:
         """Stop polling once the current handlers finish; __main__ starts a fresh bot."""
+        if self.restart_requested:
+            return  # a second stop_running() during shutdown would crash the event loop
         self.restart_requested = True
         self.app.stop_running()
 
@@ -462,17 +471,18 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
             return
         words = (message.text or "").split()
         code = words[-1] if words and (words[0] == "/start" or len(words) == 1) else ""
-        if code and self.pairing_code and hmac.compare_digest(code, self.pairing_code):
+        if code and self.pairing_code and hmac.compare_digest(code.encode(), self.pairing_code.encode()):
             save_owner_id(self.db, user.id)
-            self.db.set_setting(JUST_PAIRED_KEY, "1")
             await message.reply_text("🔐 Paired. From now on I only talk to you. One moment...")
             self.request_restart()
             return
         if code.isdigit():
             self._pairing_tries[user.id] = tries + 1
             if sum(self._pairing_tries.values()) >= MAX_PAIRING_FAILURES:
-                self.pairing_code = None  # someone is guessing: no code works until a restart
-                log.warning("Too many wrong pairing codes; pairing is off until ClaudeBot restarts.")
+                # Someone is guessing: start over with a fresh code, so old guesses are worthless.
+                self._pairing_tries.clear()
+                self.pairing_code = f"{secrets.randbelow(10**6):06d}"
+                log.warning("Many wrong pairing codes; the new code is %s", self.pairing_code)
         await message.reply_text(
             "I'm not set up yet. If this is your ClaudeBot, send /start followed by the "
             "6-digit code shown in the server log."
@@ -664,6 +674,8 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
     async def on_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:
             message = update.effective_message
+            if await self.handle_sign_in_caption(message):
+                return
             photo = await message.photo[-1].get_file()  # largest size
             data = bytes(await photo.download_as_bytearray())
             try:
@@ -677,6 +689,8 @@ class TelegramBot(SetupHandlers, ButtonHandlers):
         async with self._message_order:
             message = update.effective_message
             document = message.document
+            if await self.handle_sign_in_caption(message):
+                return
             if (document.file_size or 0) < 100_000 and await self.handle_client_file(message):
                 return  # a Google OAuth client file: its secret never goes to Claude
             if (document.file_size or 0) > MAX_FILE_BYTES:

@@ -4,6 +4,8 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      CLAUDEBOT_DATA_DIR: /data  # beats any value in .env
     volumes:
       - claudebot-data:/data  # chat history, memories, reminders and your Google token
 
