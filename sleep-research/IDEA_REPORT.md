@@ -79,7 +79,18 @@ Each idea carries `prior_work` (who has it), `so_what` and `effort_note`. No ide
 | C19 | **Owner-configured MCP connectors** (Todoist, Notion, ...) via the Claude API MCP connector | CT, PC | Poke, OpenClaw, Lindy, ChatGPT/Claude connectors | Extensibility; but OpenClaw's marketplace is a security cautionary tale | M. Untrusted tool output must be fenced; no marketplace |
 | C20 | **Concise by default**: shorter default answers and no preamble, tuned in the system prompt | PP | Claude praised as already concise | Pain #8 | XS. Prompt change; risk of losing helpful detail |
 
-Platform-derived candidates are added below when `platform.md` is in.
+Platform-derived candidates (from `traces/literature/platform.md`):
+
+| # | Idea | Lens | prior_work | so_what | effort_note |
+|---|---|---|---|---|---|
+| C21 | **Telegram Business: DM triage and reply-as-me.** The owner connects ClaudeBot to their personal Telegram account (Settings → Business → Chatbots). ClaudeBot summarizes incoming DMs and drafts replies, which go out from the owner's account only after a tap. | PC | Poke and Martin text on your behalf; OpenClaw runs in your chats | Delivers the owner's very first ask ("text people for me") on a channel with an API; Telegram Premium no longer required (Bot API 10.0) | M-L. `business_connection`/`business_message` handlers (PTB 22.8 supports them); every incoming DM is untrusted and must be fenced; the owner's own outgoing messages must never be read as commands; 24h reply window |
+| C22 | **Incremental inbox checks with Gmail `history.list`.** Fetch only what changed since the last check instead of searching the last 2 days every 10 minutes. | PC, PP | Standard Gmail sync pattern | Cuts API calls; could allow faster checks at the same cost | S-M. Store historyId; fall back to search when it's too old |
+| C23 | **Google Tasks sync** for lists and reminders | PC | Gemini, Google Assistant | Reminders show up in Google apps | M. New `tasks` scope means the owner must re-consent |
+| C24 | **Message Batches for scheduled briefings** (half price) | PC, PP | none found | Cost (pain #3) | M. Batches are asynchronous (minutes to hours), which clashes with timed delivery; would need pre-generation |
+| C25 | **Guest mode**: summon ClaudeBot in any chat | PC | Grok-style tagging | Reach | M. Replies are visible to everyone in that chat; must be web-only like group mode |
+| C26 | **Stop button on streaming replies** (Bot API 10.3) | PC | ChatGPT/Claude apps | Control over long answers | S-M. PTB lacks it; would need raw `do_api_request` calls against an API the SDK can't type-check |
+| C27 | **Voice notes** (speech-to-text) | PP | Poke, Meta AI | Delight #4 | **Dropped (objective):** neither the Claude API nor the Bot API offers speech-to-text, and BRIEF.md forbids other paid services. Misleading "voice notes" copy was removed from /help and the landing page. |
+| C28 | **Calendar free/busy** (`freebusy.query`) | PC | | Merged into C6 (find-a-time) | |
 
 ## Triage (reviewer)
 (pending)

@@ -48,7 +48,7 @@ WELCOME = (
 )
 
 HELP = (
-    "Talk to me like a person: ask, tell me to do things, send files, photos or voice notes.\n\n"
+    "Talk to me like a person: ask, tell me to do things, forward messages, send photos and files.\n\n"
     "Everyday\n"
     "/brief – your daily brief now\n"
     "/briefings – scheduled news briefings\n"

@@ -11,7 +11,7 @@
 - Web search and fetch with citations, /research (deep research), /think (max effort).
 - Fact-checking forwarded messages.
 - Charts.
-- Code-execution sandbox with docx/xlsx/pptx/pdf skills; reads photos, PDFs and files through the Files API; voice notes.
+- Code-execution sandbox with docx/xlsx/pptx/pdf skills; reads photos, PDFs and files through the Files API (voice notes are NOT supported: no speech-to-text API).
 - Personality modes (/mode), job profiles (/role).
 - Group mode (tag the bot; web search only).
 - Live streaming replies, follow-up suggestion buttons, swipe-reply context.
