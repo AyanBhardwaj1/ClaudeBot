@@ -1,7 +1,7 @@
-"""One-time Google sign-in: `python -m claudebot.google_auth`.
+"""Google sign-in from a computer with a browser: `python -m claudebot google`.
 
-Opens a browser, asks you to allow Gmail and Calendar access, and saves the token ClaudeBot uses.
-Run it on a computer with a browser; copy the token to your server if ClaudeBot runs elsewhere.
+Most people don't need this: send /connect to ClaudeBot and sign in from your phone. This is
+the alternative for running ClaudeBot on your own computer.
 """
 
 import sys
@@ -9,22 +9,22 @@ import sys
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from .config import load_config
+from .google_connect import client_file, write_private
 from .google_services import SCOPES
 
 
 def main() -> None:
     config = load_config()
-    if not config.google_credentials_file.exists():
+    path = client_file(config)
+    if path is None:
         sys.exit(
             f"{config.google_credentials_file} not found. Download your OAuth client "
             "(Desktop app) JSON from Google Cloud Console and save it there. See README.md."
         )
-    flow = InstalledAppFlow.from_client_secrets_file(str(config.google_credentials_file), SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file(str(path), SCOPES)
     creds = flow.run_local_server(port=0, prompt="consent", access_type="offline")
-    config.google_token_file.parent.mkdir(parents=True, exist_ok=True)
-    config.google_token_file.write_text(creds.to_json())
+    write_private(config.google_token_file, creds.to_json())
     print(f"Connected. Token saved to {config.google_token_file}")
-    print("If ClaudeBot runs on a server, set GOOGLE_TOKEN_JSON there to the contents of that file.")
 
 
 if __name__ == "__main__":

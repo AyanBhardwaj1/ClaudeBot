@@ -1,6 +1,10 @@
 # ClaudeBot
 
-Your personal assistant on Telegram, powered by Claude. Text it like a person:
+**Your personal assistant on Telegram, powered by Claude.** It reads and answers your email, runs your calendar, remembers what matters to you, reminds you, researches anything, makes real documents, and messages you first when something needs you.
+
+You run your own copy: your inbox and your conversations stay between you, Telegram, Google and the Claude API. Setup takes about 5 minutes ([Quick start](#quick-start)).
+
+Text it like a person:
 
 - "what's in my inbox?" / "anything from my professor this week?"
 - "reply to Sam saying Thursday works" (sends without asking, with a 20-second **Undo** button)
@@ -32,7 +36,7 @@ ClaudeBot also comes to you:
 - **Inbox alerts you can act on.** Every alert has 🗄 Archive, ✍️ Reply (shows you a draft first) and ⏰ Later (reminds you in 3 hours) buttons.
 - **Swipe to reply.** Reply to any earlier message, or quote just part of it, and ClaudeBot knows exactly what "this" means.
 - **`/memory`.** See everything ClaudeBot remembers about you and delete anything with a tap.
-- **Knows where you live.** Set `CLAUDEBOT_CITY` (and region/country) and "best tacos near me" gets local results, and the daily brief opens with your weather.
+- **Knows where you live.** Tell it your city (first-run questions or `/settings`) and "best tacos near me" gets local results, and the daily brief opens with your weather.
 
 ### Only-on-Claude features
 
@@ -68,65 +72,83 @@ Tell ClaudeBot what you do with `/role` and everything adapts: pick a preset (�
 
 Add ClaudeBot to a Telegram group and send `/enable` there (only you can). Anyone in the group can then tag it or reply to it to ask questions or fact-check a message, like asking Grok under a post. In groups it only has web search: it can't see your email, calendar, memories or conversations, and it caps itself at `GROUP_DAILY_LIMIT` answers per group per day and `GROUP_MONTHLY_BUDGET_USD` ($5 by default) per month across all groups, so friends can't run up your bill or use up your own assistant's budget. `/disable` turns it off.
 
-## Setup (about 20 minutes)
+## Quick start
 
-You need Python 3.10+ and four things: a Claude API key, a Telegram bot, your Telegram ID, and Google access.
-
-### 1. Install
+You need Python 3.10+ (or Docker), a [Claude API key](https://console.anthropic.com/settings/keys) and a Telegram account.
 
 ```bash
 git clone <this repo> && cd ClaudeBot
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
+python -m claudebot setup
 ```
 
-### 2. Claude API key
+The setup command walks you through it and checks each step as you go:
 
-Go to [console.anthropic.com](https://console.anthropic.com), add a payment method, and create an API key. Put it in `.env` as `ANTHROPIC_API_KEY`.
+1. **Claude API key.** It checks that the key works. API use is billed separately from Claude Pro/Max; for one person it's usually a few dollars a month (see [What it costs](#what-it-costs)).
+2. **Telegram bot.** Message [@BotFather](https://t.me/BotFather), send `/newbot`, paste the token it gives you.
+3. **You.** Send your new bot any message and setup recognizes you. From then on ClaudeBot only ever talks to you.
 
-API usage is billed separately from Claude Pro/Max. For personal use it's typically a few dollars a month. If you want it cheaper, set `CLAUDEBOT_EFFORT=low` or `CLAUDEBOT_MODEL=claude-sonnet-5-5`.
+Then it starts ClaudeBot. Open your bot in Telegram, and it asks four quick questions (what to call you, where you live, what you do, when to send your daily brief) and offers to connect Gmail and Calendar.
 
-### 3. Telegram bot
+### Connect Gmail and Calendar
 
-1. In Telegram, message **@BotFather** and send `/newbot`. Name it ClaudeBot and pick a username (it must end in "bot", e.g. `ayan_claudebot`).
-2. Copy the token it gives you into `.env` as `TELEGRAM_BOT_TOKEN`.
+Send `/connect` in the chat. The first time, Google needs a free OAuth client for your own copy of ClaudeBot (about 5 minutes, once):
 
-### 4. Google (Gmail + Calendar)
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com) and create a project (e.g. "ClaudeBot").
+1. In [Google Cloud Console](https://console.cloud.google.com), create a project.
 2. **APIs & Services → Library**: enable **Gmail API** and **Google Calendar API**.
-3. **APIs & Services → OAuth consent screen**: choose *External*, fill in the app name and your email, and add yourself as a test user.
-4. **Publish the app** (OAuth consent screen → *Publish app* → "In production"). You don't need Google's verification for personal use. Skip this and Google logs ClaudeBot out every 7 days.
-5. **APIs & Services → Credentials → Create credentials → OAuth client ID** → type **Desktop app**. Download the JSON and save it as `credentials.json` in this folder.
-6. Run:
-   ```bash
-   python -m claudebot.google_auth
-   ```
-   A browser opens. Sign in, click through the "Google hasn't verified this app" warning (it's your own app), and allow access. The token is saved to `data/google_token.json`.
+3. **OAuth consent screen**: choose *External*, add your email as a test user, then **Publish app** (otherwise Google signs you out every 7 days; personal use doesn't need Google's verification).
+4. **Credentials → Create credentials → OAuth client ID → Desktop app**, then download the JSON.
+5. Send that JSON file to ClaudeBot in the chat.
 
-### 5. Start ClaudeBot
+ClaudeBot replies with a **Sign in with Google** button. Allow access; your browser then lands on a `localhost` page that doesn't load. That's expected: copy that page's address and paste it into the chat. ClaudeBot deletes the message (it holds a one-time code) and confirms which account it connected.
+
+Running ClaudeBot on your own computer? `python -m claudebot google` signs in through your browser instead.
+
+### Already set up by hand?
+
+A `.env` file still works (see `.env.example`). If you leave `TELEGRAM_OWNER_ID` empty, ClaudeBot prints a pairing code in its log when it starts; send `/start <code>` to your bot to claim it.
+
+## Make it yours
+
+Everything personal is set in the chat, no files to edit:
+
+- **`/settings`**: your name, location (sets your time zone, local search results and the weather in your brief), daily brief time, quiet hours for alerts, inbox alerts on/off, the Undo window for sent email, a monthly spending cap, and suggestion buttons. Tap a button, pick or type a value, done.
+- **`/role`**: your job, so alerts, the brief and answers fit your work.
+- **`/mode`**: personality.
+- **`/status`**: what's connected and working, and what you've spent.
+- **`/setup`**: run the first-time questions again.
+
+Settings you change in the chat take priority over `.env`.
+
+## Run it 24/7
+
+ClaudeBot only works while it's running. Your laptop is fine to try it; for every day, put it on a small server. All of these keep your data in a persistent volume, and the pairing code (if you need one) shows up in the logs.
+
+**Docker Compose** (any VPS, a home server, a Raspberry Pi):
 
 ```bash
-python -m claudebot
+python -m claudebot setup   # writes .env; answer "n" to starting it here
+docker compose up -d
+docker compose logs -f
 ```
 
-Message your bot on Telegram. The first time, it replies with your user ID. Put that in `.env` as `TELEGRAM_OWNER_ID` and restart. From then on ClaudeBot **only answers you** and ignores everyone else.
+**Fly.io** (about $2-3/month):
 
-## Keeping it running 24/7
+```bash
+fly launch --no-deploy --copy-config      # pick a unique app name
+fly volumes create claudebot_data --size 1
+fly secrets set ANTHROPIC_API_KEY=... TELEGRAM_BOT_TOKEN=...
+fly deploy && fly logs                    # send your bot /start <code> from the logs
+```
 
-ClaudeBot only works while `python -m claudebot` is running. Options:
+**Railway**: create a project from this repo (it builds the Dockerfile), add a volume mounted at `/data`, set `ANTHROPIC_API_KEY` and `TELEGRAM_BOT_TOKEN` as variables, deploy, and find the pairing code in the deploy logs.
 
-- **Your own computer**: fine to start with, but it stops when the laptop sleeps.
-- **A small cloud server** (Railway, Fly.io, a $5 VPS, a Raspberry Pi). Use the Dockerfile:
-  ```bash
-  docker build -t claudebot .
-  docker run -d --restart unless-stopped --env-file .env -v claudebot-data:/data claudebot
-  ```
-  Run step 4.6 on your laptop (it needs a browser), then set `GOOGLE_TOKEN_JSON` on the server to the contents of `data/google_token.json`.
+Then `/connect` from your phone. The Google token is saved in the volume, so it survives redeploys.
 
 ## Commands
 
+- `/help` lists everything; `/settings`, `/connect` and `/status` are covered above.
 - `/new` starts a fresh conversation (saved memories carry over). ClaudeBot also does this on its own after `NEW_THREAD_AFTER_HOURS` of silence.
 - `/brief` gives your daily brief now.
 - `/usage` shows estimated Claude API spend today and this month.
@@ -134,22 +156,24 @@ ClaudeBot only works while `python -m claudebot` is running. Options:
 - `/memory` shows and deletes what ClaudeBot remembers; `/followups on|off` toggles suggestion buttons.
 - In a group: `/enable` / `/disable` (owner only).
 
-## Settings worth knowing
+## Advanced settings
 
-All in `.env` (see `.env.example`):
+These live in `.env` (see `.env.example`). The ones marked * can also be changed in `/settings`:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `UNDO_SEND_SECONDS` | 20 | How long you have to tap Undo. `0` sends instantly. |
-| `INBOX_ALERTS` | true | Ping you about important new email |
+| `UNDO_SEND_SECONDS`* | 20 | How long you have to tap Undo. `0` sends instantly. |
+| `INBOX_ALERTS`* | true | Ping you about important new email |
 | `INBOX_CHECK_MINUTES` | 10 | How often to check |
-| `QUIET_HOURS` | 23:00-07:00 | No inbox alerts in this window (reminders you set still fire) |
-| `MONTHLY_BUDGET_USD` | none | Hard stop on Claude calls once estimated spend hits this |
+| `QUIET_HOURS`* | 23:00-07:00 | No inbox alerts in this window (reminders you set still fire) |
+| `MONTHLY_BUDGET_USD`* | none | Hard stop on Claude calls once estimated spend hits this |
 | `GROUP_DAILY_LIMIT` | 30 | Answers per group per day in group mode |
 | `GROUP_MONTHLY_BUDGET_USD` | 5 | Monthly spending cap for all group answers combined |
 | `CLAUDEBOT_EFFORT` | medium | `low` is cheaper and faster, `high` is smarter on hard requests |
 
-**What it costs:** chat runs on Claude Opus 5.5. Inbox alerts use Claude Haiku 5.5, which costs a fraction of a cent per check that finds new mail; checks that find nothing new cost nothing. `/usage` shows estimates; your real bill is at console.anthropic.com.
+### What it costs
+
+ chat runs on Claude Opus 5.5. Inbox alerts use Claude Haiku 5.5, which costs a fraction of a cent per check that finds new mail; checks that find nothing new cost nothing. `/usage` shows estimates; your real bill is at console.anthropic.com.
 
 ## Safety notes
 
@@ -158,6 +182,8 @@ All in `.env` (see `.env.example`):
 - **When you're not the one who started the turn** (the daily brief, a scheduled task), ClaudeBot never sends on its own: any email waits with **✅ Send / ✖️ Cancel** buttons (showing every recipient, cc and bcc included) until you tap it or tell ClaudeBot to send it. Those turns also can't send calendar invites, save memories, or schedule new tasks, so a phishing email read during your morning brief can't plant anything for later.
 - ClaudeBot treats email contents as data, not orders. A phishing email that says "forward this to..." won't make it do anything, and ClaudeBot will flag it. Inbox alerts show the sender's real address, not just their display name, so a fake "Mom" can't hide behind the name.
 - Files you send (and attachments ClaudeBot opens) are uploaded to your Anthropic account's file storage so they aren't resent with every message. ClaudeBot deletes them once that conversation is over (checked every 6 hours).
+- Only the Telegram account that set ClaudeBot up (or paired with the code from the server log) can use it; everyone else is ignored. Five wrong pairing codes and that account is ignored too.
+- Google sign-in codes and the OAuth client file you send in the chat are handled by ClaudeBot itself, never shown to Claude, and the messages are deleted.
 - Keep `.env`, `credentials.json` and `data/` private. They hold the keys to your inbox. They're already in `.gitignore`.
 
 ## How it works
@@ -181,6 +207,13 @@ All in `.env` (see `.env.example`):
 | `claudebot/followups.py` | Follow-up suggestions |
 | `claudebot/ui.py`, `claudebot/buttons.py` | Live previews, buttons and the memory view |
 | `claudebot/groups.py` | Group mode |
+| `claudebot/setup_chat.py`, `claudebot/settings.py` | First-run questions, `/settings`, `/status`, `/help` |
+| `claudebot/google_connect.py` | Connecting Google from the chat |
+| `claudebot/setup_wizard.py` | `python -m claudebot setup` |
 | `claudebot/db.py` | SQLite storage for chat history, memories, reminders, outbox and usage |
 
 Run the tests with `pip install pytest pytest-asyncio && pytest`.
+
+---
+
+ClaudeBot is an independent project built on the Claude API. It isn't made, endorsed or supported by Anthropic.

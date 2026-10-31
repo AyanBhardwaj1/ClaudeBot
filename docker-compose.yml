@@ -1,0 +1,11 @@
+# Run ClaudeBot 24/7: `docker compose up -d`, then `docker compose logs -f` for the pairing code.
+services:
+  claudebot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - claudebot-data:/data  # chat history, memories, reminders and your Google token
+
+volumes:
+  claudebot-data:

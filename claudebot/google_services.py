@@ -51,7 +51,7 @@ class Google:
                 info = json.loads(self.config.google_token_file.read_text())
             else:
                 raise GoogleNotConnected(
-                    "Google account not connected. Run `python -m claudebot.google_auth` first."
+                    "Google account not connected. Send /connect to ClaudeBot to connect it."
                 )
             self._creds = Credentials.from_authorized_user_info(info, SCOPES)
         if not self._creds.valid:
@@ -62,6 +62,18 @@ class Google:
                 tmp.write_text(self._creds.to_json())
                 os.replace(tmp, self.config.google_token_file)
         return self._creds
+
+    def reset(self) -> None:
+        """Forget the cached token (after connecting a new account in chat)."""
+        with self._creds_lock:
+            self._creds = None
+
+    def is_connected(self) -> bool:
+        return bool(self.config.google_token_json) or self.config.google_token_file.exists()
+
+    def account_email(self) -> str:
+        profile = self._gmail().users().getProfile(userId="me").execute()
+        return profile.get("emailAddress", "")
 
     def _gmail(self):
         # A fresh client per call: googleapiclient's HTTP layer is not thread-safe.

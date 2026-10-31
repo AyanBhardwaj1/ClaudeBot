@@ -88,7 +88,7 @@ def load_config() -> Config:
         google_token_json=os.getenv("GOOGLE_TOKEN_JSON") or None,
         daily_brief_time=os.getenv("DAILY_BRIEF_TIME") or None,
         new_thread_after_hours=float(os.getenv("NEW_THREAD_AFTER_HOURS", "8")),
-        owner_name=os.getenv("CLAUDEBOT_OWNER_NAME", "sir"),
+        owner_name=os.getenv("CLAUDEBOT_OWNER_NAME") or "friend",
         fast_model=os.getenv("CLAUDEBOT_FAST_MODEL", "claude-haiku-5-5"),
         inbox_alerts=_flag(os.getenv("INBOX_ALERTS"), True),
         inbox_check_minutes=max(int(os.getenv("INBOX_CHECK_MINUTES", "10")), 1),

@@ -1,0 +1,15 @@
+# Fly.io: see "Run it 24/7" in README.md. Change the app name to something unique.
+app = "claudebot-change-me"
+primary_region = "iad"
+
+[env]
+  CLAUDEBOT_DATA_DIR = "/data"
+
+[[mounts]]
+  source = "claudebot_data"
+  destination = "/data"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

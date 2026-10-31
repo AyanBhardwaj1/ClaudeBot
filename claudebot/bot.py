@@ -1,8 +1,10 @@
 """Telegram front end: owner-only chat, reminders, inbox alerts, undo-send and the daily brief."""
 
 import asyncio
+import hmac
 import logging
-from datetime import datetime, time, timedelta
+import secrets
+from datetime import datetime, timedelta
 
 import anthropic
 from telegram import (
@@ -53,6 +55,8 @@ from .roles import (
     role_keyboard,
     set_role,
 )
+from .settings import apply_saved, brief_time, save_owner_id
+from .setup_chat import JUST_PAIRED_KEY, WELCOME, SetupHandlers
 from .tools import ToolContext
 from .ui import (
     LivePreview,
@@ -76,6 +80,7 @@ BRIEF_PROMPT = (
 FORWARD_PROMPT = "(I forwarded this.)"
 ROLE_HINT = "Or describe it: /role nurse in the ER, /role student CS at UT Austin, /role product manager"
 PRIVATE_COMMANDS = [
+    BotCommand("help", "Everything I can do"),
     BotCommand("brief", "Daily brief now"),
     BotCommand("think", "Think as hard as possible about one question"),
     BotCommand("research", "Deep research on a question"),
@@ -84,8 +89,13 @@ PRIVATE_COMMANDS = [
     BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
+    BotCommand("settings", "Name, location, brief time, alerts, budget"),
+    BotCommand("connect", "Connect Gmail and Calendar"),
+    BotCommand("status", "What's connected and working"),
     BotCommand("usage", "What I've cost you"),
 ]
+MAX_PAIRING_TRIES = 5  # per Telegram account; the code is in the server log
+MAX_PAIRING_FAILURES = 50
 GROUP_COMMANDS = [
     BotCommand("enable", "Let me answer when tagged here (owner only)"),
     BotCommand("disable", "Stop answering here (owner only)"),
@@ -182,10 +192,15 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(ButtonHandlers):
+class TelegramBot(SetupHandlers, ButtonHandlers):
     def __init__(self, config: Config):
-        self.config = config
         self.db = Database(config.db_path)
+        config = apply_saved(config, self.db)  # what the owner set in chat beats .env
+        self.config = config
+        self.started_at = datetime.now()
+        self.restart_requested = False
+        self.pairing_code = f"{secrets.randbelow(10**6):06d}" if config.owner_id is None else None
+        self._pairing_tries: dict[int, int] = {}
         client = anthropic.AsyncAnthropic()
         self.client = client
         self.uploader = FileUploader(client, self.db)
@@ -236,7 +251,9 @@ class TelegramBot(ButtonHandlers):
 
     def _register_handlers(self) -> None:
         if self.config.owner_id is None:
-            self.app.add_handler(MessageHandler(filters.ChatType.PRIVATE, self.on_unconfigured))
+            self.app.add_handler(
+                MessageHandler(filters.ChatType.PRIVATE & filters.UpdateType.MESSAGE, self.on_unconfigured)
+            )
             return
         # The full assistant (email, calendar, memory) only ever listens to the owner in private.
         owner = filters.User(user_id=self.config.owner_id) & filters.ChatType.PRIVATE
@@ -250,6 +267,11 @@ class TelegramBot(ButtonHandlers):
             & filters.UpdateType.MESSAGE & ~filters.FORWARDED
         )
         self.app.add_handler(CommandHandler("start", self.on_start, filters=owner))
+        self.app.add_handler(CommandHandler("help", self.on_help, filters=owner))
+        self.app.add_handler(CommandHandler("setup", self.on_setup, filters=owner))
+        self.app.add_handler(CommandHandler("settings", self.on_settings, filters=owner))
+        self.app.add_handler(CommandHandler("connect", self.on_connect, filters=owner))
+        self.app.add_handler(CommandHandler("status", self.on_status, filters=owner))
         self.app.add_handler(CommandHandler("new", self.on_new, filters=owner))
         self.app.add_handler(CommandHandler("brief", self.on_brief, filters=owner))
         self.app.add_handler(CommandHandler("usage", self.on_usage, filters=owner))
@@ -268,6 +290,8 @@ class TelegramBot(ButtonHandlers):
         self.app.add_handler(CallbackQueryHandler(self.on_briefing_cancel, pattern=r"^unbrief:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_mode_button, pattern=r"^mode:\w+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_role_button, pattern=r"^role:\w+$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_onboard_button, pattern=r"^ob:\w+(:\w+)?$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_settings_button, pattern=r"^(set:\w+|setv:\w+:[\w-]+)$"))
         self.app.add_handler(CommandHandler("enable", self.on_group_enable, filters=owner_in_group))
         self.app.add_handler(CommandHandler("disable", self.on_group_disable, filters=owner_in_group))
         self.app.add_handler(
@@ -288,6 +312,12 @@ class TelegramBot(ButtonHandlers):
 
     async def _post_init(self, app: Application) -> None:
         if self.config.owner_id is None:
+            me = await app.bot.get_me()
+            log.warning(
+                "\n\n    ClaudeBot isn't paired with you yet. In Telegram, open t.me/%s and send:\n\n"
+                "        /start %s\n",
+                me.username, self.pairing_code,
+            )
             return
         now = datetime.now(self.config.timezone)
         for row in self.db.active_reminders():
@@ -296,11 +326,8 @@ class TelegramBot(ButtonHandlers):
                 due = next_occurrence(due, row["repeat"], now, self.config.timezone)
                 self.db.reschedule_reminder(row["id"], due)
             self.schedule_reminder(row["id"])  # overdue one-offs fire right away
-        if self.config.daily_brief_time:
-            hour, minute = map(int, self.config.daily_brief_time.split(":"))
-            app.job_queue.run_daily(
-                self._brief_job, time=time(hour, minute, tzinfo=self.config.timezone), name="daily-brief"
-            )
+        if (at := brief_time(self.config)) is not None:
+            app.job_queue.run_daily(self._brief_job, time=at, name="daily-brief")
         if self.config.inbox_alerts:
             app.job_queue.run_repeating(
                 self._inbox_job, interval=self.config.inbox_check_minutes * 60, first=30, name="inbox-watch"
@@ -315,9 +342,19 @@ class TelegramBot(ButtonHandlers):
         except TelegramError:
             log.warning("Couldn't set the command menu", exc_info=True)
         log.info("ClaudeBot is online.")
+        if self.db.get_setting(JUST_PAIRED_KEY):
+            self.db.delete_setting(JUST_PAIRED_KEY)
+            await self.begin_onboarding()
 
-    def run(self) -> None:
-        self.app.run_polling(allowed_updates=Update.ALL_TYPES)
+    def run(self) -> bool:
+        """Run until stopped. True means restart with fresh settings (see request_restart)."""
+        self.app.run_polling(allowed_updates=Update.ALL_TYPES, close_loop=False)
+        return self.restart_requested
+
+    def request_restart(self) -> None:
+        """Stop polling once the current handlers finish; __main__ starts a fresh bot."""
+        self.restart_requested = True
+        self.app.stop_running()
 
     # --- messaging helpers ---
 
@@ -416,31 +453,41 @@ class TelegramBot(ButtonHandlers):
     # --- handlers ---
 
     async def on_unconfigured(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if update.effective_user and update.effective_message:
-            await update.effective_message.reply_text(
-                f"Your Telegram user ID is {update.effective_user.id}.\n"
-                "Put it in TELEGRAM_OWNER_ID in your .env and restart me. "
-                "Until then I won't talk to anyone."
-            )
+        """Pairing: whoever sends the code from the server log becomes the owner."""
+        user, message = update.effective_user, update.effective_message
+        if not user or not message or self.restart_requested:
+            return
+        tries = self._pairing_tries.get(user.id, 0)
+        if tries >= MAX_PAIRING_TRIES:
+            return
+        words = (message.text or "").split()
+        code = words[-1] if words and (words[0] == "/start" or len(words) == 1) else ""
+        if code and self.pairing_code and hmac.compare_digest(code, self.pairing_code):
+            save_owner_id(self.db, user.id)
+            self.db.set_setting(JUST_PAIRED_KEY, "1")
+            await message.reply_text("🔐 Paired. From now on I only talk to you. One moment...")
+            self.request_restart()
+            return
+        if code.isdigit():
+            self._pairing_tries[user.id] = tries + 1
+            if sum(self._pairing_tries.values()) >= MAX_PAIRING_FAILURES:
+                self.pairing_code = None  # someone is guessing: no code works until a restart
+                log.warning("Too many wrong pairing codes; pairing is off until ClaudeBot restarts.")
+        await message.reply_text(
+            "I'm not set up yet. If this is your ClaudeBot, send /start followed by the "
+            "6-digit code shown in the server log."
+        )
 
     async def on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self.onboarded():
+            await self.begin_onboarding()
+            return
         await update.effective_message.reply_text(
-            f"ClaudeBot at your service, {self.config.owner_name}.\n\n"
-            "Just talk to me normally. Try:\n"
-            "- what's in my inbox?\n"
-            "- reply to Sam saying Thursday works\n"
-            "- what's on my calendar tomorrow?\n"
-            "- remind me at 6pm to call mom\n"
-            "- (send a PDF) what's due in this syllabus?\n\n"
-            "I'll also ping you when important email arrives.\n\n"
-            "- (forward any message) is this true?\n"
-            "- /research best budget laptop for CS\n\n"
-            "/role tells me your job so I can tailor everything to it, "
-            "/mode switches my personality (try fun), /think for hard questions, /memory shows "
-            "what I remember, /new starts fresh, /brief gives you the daily brief, /usage shows "
-            "what I've cost you. Add me to a group and send /enable there, and people can tag "
-            "me like Grok."
+            f"ClaudeBot at your service, {self.config.owner_name}.\n\n{WELCOME}"
         )
+
+    async def on_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await self.begin_onboarding()
 
     async def on_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:  # after any messages already queued, not before them
@@ -458,6 +505,8 @@ class TelegramBot(ButtonHandlers):
                 # Someone else's words: fenced as data, so they can't pose as the owner.
                 fenced = fence_external("forwarded_message", origin_name(message.forward_origin), message.text)
                 content = [{"type": "text", "text": fenced}, {"type": "text", "text": FORWARD_PROMPT}]
+            elif await self.handle_answer(message):
+                return  # it answered a setup question (or held a Google sign-in code)
             else:
                 content = [*self._reply_context(message, context), {"type": "text", "text": message.text}]
             # The suggester sees the owner's words, never a forward's (that's someone else's text).
@@ -523,6 +572,7 @@ class TelegramBot(ButtonHandlers):
         if profile is None:
             await query.answer()
             return
+        self._stop_expecting()
         await query.answer(profile.role.label)
         await query.edit_message_text(f"Job: {profile.role.label}")
         await self._role_set(profile)
@@ -627,6 +677,8 @@ class TelegramBot(ButtonHandlers):
         async with self._message_order:
             message = update.effective_message
             document = message.document
+            if (document.file_size or 0) < 100_000 and await self.handle_client_file(message):
+                return  # a Google OAuth client file: its secret never goes to Claude
             if (document.file_size or 0) > MAX_FILE_BYTES:
                 await message.reply_text(f"{document.file_name} is too big for me (10 MB max).")
                 return
