@@ -58,30 +58,46 @@
     {
       "name": "implement",
       "status": "done",
-      "accepted": false,
+      "accepted": true,
       "at": "2026-10-31T09:37:33+00:00",
-      "artifact": "tests/test_release_11.py"
+      "artifact": "tests/test_release_11.py",
+      "verdict": "sleep-research/traces/review/round1.md",
+      "reviewer": "same-family",
+      "accepted_at": "2026-10-31T09:51:05+00:00"
     },
     {
       "name": "audit",
-      "status": "pending",
-      "accepted": false
+      "status": "skipped",
+      "accepted": false,
+      "at": "2026-10-31T09:51:05+00:00"
     },
     {
       "name": "review",
-      "status": "pending",
-      "accepted": false
+      "status": "done",
+      "accepted": true,
+      "at": "2026-10-31T09:51:05+00:00",
+      "artifact": "sleep-research/AUTO_REVIEW.md",
+      "verdict": "sleep-research/traces/review/round1.md",
+      "reviewer": "same-family",
+      "accepted_at": "2026-10-31T09:51:05+00:00"
     },
     {
       "name": "claims",
-      "status": "pending",
-      "accepted": false
+      "status": "done",
+      "accepted": true,
+      "at": "2026-10-31T09:51:05+00:00",
+      "artifact": "sleep-research/CLAIMS.md",
+      "verdict": "sleep-research/traces/claims/round1.md",
+      "reviewer": "same-family",
+      "accepted_at": "2026-10-31T09:51:05+00:00"
     },
     {
       "name": "report",
-      "status": "pending",
-      "accepted": false
+      "status": "done",
+      "accepted": false,
+      "at": "2026-10-31T09:51:05+00:00",
+      "artifact": "sleep-research/MORNING_SUMMARY.md"
     }
   ],
-  "updated": "2026-10-31T09:37:33+00:00"
+  "updated": "2026-10-31T09:51:05+00:00"
 }

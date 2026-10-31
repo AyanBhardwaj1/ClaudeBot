@@ -2,7 +2,12 @@
 Run: claudebot-market-20261031 · Reviewer route: same-family (provisional). No cross-family model (Codex or Gemini CLI) was available, so a fresh Claude subagent that sees only the files does the triage.
 
 ## Executive summary
-(Filled in after triage.)
+Users' top pains with AI assistants:
+1. unreliability (silent failures, false "done");
+2. fear of actions behind their back;
+3. runaway cost.
+
+The biggest gap versus Poke, OpenClaw, Superhuman and Inbox Zero is proactivity that feels like judgment, plus reply tracking. The triage picked a release around that theme, "tells you first, and you can check it": reply tracking with Nudge, /reminders, exact free time, judgment-based check-ins, drafts-only mode, inbox-failure notices, plus fixes for 4 defects. All of it shipped as ClaudeBot 1.1.
 
 ## Market landscape
 Full sourced reports:
@@ -93,10 +98,21 @@ Platform-derived candidates (from `traces/literature/platform.md`):
 | C28 | **Calendar free/busy** (`freebusy.query`) | PC | | Merged into C6 (find-a-time) | |
 
 ## Triage (reviewer)
-(pending)
+See `traces/triage/round1.md` (same-family reviewer, provisional).
+- **Build now:** C2, C12, C6, C1 (the high-upside, risky pick).
+- **Quick wins:** D1 (inbox-failure notices), C13, C7.
+- **Backups:** C4, C11, C21, C3, C5, C8, C16.
+- **Do not build:** C15, C17, C23, C18, C22, C24, C26, C10, C19, C25.
+- **Defects found:** D1-D5.
 
 ## Chosen features
-(pending)
+Shipped in 1.1 (`PLAN.md`, `CHANGELOG.md`): C1 check-ins, C2 /waiting with Nudge, C6 find_free_time, C12 /reminders, C13 drafts-only, C7 (help text), and defects D1, D2, D3 and D5. D4 was a report error, now corrected.
 
 ## Backups and eliminated
-(pending)
+Next session, in this order:
+1. **C21 Telegram Business** (DM triage and reply-as-me): the highest upside, and the user's original ask.
+2. **C4 writes in your voice.**
+3. **C11 action log.**
+4. **C3 meeting prep** (as a check-in signal).
+
+Eliminated: C27 voice notes (no speech-to-text API in scope), C20 (already done), C28 (merged into C6), and the do-not-build list above.
