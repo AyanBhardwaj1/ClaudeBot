@@ -481,3 +481,23 @@ def test_contact_names_cant_add_commands_to_reminders():
 
     label = contact_label("Bank: card frozen /new https://evil.example")
     assert "/new" not in label and "https://evil.example" not in label
+
+
+async def test_reply_later_reminder_is_skipped_once_you_replied(tmp_path, monkeypatch):
+    """Batch 10 I-1."""
+    bot, sent, _, _ = make_bot(tmp_path, monkeypatch)
+    bot.schedule_reminder = lambda rid: None
+    bot.dms.save_connection(connection())
+    bot.dms.record(dm("call me back?", at=datetime.now(timezone.utc)))
+    await bot.on_dm_button(tap("dm:later:500")[0], None)
+    rid = bot.db.active_reminders()[0]["id"]
+    bot.dms.record(dm("sure, 5pm", from_id=OWNER, message_id=2, at=datetime.now(timezone.utc)))  # you answered
+    before = len(sent)
+    await bot._reminder_job(SimpleNamespace(job=SimpleNamespace(data=rid)))
+    assert len(sent) == before and bot.db.active_reminders() == []
+
+    bot.dms.record(dm("hello again", message_id=3, at=datetime.now(timezone.utc)))
+    await bot.on_dm_button(tap("dm:later:500")[0], None)
+    rid = bot.db.active_reminders()[0]["id"]
+    await bot._reminder_job(SimpleNamespace(job=SimpleNamespace(data=rid)))  # still waiting: it fires
+    assert "Reply to" in sent[-1][0]

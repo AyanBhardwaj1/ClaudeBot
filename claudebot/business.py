@@ -40,6 +40,7 @@ NUDGE_AFTER = timedelta(hours=2)  # check-ins mention a DM once someone has wait
 MAX_TEXT = 1000
 MAX_CHATS = 8
 QUICK_KEY = "dm_quick_replies"
+DM_LATER_PREFIX = "dm_later_rid:"
 DEFAULT_QUICK = ["On it 👍", "Can I get back to you later today?", "Thanks!"]
 MAX_QUICK, MAX_QUICK_LEN = 3, 60  # short enough that a button shows all of it
 
@@ -396,6 +397,8 @@ class BusinessHandlers:
         self.db.prune_settings("dm_later:", 50)
         when = datetime.now(self.config.timezone) + timedelta(hours=3)
         reminder_id = self.db.add_reminder(f"💬 Reply to “{contact_label(chat.name)}” on Telegram (/dms)", when, "none", False)
+        self.db.set_setting(f"{DM_LATER_PREFIX}{reminder_id}", str(chat_id))  # skipped if you reply first
+        self.db.prune_settings(DM_LATER_PREFIX, 50)
         self.schedule_reminder(reminder_id)
         ActionLog(self.db).record("reminder", f"Reminder to reply to {chat.name} at {when:%H:%M}")
         await query.answer(f"⏰ I'll remind you at {when:%H:%M}.")

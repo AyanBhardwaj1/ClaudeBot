@@ -37,7 +37,7 @@ from .alert_rules import RuleHandlers
 from .backup import BACKUP_TIME, BackupHandlers
 from .bills import BillHandlers
 from .birthdays import BirthdayHandlers
-from .business import BusinessHandlers, DMStore
+from .business import DM_LATER_PREFIX, BusinessHandlers, DMStore
 from .buttons import ButtonHandlers
 from .checkins import CheckinHandlers, snooze_keyboard
 from .config import Config
@@ -907,11 +907,15 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
                     [{"type": "text", "text": task_prompt(reminder_id, row["text"])}], owner_present=False, source="task"
                 )
                 await self.send_to_owner(reply)
+            elif (chat_id := self.db.get_setting(f"{DM_LATER_PREFIX}{reminder_id}")) is not None \
+                    and self._waiting_chat(int(chat_id)) is None:
+                pass  # a ⏰ 3h "reply to them" reminder, and you already did: nothing to say
             else:
                 # Reminders can be set in turns the owner didn't start: links in them stay unclickable.
                 await self.send_to_owner(f"⏰ {defang_urls(row['text'])}", snooze_keyboard(reminder_id))
                 self.db.add_notice(f"Reminder #{reminder_id} fired: {row['text']}")
         finally:
+            self.db.delete_setting(f"{DM_LATER_PREFIX}{reminder_id}")
             now = datetime.now(self.config.timezone)
             following = next_occurrence(
                 datetime.fromisoformat(row["due_at"]), row["repeat"], now, self.config.timezone, _anchor(row)
