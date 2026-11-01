@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**Life-admin radar**
+- Inbox alerts now also cover bills with a due date, renewals about to charge, travel changes and deliveries that need you. When an alert has a date, its ⏰ button reminds you the morning before ("⏰ Nov 14") instead of in 3 hours.
+
 **Lists**
 - Shopping, packing and to-do lists: "add milk and eggs to my shopping list", then `/lists` and tap items off. Turns you didn't start can read them but not change them.
 

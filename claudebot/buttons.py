@@ -5,7 +5,7 @@ Archive / Reply / Later buttons on inbox alerts. Mixed into TelegramBot, whose s
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from telegram import InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
@@ -80,6 +80,20 @@ class ButtonHandlers:
             except Exception:
                 log.exception("Archiving %s failed", message_id)
                 await query.answer("Couldn't archive that one.")
+        elif action == "due":
+            info = json.loads(self.db.get_setting(f"alert:{message_id}") or "{}")
+            if info.get("reminded") or not info.get("due"):
+                await query.answer("Already on your reminders." if info.get("reminded") else "No date on that one.")
+                return
+            due = date.fromisoformat(info["due"])
+            now = datetime.now(self.config.timezone)
+            when = datetime.combine(due - timedelta(days=1), time(9), tzinfo=self.config.timezone)
+            if when <= now:  # due tomorrow or today: the morning of, or an hour from now
+                when = max(datetime.combine(due, time(9), tzinfo=self.config.timezone), now + timedelta(hours=1))
+            text = f"Due {due:%a %b %-d}: {info.get('subject', '')} (from {info.get('from', 'an email')})"
+            self.schedule_reminder(self.db.add_reminder(text, when, "none", False))
+            self.db.set_setting(f"alert:{message_id}", json.dumps({**info, "reminded": True}))
+            await query.answer(f"⏰ I'll remind you {when:%a %b %-d at %H:%M}")
         elif action == "later":
             info = json.loads(self.db.get_setting(f"alert:{message_id}") or "{}")
             if info.get("reminded"):
