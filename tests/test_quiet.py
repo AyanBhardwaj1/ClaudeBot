@@ -64,3 +64,33 @@ async def test_paused_bot_stays_quiet(tmp_path, monkeypatch):
     await bot.on_quiet(update, SimpleNamespace(args=["off"]))
     await bot._inbox_job(None)
     assert len(checked) == 1
+
+
+async def test_focus_session_and_note(tmp_path, monkeypatch):
+    from claudebot.bot import TelegramBot
+    from claudebot.lists import Lists
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    replies, sent, jobs = [], [], []
+
+    async def reply_text(text, *, reply_markup=None):
+        replies.append(text)
+
+    async def send_to_owner(text, reply_markup=None):
+        sent.append(text)
+
+    bot.send_to_owner = send_to_owner
+    monkeypatch.setattr(type(bot.app.job_queue), "run_once", lambda self, cb, when, name=None: jobs.append(when))
+    update = SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text))
+    await bot.on_focus(update, SimpleNamespace(args=["25"]))
+    assert "Focus for 25 minutes" in replies[-1] and dnd_active(bot.db, datetime.now(TZ)) and len(jobs) == 1
+    await bot._focus_done(None)
+    assert sent == []  # still inside the session
+    bot.db.delete_setting(DND_KEY)
+    await bot._focus_done(None)
+    assert "Focus session done" in sent[-1]
+    await bot.on_focus(update, SimpleNamespace(args=["600"]))
+    assert "5 to 180" in replies[-1]
+    await bot.on_note(update, SimpleNamespace(args="call the landlord".split()))
+    assert Lists(bot.db).items("Notes")[0]["text"] == "call the landlord" and replies[-1] == "🗒 Noted."

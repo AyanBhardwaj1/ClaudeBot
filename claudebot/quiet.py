@@ -81,6 +81,28 @@ class QuietHandlers:
         await update.effective_message.reply_text(f"{status} Pause alerts, check-ins and meeting prep for:",
                                                   reply_markup=_keyboard())
 
+    async def on_focus(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/focus 25: quiet for 25 minutes, then a ping that the session is over."""
+        try:
+            minutes = int((context.args or ["25"])[0])
+        except ValueError:
+            minutes = 0
+        if not 5 <= minutes <= 180:
+            await update.effective_message.reply_text("Try /focus 25 (5 to 180 minutes).")
+            return
+        now = datetime.now(self.config.timezone)
+        until = now + timedelta(minutes=minutes)
+        self.db.set_setting(DND_KEY, until.isoformat())
+        self.app.job_queue.run_once(self._focus_done, when=until, name="focus")
+        await update.effective_message.reply_text(
+            f"🎯 Focus for {minutes} minutes, until {until:%H:%M}. I'll hold alerts and check-ins and tell you when "
+            "time's up.")
+
+    async def _focus_done(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if dnd_active(self.db, datetime.now(self.config.timezone)):
+            return  # the pause was extended (/quiet): not over yet
+        await self.send_to_owner("⏱ Focus session done. Alerts and check-ins are back on.")
+
     async def on_quiet_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         await query.answer()

@@ -15,6 +15,7 @@ MAX_NAME = 40
 MAX_ITEM = 200
 MAX_ITEMS = 100
 MAX_LISTS = 20
+NOTES = "Notes"
 MAX_VIEW = 3500  # characters: under Telegram's 4096 per message
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS lists (
@@ -161,6 +162,19 @@ class ListHandlers:
         for name in names[:6]:
             text, markup = list_view(lists, name)
             await update.effective_message.reply_text(text, reply_markup=markup)
+
+    async def on_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/note <text>: quick capture into the Notes list."""
+        text = " ".join(context.args or [])
+        if not text:
+            await update.effective_message.reply_text("Jot something down: /note call the landlord about the heater")
+            return
+        try:
+            added = Lists(self.db).add(NOTES, [text])
+        except ValueError as e:
+            await update.effective_message.reply_text(str(e))
+            return
+        await update.effective_message.reply_text("🗒 Noted." if added else "🗒 Already in your notes.")
 
     async def on_list_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query

@@ -322,6 +322,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("style", self.on_style, filters=owner))
         self.app.add_handler(CommandHandler("lists", self.on_lists, filters=owner))
         self.app.add_handler(CommandHandler("quiet", self.on_quiet, filters=owner))
+        self.app.add_handler(CommandHandler("focus", self.on_focus, filters=owner))
+        self.app.add_handler(CommandHandler("note", self.on_note, filters=owner))
         self.app.add_handler(CommandHandler("rules", self.on_rules, filters=owner))
         self.app.add_handler(CommandHandler("export", self.on_export, filters=owner))
         self.app.add_handler(CommandHandler("sweep", self.on_sweep, filters=owner))
