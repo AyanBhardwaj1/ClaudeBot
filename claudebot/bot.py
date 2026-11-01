@@ -153,6 +153,7 @@ def brief_prompt(config: Config, profile: Profile | None, dms_connected: bool = 
         prompt += f" Since my job is {profile.describe()}, also cover {profile.role.brief_focus}."
     if dms_connected:
         prompt += " Mention anyone waiting on a Telegram reply from me (list_telegram_dms)."
+    prompt += " If any bill is due in the next 3 days (list_bills), say so in one line."
     return prompt
 
 

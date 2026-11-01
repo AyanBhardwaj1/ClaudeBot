@@ -71,3 +71,16 @@ def test_bill_validation(tmp_path):
     bills.add("Rent", 1200, 1)
     bills.add("rent", 1300, 1)  # same bill, updated
     assert [(b["name"], b["amount"]) for b in bills.all()] == [("rent", 1300.0)]
+
+
+
+async def test_bills_can_be_listed_for_the_brief(tmp_path):
+    from helpers import make_context
+
+    from claudebot.bot import brief_prompt
+
+    db = Database(tmp_path / "t.db")
+    Bills(db).add("Rent", 1200, 1)
+    listed = json.loads((await run_tool("list_bills", {}, make_context(db)))[0])["bills"]
+    assert listed[0]["name"] == "Rent" and listed[0]["next_due"].endswith("-01")
+    assert "list_bills" in brief_prompt(make_config(tmp_path), None)

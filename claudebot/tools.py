@@ -451,6 +451,11 @@ CLIENT_TOOLS = [
                                  "currency": {"type": "string"}}, ["name", "amount", "day"]),
     },
     {
+        "name": "list_bills",
+        "description": "The owner's monthly bills with their next due dates.",
+        "input_schema": _schema({}, []),
+    },
+    {
         "name": "add_alert_rule",
         "description": (
             "Save one of the owner's own rules for inbox alerts, in plain English, when they ask for it "
@@ -778,6 +783,11 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         if name != "spending_summary":
             _require_owner(ctx, "change expenses")
         return expense_tool(name, a, ctx.db, ctx.tz)
+    if name == "list_bills":
+        from .bills import Bills, next_due
+
+        today = datetime.now(ctx.tz).date()
+        return {"bills": [{**b, "next_due": next_due(b["day"], today).isoformat()} for b in Bills(ctx.db).all()]}
     if name == "add_bill":
         _require_owner(ctx, "add bills")
         if ctx.add_bill is None:

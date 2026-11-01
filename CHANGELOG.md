@@ -69,6 +69,7 @@
 
 **Spending**
 - `/subscriptions` finds recurring charges in 90 days of receipts, flags forgotten ones and duplicates, gives the monthly total, and offers to track them as bills.
+- The daily brief mentions any bill due in the next 3 days.
 - Bills: "rent is $1200 on the 1st" saves it with a monthly reminder 2 days before. `/bills` shows what's due and your monthly total; ✅ Paid logs it as spending.
 - IOUs: "Alex owes me $20 for dinner", "I owe Sam $15". `/owed` nets it out per person, with a ✅ Settled button.
 - "Spent $12 on lunch" logs it. "How much did I spend on food this month?" is summed exactly from what you logged, never estimated, and can be charted. `/spent` shows the month by category. Reminders can also repeat every 2 weeks.
