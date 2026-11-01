@@ -61,6 +61,7 @@ from .journal import ASK_TIME as JOURNAL_TIME
 from .journal import JournalHandlers
 from .lists import ListHandlers
 from .meeting_prep import JOB_MINUTES, MeetingPrepHandlers
+from .menu import MenuHandlers
 from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
 from .privacy import PrivacyHandlers
@@ -131,6 +132,7 @@ PRIVATE_COMMANDS = [
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
     BotCommand("settings", "Name, location, brief time, alerts, budget"),
+    BotCommand("menu", "Show a button keyboard for everyday things"),
     BotCommand("help", "Everything I can do"),
 ]
 MAX_PAIRING_TRIES = 5  # per Telegram account; the code is in the server log
@@ -225,7 +227,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, RestoreHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, RestoreHandlers, MenuHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -333,6 +335,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("privacy", self.on_privacy, filters=owner))
         self.app.add_handler(CommandHandler("triage", self.on_triage, filters=owner))
         self.app.add_handler(CommandHandler("owed", self.on_owed, filters=owner))
+        self.app.add_handler(CommandHandler("menu", self.on_menu, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_restore_button, pattern=r"^restore:(yes|no)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_iou_button, pattern=r"^iou:\d{1,3}$"))
         self.app.add_handler(CallbackQueryHandler(self.on_triage_button, pattern=r"^tri:(arch|draft|later|next|snooze):[0-9a-f]{6,32}$"))
@@ -620,6 +623,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             await self._send_brief()
 
     async def on_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if await self.handle_menu_button(update):
+            return  # a /menu button (handled outside the lock: some take it themselves)
         async with self._message_order:
             message = update.effective_message
             if message.forward_origin:

@@ -100,6 +100,7 @@ HELP = (
     "/usage – what I've cost you\n"
     "/export – download everything I keep about you (send the file back to restore it)\n"
     "/privacy – see what I keep, and clear it\n"
+    "/menu – a button keyboard for everyday things (/menu off hides it)\n"
     "/help – this list\n\n"
     "Send a photo of a flyer or a ticket and I'll add it to your calendar.\n\n"
     "Groups: add me to a group and send /enable there (/disable to stop); people can tag me to ask or fact-check."

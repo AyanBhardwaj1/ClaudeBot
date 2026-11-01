@@ -51,3 +51,35 @@ def test_usage_breaks_spend_down_by_feature(tmp_path):
     summary = tracker.summary()
     assert "This month by feature:" in summary
     assert summary.index("Conversations") < summary.index("Check-ins")  # most expensive first
+
+
+async def test_menu_buttons_run_their_command_and_forwards_dont(tmp_path, monkeypatch):
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    called, replies = [], []
+
+    async def fake_today(update, context):
+        called.append(("today", context.args))
+
+    async def fake_quiet(update, context):
+        called.append(("quiet", context.args))
+
+    async def reply_text(text, *, reply_markup=None):
+        replies.append((text, reply_markup))
+
+    bot.on_today = fake_today
+    bot.on_quiet = fake_quiet
+
+    def update(text, forwarded=False):
+        return SimpleNamespace(effective_message=SimpleNamespace(text=text, forward_origin=object() if forwarded else None,
+                                                                 reply_text=reply_text))
+
+    assert await bot.handle_menu_button(update("📆 Today"))
+    assert await bot.handle_menu_button(update("🔕 Quiet 1h"))
+    assert not await bot.handle_menu_button(update("📆 Today", forwarded=True))
+    assert not await bot.handle_menu_button(update("what's on today?"))
+    assert called == [("today", []), ("quiet", ["1h"])]
+    await bot.on_menu(update("/menu"), SimpleNamespace(args=[]))
+    assert replies[-1][1].keyboard[0][0].text == "📆 Today"
