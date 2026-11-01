@@ -84,8 +84,8 @@ class ButtonHandlers:
         elif action == "times":
             await query.answer("📅 Checking your calendar...")
             prompt = (f"The email with message id {message_id} asks to meet. Read it first. Then use find_free_time "
-                      "for the next 7 days (or the window they mention), pick 3 good options, and draft a short reply "
-                      "proposing them in my voice. Show me the draft here; don't send it.")
+                      "for the next 7 working days, pick 3 good options, and draft a short reply proposing them in my "
+                      "voice, without naming or describing my other events. Show me the draft here; don't send it.")
             async with self._message_order:
                 await self._converse([{"type": "text", "text": prompt}], "Propose meeting times",
                                      owner_present=False)  # a draft only: a send would wait for ✅ Send

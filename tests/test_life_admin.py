@@ -174,3 +174,19 @@ async def test_meeting_requests_get_a_propose_times_button(tmp_path, monkeypatch
         from_user=SimpleNamespace(id=1), data="mail:times:abc444", answer=answer)), None)
     prompt, owner_present = conversed[0]
     assert "find_free_time" in prompt and "abc444" in prompt and owner_present is False
+
+
+async def test_big_digests_go_out_in_pages_and_nothing_is_dropped(tmp_path):
+    db = Database(tmp_path / "t.db")
+    db.set_setting("alert_digest", json.dumps([{"id": f"abc{i:03d}", "from": "a@b.c", "subject": f"s{i}",
+                                                 "summary": f"email {i}", "due": "", "kind": "other"} for i in range(23)]))
+    notes = []
+
+    async def notify(text, actions=None):
+        notes.append(text)
+
+    watcher = InboxWatcher(db, FakeGoogle(inbox=[]), FakeClient([]), UsageTracker(db, TZ, None),
+                           make_config(tmp_path, quiet_hours=None), notify)
+    assert await watcher.flush_digest() == 23
+    assert len(notes) == 3 and all(f"email {i}" in "".join(notes) for i in range(23))
+    assert "more" not in "".join(notes) and json.loads(db.get_setting("alert_digest")) == []

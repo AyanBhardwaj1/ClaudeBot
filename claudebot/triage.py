@@ -71,6 +71,7 @@ class TriageHandlers:
             await query.answer("That card is old; send /triage again.")
             return
         current = queue.pop(0)
+        self.db.set_setting(QUEUE_KEY, json.dumps(queue))  # claimed now: a double tap finds an old card
         if action == "arch":
             try:
                 await asyncio.to_thread(self.google.modify_email, message_id, "archive")
@@ -88,7 +89,12 @@ class TriageHandlers:
                 log.exception("Snoozing %s failed", message_id)
                 await query.answer("Couldn't snooze that one.")
                 return
-            snooze(self.db, message_id, f"{name or address}: {clip(current['subject'], 100)}", until)
+            try:
+                snooze(self.db, message_id, f"{name or address}: {clip(current['subject'], 100)}", until)
+            except ValueError as e:
+                await asyncio.to_thread(self.google.modify_email, message_id, "inbox")  # put it back
+                await query.answer(str(e))
+                return
             ActionLog(self.db).record("email", f"Snoozed an email until {until:%a %H:%M}")
         elif action == "later":
             when = datetime.now(self.config.timezone) + timedelta(hours=3)

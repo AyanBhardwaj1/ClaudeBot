@@ -67,6 +67,7 @@ class QuietHandlers:
         now = datetime.now(self.config.timezone)
         text = " ".join(context.args or [])
         if text.lower() in ("off", "resume", "stop"):
+            self.db.delete_setting("focus_until")  # no "focus done" ping after resuming early
             await update.effective_message.reply_text(self._pause(None))
             return
         if text:
@@ -92,15 +93,19 @@ class QuietHandlers:
             return
         now = datetime.now(self.config.timezone)
         until = now + timedelta(minutes=minutes)
-        self.db.set_setting(DND_KEY, until.isoformat())
+        current = dnd_until(self.db, now)
+        if current is None or current < until:  # never shortens a longer /quiet
+            self.db.set_setting(DND_KEY, until.isoformat())
+        self.db.set_setting("focus_until", until.isoformat())
         self.app.job_queue.run_once(self._focus_done, when=until, name="focus")
         await update.effective_message.reply_text(
             f"🎯 Focus for {minutes} minutes, until {until:%H:%M}. I'll hold alerts and check-ins and tell you when "
             "time's up.")
 
     async def _focus_done(self, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if dnd_active(self.db, datetime.now(self.config.timezone)):
-            return  # the pause was extended (/quiet): not over yet
+        if self.db.get_setting("focus_until") is None or dnd_active(self.db, datetime.now(self.config.timezone)):
+            return  # ended early with /quiet off, or a longer pause is still on
+        self.db.delete_setting("focus_until")
         await self.send_to_owner("⏱ Focus session done. Alerts and check-ins are back on.")
 
     async def on_quiet_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -85,3 +85,25 @@ async def test_snoozed_email_comes_back(tmp_path, monkeypatch):
     assert moves[-1] == ("abc000", "inbox") and "Back in your inbox: Sam: Lunch" in sent[-1]
     await bot._snooze_job(None)
     assert len(sent) == 1
+
+
+async def test_a_double_tap_acts_once(tmp_path, monkeypatch):
+    import asyncio
+
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    bot.google.search_emails = lambda q, n: [{"id": f"abc00{i}", "from": "a@b.c", "subject": "s", "snippet": ""}
+                                             for i in range(3)]
+    scheduled = []
+    bot.schedule_reminder = scheduled.append
+
+    async def noop(*a, **k):
+        pass
+
+    await bot.on_triage(SimpleNamespace(effective_message=SimpleNamespace(reply_text=noop)), None)
+    tap = SimpleNamespace(callback_query=SimpleNamespace(from_user=SimpleNamespace(id=1), data="tri:later:abc000",
+                                                         answer=noop, edit_message_text=noop))
+    await asyncio.gather(bot.on_triage_button(tap, None), bot.on_triage_button(tap, None))
+    assert len(scheduled) == 1

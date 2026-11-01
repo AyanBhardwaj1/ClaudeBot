@@ -30,7 +30,7 @@ MAX_DUE_AHEAD = timedelta(days=120)
 KINDS = ("bill", "deadline", "delivery", "travel", "meeting")
 ALERT_MODE_KEY = "alert_mode"  # "hourly" holds alerts for one digest an hour
 DIGEST_QUEUE_KEY = "alert_digest"
-MAX_DIGEST = 30
+MAX_DIGEST = 100
 MAX_ACTION_ALERTS = 3  # buttons for the first few alerted emails; more would swamp the chat
 GMAIL_ID = re.compile(r"[0-9a-f]{6,32}")  # also keeps callback data inside Telegram's 64 bytes
 
@@ -217,11 +217,16 @@ class InboxWatcher:
     async def flush_digest(self) -> int:
         """Send the alerts held for the hourly digest, if any. Returns how many."""
         held = json.loads(self.db.get_setting(DIGEST_QUEUE_KEY) or "[]")
-        if not held:
-            return 0
-        await self._send(held, title=f"📬 {len(held)} important email{'s' if len(held) != 1 else ''} this hour")
-        self.db.delete_setting(DIGEST_QUEUE_KEY)  # only after it went out
-        return len(held)
+        total = len(held)
+        for start in range(0, total, MAX_LISTED):  # pages: nothing hides behind "...and 20 more"
+            page = held[start : start + MAX_LISTED]
+            title = f"📬 {total} important email{'s' if total != 1 else ''} this hour"
+            await self._send(page, title=title if start == 0 else "📬 ...continued")
+            sent = {a["id"] for a in page}
+            # Remove only what went out: an alert added meanwhile stays for the next digest.
+            remaining = [a for a in json.loads(self.db.get_setting(DIGEST_QUEUE_KEY) or "[]") if a["id"] not in sent]
+            self.db.set_setting(DIGEST_QUEUE_KEY, json.dumps(remaining))
+        return total
 
     def _actions(self, alerts: list[dict]) -> list[tuple[str, str]]:
         """Archive / Reply / Later buttons per email, remembering who it was from for later."""

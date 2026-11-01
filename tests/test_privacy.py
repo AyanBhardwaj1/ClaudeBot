@@ -44,3 +44,17 @@ async def test_privacy_clears_only_after_confirming(tmp_path, monkeypatch):
     await bot.on_privacy_button(tap("priv:do:journal"), None)
     c = counts(bot.db)
     assert c["chat"] == 0 and c["journal"] == 0 and c["log"] == 1 and c["memories"] == 1
+
+
+async def test_clearing_chat_also_clears_its_copies(tmp_path):
+    from claudebot.db import Database
+    from claudebot.privacy import clear
+
+    db = Database(tmp_path / "t.db")
+    db.add_notice("Inbox alert shown to the owner: Sam - secret plans")
+    db.set_setting("alert:abc123", "{}")
+    db.add_memory("keep")
+    clear(db, "chat")
+    assert db.take_notices() == [] and db.get_setting("alert:abc123") is None and db.list_memories()
+    clear(db, "memories")
+    assert db.list_memories() == []

@@ -53,3 +53,24 @@ async def test_iou_tools_and_command(tmp_path, monkeypatch):
     await bot.on_iou_button(SimpleNamespace(callback_query=SimpleNamespace(
         from_user=SimpleNamespace(id=1), data=data, answer=answer, edit_message_text=edit)), None)
     assert "All square" in edits[-1]
+
+
+def test_an_old_card_settles_what_it_showed(tmp_path):
+    from claudebot.ious import iou_view
+
+    db = Database(tmp_path / "t.db")
+    ious = Ious(db)
+    ious.add("Alex", 20, True)
+    _, old_card = iou_view(ious)
+    old_data = old_card.inline_keyboard[0][0].callback_data
+    ious.add("Bob", 100, True)  # Bob now sorts first on a fresh card
+    ious.add("Alex", 5, True, currency="EUR")
+    iou_view(ious)
+    card, index = old_data.split(":")[1:]
+    import json as _json
+
+    shown = _json.loads(db.get_setting(f"iou_card:{card}"))
+    person, currency = shown["rows"][int(index)]
+    ious.settle(person, currency, shown["max_id"])
+    left = {(b["person"], b["currency"]): b["balance"] for b in ious.balances()}
+    assert left == {("Bob", "USD"): 100.0, ("Alex", "EUR"): 5.0}  # only Alex's dollars, as shown

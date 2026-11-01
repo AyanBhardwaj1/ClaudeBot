@@ -53,7 +53,7 @@ class ReviewHandlers:
                                           source="review")
         if ok:  # an API or budget error isn't a review
             streaks = habit_lines(self.db, now.date())  # counted by code, not by the model
-            await self.send_to_owner(f"🗓 Your week\n\n{reply}" + (f"\n\n🔥 Habits\n{streaks}" if streaks else ""))
+            await self.send_to_owner(f"🗓 Your week\n\n{defang_urls(reply)}" + (f"\n\n🔥 Habits\n{streaks}" if streaks else ""))
 
     async def _digest_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         now = datetime.now(self.config.timezone)

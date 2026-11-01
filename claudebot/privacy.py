@@ -9,6 +9,7 @@ from .journal import Journal
 
 WHAT = {
     "chat": "conversation history",
+    "memories": "memories",
     "dms": "stored Telegram DMs",
     "journal": "journal entries",
     "log": "the action log",
@@ -28,7 +29,11 @@ def counts(db) -> dict[str, int]:
 def clear(db, what: str) -> None:
     if what == "chat":
         db.conn.execute("DELETE FROM messages")
-        db.conn.execute("DELETE FROM settings WHERE key LIKE 'thread_%'")  # re-announce mode, role, style
+        db.conn.execute("DELETE FROM notices")  # alert senders, subjects and fired reminders
+        for prefix in ("thread_%", "alert:%", "followups:%", "asked:%"):  # re-announce mode, role, style
+            db.conn.execute("DELETE FROM settings WHERE key LIKE ?", (prefix,))
+    elif what == "memories":
+        db.conn.execute("DELETE FROM memories")
     elif what == "dms":
         db.conn.execute("DELETE FROM dm_messages")
     elif what == "journal":
@@ -71,7 +76,7 @@ class PrivacyHandlers:
         if step == "no":
             await query.edit_message_text("Kept. Nothing was cleared.")
             return
-        async with self._message_order:  # not in the middle of a conversation turn
+        async with self._message_order, self.agent._lock:  # no turn (owner's or background) mid-write
             clear(self.db, what)
             if what == "chat":
                 self.db.new_thread(self.agent.config_hash)

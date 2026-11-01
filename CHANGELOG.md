@@ -37,8 +37,8 @@
 - Sent emails' confirmations have a ⏰ Follow up if no reply button (not with Instant sending, which has no confirmation card). Three days later ClaudeBot checks whether they answered. If they did, you get one line; if not, it drafts a polite nudge for you to send.
 
 **Your data, yours**
-- Restore: send an export file back (on a new server, say) and tap ✅ Restore. Memories, lists, upcoming reminders, rules, style, habits and journal come back; nothing you have is deleted.
-- `/privacy` shows what ClaudeBot keeps and, after a confirmation, clears conversation history, stored DMs, the journal or the action log (memories are cleared in `/memory`). Cleared data can linger in the nightly backups for up to 7 days.
+- Restore: send an export file back (on a new server, say). ClaudeBot shows every memory, rule, reminder and the writing style it would add, and restores after you tap ✅ Restore (capped, no duplicates; nothing you have is deleted).
+- `/privacy` shows what ClaudeBot keeps and, after a confirmation, clears conversation history, memories, stored DMs, the journal or the action log. Cleared data can linger in the nightly backups for up to 7 days.
 - `/export` sends you one JSON file with your memories, reminders, lists, alert rules, writing style, settings and the last 60 days of `/log`. Sign-in details are left out.
 
 **Reminders that fit real life**
