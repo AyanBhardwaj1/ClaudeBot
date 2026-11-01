@@ -72,18 +72,25 @@ def clean_quick(text: str) -> str:
         is_emoji = lambda c: bool(c) and unicodedata.category(c) == "So"  # noqa: E731
         if ch in BLANKS or 0xE0100 <= cp <= 0xE01EF:  # filler and variation selectors supplement
             continue
-        if ch == "\u200d":
-            if is_emoji(before) or (before in ("\ufe0f",) and len(kept) > 1 and is_emoji(kept[-2])):
-                if is_emoji(after):
-                    kept.append(ch)
+        if ch in ("\u200d", "\u200c"):
+            def emojiish(c: str) -> bool:  # an emoji, a skin tone (Sk) or a presentation selector after one
+                return bool(c) and (unicodedata.category(c) in ("So", "Sk") or c == "\ufe0f")
+
+            def letter(c: str) -> bool:  # joiners shape real scripts too: Sinhala, Malayalam, Persian
+                return bool(c) and unicodedata.category(c)[0] in ("L", "M")
+
+            if before != ch and ((ch == "\u200d" and emojiish(before) and is_emoji(after))
+                                 or (letter(before) and letter(after))):
+                kept.append(ch)
             continue
         if 0xFE00 <= cp <= 0xFE0F:
             if before and before != "\ufe0f" and unicodedata.category(before) in ("So", "Nd", "Po", "Sm"):
                 kept.append(ch)
             continue
         if 0xE0020 <= cp <= 0xE007F:  # flag tags: only right after 🏴 or another tag
-            if before == "\U0001F3F4" or (before and 0xE0020 <= ord(before) <= 0xE007F):
-                kept.append(ch)
+            run = len(kept) - next((k for k in range(len(kept) - 1, -1, -1) if not 0xE0020 <= ord(kept[k]) <= 0xE007F), -1) - 1
+            if (before == "\U0001F3F4" or (before and 0xE0020 <= ord(before) <= 0xE007E)) and run < 7:
+                kept.append(ch)  # a subdivision flag is at most 6 tags and a closing one
             continue
         if unicodedata.category(ch) == "Cf":
             continue

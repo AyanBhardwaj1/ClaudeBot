@@ -126,3 +126,23 @@ async def test_week_lists_seven_days_without_a_model_call(tmp_path, monkeypatch)
     assert "Declined" not in text and "⏰ 18:00 call mom" in text and text.count(": free") <= 1
     assert len([ln for ln in text.splitlines() if not ln.startswith("  ")]) == 8  # title + 7 days
     assert text.count("⏰ 08:00 meds") == 6  # tomorrow through day 7
+
+
+async def test_week_stays_under_telegrams_limit_with_dotty_titles(tmp_path, monkeypatch):
+    """Batch 12 M1."""
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    now = datetime.now(TZ)
+    bot.google.is_connected = lambda: True
+    bot.google.list_events = lambda start, end, max_results=100: [
+        {"id": f"e{d}{h}", "summary": "www." + "." * 60, "start": (now + timedelta(days=d)).replace(hour=h, minute=0).isoformat(),
+         "end": (now + timedelta(days=d)).replace(hour=h, minute=30).isoformat()} for d in range(7) for h in range(8, 16)]
+    replies = []
+
+    async def reply_text(text, *, reply_markup=None):
+        replies.append(text)
+
+    await bot.on_week(SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text)), None)
+    assert replies and all(len(t) <= 4096 for t in replies)

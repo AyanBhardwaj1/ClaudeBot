@@ -16,6 +16,7 @@ from .modes import defang_urls
 from .quiet import dnd_until
 from .reminders import next_occurrence
 from .scheduling import _parse
+from .ui import split_message
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ class TodayHandlers:
                 for e in events:
                     begin, all_day = _parse(e["start"], tz)
                     if begin.date() in per_day and not e.get("declined"):
-                        title = defang_urls(clip(e.get("summary") or "(no title)", 40))
+                        title = clip(defang_urls(e.get("summary") or "(no title)"), 40)  # defanging grows text
                         per_day[begin.date()].append(title if all_day else f"{begin:%H:%M} {title}")
             except Exception:
                 log.exception("Reading the week's calendar failed")
@@ -111,14 +112,14 @@ class TodayHandlers:
                 if due is None or due.date() > days[-1]:
                     break
                 if due.date() in per_day:
-                    per_day[due.date()].append(f"⏰ {due:%H:%M} {defang_urls(clip(r['text'], 40))}")
+                    per_day[due.date()].append(f"⏰ {due:%H:%M} {clip(defang_urls(r['text']), 40)}")
                 due = next_occurrence(due, r["repeat"], due, tz, anchor)
         for b in Bills(self.db).all():
             due = next_due(b["day"], now.date())
             if due in per_day and due.isoformat() not in paid_dates(b):
-                per_day[due].append(f"🧾 {defang_urls(b['name'])} {b['amount']:,.2f} {b['currency']}")
+                per_day[due].append(f"🧾 {clip(defang_urls(b['name']), 40)} {b['amount']:,.2f} {b['currency']}")
         for b, when in Birthdays(self.db).upcoming(now.date(), 6):
-            per_day[when].append(f"🎂 {defang_urls(b['name'])}")
+            per_day[when].append(f"🎂 {clip(defang_urls(b['name']), 40)}")
         lines = ["🗓 Your week"] + ([calendar_note] if calendar_note else [])
         for d in days:
             items = per_day[d]
@@ -128,4 +129,5 @@ class TodayHandlers:
                 continue
             shown = items[:6] + ([f"...and {len(items) - 6} more"] if len(items) > 6 else [])
             lines.append(f"{label} ({len(items)}):\n" + "\n".join(f"  {i}" for i in shown))
-        await update.effective_message.reply_text("\n".join(lines))
+        for chunk in split_message("\n".join(lines)):  # always under Telegram's 4096 characters
+            await update.effective_message.reply_text(chunk)

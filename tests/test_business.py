@@ -531,3 +531,13 @@ def test_clean_quick_keeps_emoji_and_drops_hidden_text():
     england = "\U0001F3F4\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F"
     assert clean_quick(f"Go {england}") == f"Go {england}"
     assert clean_quick("नमस्ते") == "नमस्ते"  # combining marks in real scripts stay
+
+
+def test_clean_quick_keeps_skin_tones_and_script_joiners():
+    """Batch 12 M2."""
+    from claudebot.business import clean_quick
+
+    for text in ("👩🏽‍💻 coding", "👨🏻‍🦰", "ශ්‍රී", "می‌خواهم"):
+        assert clean_quick(text) == text
+    flag = "\U0001F3F4" + "\U000E0061" * 30
+    assert len(clean_quick(flag)) <= 8  # no long hidden tag run
