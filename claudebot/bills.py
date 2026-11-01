@@ -86,25 +86,25 @@ class Bills:
         self._save([b for b in bills if b["id"] != bill_id])
         return gone
 
-    def mark_paid(self, bill_id: int, today: date) -> bool:
-        """Once per due date: a second tap doesn't log the expense twice."""
+    def mark_paid(self, bill_id: int, today: date) -> date | None:
+        """Once per due date: a second tap doesn't log the expense twice. Returns the due date it settled."""
         bills = self.all()
         bill = next((b for b in bills if b["id"] == bill_id), None)
         if bill is None:
-            return False
+            return None
         settled = paid_dates(bill)
         if bill.get("paid_on") == today.isoformat():
-            return False  # a double tap, or a second tap the same day
+            return None  # a double tap, or a second tap the same day
         cycle = paying_for(bill["day"], today).isoformat()
         upcoming = next_due(bill["day"], today)
         if cycle in settled and (upcoming - today).days <= EARLY_DAYS:
             cycle = upcoming.isoformat()  # the last one is settled: this pays the next one early
         if cycle in settled:
-            return False
+            return None
         bill["paid"] = sorted(settled | {cycle})[-3:]
         bill["paid_on"] = today.isoformat()
         self._save(bills)
-        return True
+        return date.fromisoformat(cycle)
 
 
 def clean_name(name: str) -> str:
@@ -192,12 +192,13 @@ class BillHandlers:
             return
         today = datetime.now(self.config.timezone).date()
         if action == "paid":
-            if not bills.mark_paid(bill["id"], today):
+            settled = bills.mark_paid(bill["id"], today)
+            if settled is None:
                 await query.answer(f"{bill['name']} is already logged as paid (see /bills).")
                 return
             Expenses(self.db).log(bill["amount"], "bills", bill["name"], bill["currency"])
             ActionLog(self.db).record("money", f"Paid {bill['name']}: {bill['amount']:,.2f} {bill['currency']}")
-            await query.answer(f"✅ Logged {bill['name']} as paid")
+            await query.answer(f"✅ Logged {bill['name']} as paid for {settled:%b %-d}")
         else:
             bills.remove(bill["id"])
             self._cancel_bill_reminder(bill)  # its own reminder, by id, and no other

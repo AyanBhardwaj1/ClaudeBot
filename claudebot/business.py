@@ -12,7 +12,7 @@ import logging
 import unicodedata
 import zlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import (
@@ -423,14 +423,19 @@ class BusinessHandlers:
         self.db.set_setting(key, "1")
         self.db.prune_settings("dm_later:", 50)
         when = datetime.now(self.config.timezone) + timedelta(hours=3)
-        if in_quiet_hours(when, self.config.quiet_hours):  # 3h from 10pm is 1am: the morning instead
-            when = next_morning(when)
+        if in_quiet_hours(when, self.config.quiet_hours):  # 3h from 10pm is 1am: when quiet hours end instead
+            try:
+                end = time.fromisoformat(self.config.quiet_hours.split("-")[1].strip())
+            except (ValueError, IndexError, AttributeError):
+                end = time(8)
+            when = next_morning(when, end)
         reminder_id = self.db.add_reminder(f"💬 Reply to “{contact_label(chat.name)}” on Telegram (/dms)", when, "none", False)
         self.db.set_setting(f"{DM_LATER_PREFIX}{reminder_id}", str(chat_id))  # skipped if you reply first
         self.db.prune_settings(DM_LATER_PREFIX, 50)
         self.schedule_reminder(reminder_id)
         ActionLog(self.db).record("reminder", f"Reminder to reply to {chat.name} at {when:%H:%M}")
-        await query.answer(f"⏰ I'll remind you at {when:%H:%M}.")
+        day = "" if when.date() == datetime.now(self.config.timezone).date() else f"{when:%a} "
+        await query.answer(f"⏰ I'll remind you {day}at {when:%H:%M}.")
 
     async def _quick_card(self, query, chat_id: int) -> None:
         chat = self._waiting_chat(chat_id)

@@ -513,7 +513,7 @@ async def test_reply_later_moves_out_of_quiet_hours(tmp_path, monkeypatch):
     bot.dms.record(dm("call me back?", at=datetime.now(timezone.utc)))
     await bot.on_dm_button(tap("dm:later:500")[0], None)
     due = datetime.fromisoformat(bot.db.active_reminders()[0]["due_at"]).astimezone(bot.config.timezone)
-    assert (due.hour, due.minute) == (8, 0)
+    assert (due.hour, due.minute) == (23, 59)  # when quiet hours end, not a fixed 8:00
 
 
 def test_clean_quick_keeps_emoji_and_drops_hidden_text():
