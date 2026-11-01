@@ -190,3 +190,25 @@ async def test_big_digests_go_out_in_pages_and_nothing_is_dropped(tmp_path):
     assert await watcher.flush_digest() == 23
     assert len(notes) == 3 and all(f"email {i}" in "".join(notes) for i in range(23))
     assert "more" not in "".join(notes) and json.loads(db.get_setting("alert_digest")) == []
+
+
+
+async def test_urgent_email_skips_the_hourly_digest(tmp_path):
+    db = Database(tmp_path / "t.db")
+    db.set_setting("alert_mode", "hourly")
+    google = FakeGoogle(inbox=[])
+    notes = []
+
+    async def notify(text, actions=None):
+        notes.append(text)
+
+    body = {"emails": [
+        {"id": "abc111", "notify": True, "summary": "Flight AA12 cancelled today", "due": "", "kind": "travel", "urgent": True},
+        {"id": "abc222", "notify": True, "summary": "Sam about lunch", "due": "", "kind": "other", "urgent": False}]}
+    client = FakeClient([message("end_turn", [{"type": "text", "text": json.dumps(body)}], model="claude-haiku-5-5")])
+    watcher = InboxWatcher(db, google, client, UsageTracker(db, TZ, None), make_config(tmp_path, quiet_hours=None), notify)
+    await watcher.check()
+    google.inbox = [{"id": i, "from": "a@b.c", "subject": "s", "snippet": "", "unread": True} for i in ("abc111", "abc222")]
+    await watcher.check()
+    assert len(notes) == 1 and notes[0].startswith("🚨 Urgent email") and "cancelled" in notes[0]
+    assert [a["id"] for a in json.loads(db.get_setting("alert_digest"))] == ["abc222"]
