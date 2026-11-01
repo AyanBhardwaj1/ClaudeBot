@@ -11,6 +11,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from .business import dm_signals
 from .google_services import GoogleNotConnected
 from .heartbeat import record_sent, run_heartbeat
 from .inbox_watch import GMAIL_ID, in_quiet_hours
@@ -145,10 +146,12 @@ class CheckinHandlers:
     # --- check-ins ---
 
     async def _heartbeat_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not self.google.is_connected():
+        google = self.google if self.google.is_connected() else None
+        if google is None and self.dms.active_connection_id() is None:
             return
         try:
-            checkin = await run_heartbeat(self.google, self.client, self.tracker, self.config, self.db)
+            checkin = await run_heartbeat(google, self.client, self.tracker, self.config, self.db,
+                                          extra=dm_signals(self.dms))
         except Exception:
             log.exception("Check-in failed")
             return

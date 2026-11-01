@@ -141,6 +141,7 @@ async def _select(client, tracker: UsageTracker, config: Config, signals: list[S
 
 async def run_heartbeat(
     google, client, tracker: UsageTracker, config: Config, db: Database, now: datetime | None = None,
+    extra: list[Signal] | None = None,
 ) -> CheckIn | None:
     """One check: the message to send, or None. Signals the model judged not worth a ping are
     marked seen here; the ones in the message are marked by record_sent, once it was delivered."""
@@ -149,10 +150,13 @@ async def run_heartbeat(
     if (db.get_setting(CHECKINS_KEY) == "off" or in_quiet_hours(local, config.quiet_hours)
             or int(db.get_setting(_day_key(COUNT_PREFIX, local)) or 0) >= MAX_PER_DAY):
         return None
-    events = await asyncio.to_thread(google.list_events, now.isoformat(), (now + LOOKAHEAD * 2).isoformat(), MAX_EVENTS)
-    gaps = await find_reply_gaps(google, client, tracker, config, db, now=now, judged_only=True)
-    signals = [s for s in calendar_signals(events, now, config.timezone) + reply_signals(gaps)
-               if db.get_setting(SEEN_PREFIX + s.key) is None]
+    found = list(extra or [])  # e.g. Telegram DMs waiting on a reply
+    if google is not None:
+        events = await asyncio.to_thread(
+            google.list_events, now.isoformat(), (now + LOOKAHEAD * 2).isoformat(), MAX_EVENTS)
+        gaps = await find_reply_gaps(google, client, tracker, config, db, now=now, judged_only=True)
+        found = calendar_signals(events, now, config.timezone) + reply_signals(gaps) + found
+    signals = [s for s in found if db.get_setting(SEEN_PREFIX + s.key) is None]
     replies_sent_today = db.get_setting(_day_key(REPLIES_PREFIX, local)) is not None
     if not signals or (replies_sent_today and all(s.kind == "replies" for s in signals)):
         return None  # reply-only news waits: it rides along with the next calendar check-in, or /waiting

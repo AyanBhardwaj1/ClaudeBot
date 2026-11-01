@@ -57,6 +57,7 @@ HELP = (
     "/brief – your daily brief now\n"
     "/waiting – replies you owe, and replies you're waiting on\n"
     "/reminders – everything I'll remind you of (tap to cancel)\n"
+    "/dms – Telegram chats waiting on your reply (connect me in Telegram Business)\n"
     "/briefings – scheduled news briefings\n"
     "/memory – what I remember (tap to forget)\n"
     "/new – start a fresh conversation\n\n"

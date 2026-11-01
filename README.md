@@ -71,6 +71,22 @@ Tell ClaudeBot what you do with `/role` and everything adapts: pick a preset (�
 
 `/role off` clears it.
 
+### Your Telegram DMs
+
+Connect ClaudeBot to your own Telegram account and it keeps track of your private chats:
+
+- **`/dms`** shows who's waiting on your reply and what they said.
+- Tap **✍️ Reply** and ClaudeBot drafts an answer.
+- Ask it naturally ("tell Alex 6 works") and it writes the reply.
+- Each reply appears with **✅ Send as me**. Nothing goes out from your account until you tap it.
+- People you've kept waiting a couple of hours show up in check-ins, and the daily brief mentions them.
+
+**To set it up:**
+1. In [@BotFather](https://t.me/BotFather), open your bot → Bot Settings → **Business Mode** → turn it on.
+2. In Telegram, go to **Settings → Telegram Business → Chatbots**, add your bot, and allow **Reply to messages**.
+
+What people write to you is treated as their words, never as instructions to ClaudeBot. Only your own account can connect: anyone else who tries is ignored. Messages are kept for 7 days, on your server only.
+
 ### Group mode: "@ClaudeBot is this true?"
 
 Add ClaudeBot to a Telegram group and send `/enable` there (only you can). Anyone in the group can then tag it or reply to it to ask questions or fact-check a message, like asking Grok under a post. In groups it only has web search: it can't see your email, calendar, memories or conversations, and it caps itself at `GROUP_DAILY_LIMIT` answers per group per day and `GROUP_MONTHLY_BUDGET_USD` ($5 by default) per month across all groups, so friends can't run up your bill or use up your own assistant's budget. `/disable` turns it off.

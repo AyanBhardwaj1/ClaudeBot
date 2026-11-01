@@ -21,6 +21,8 @@ from telegram.constants import ChatAction
 from telegram.error import TelegramError
 from telegram.ext import (
     Application,
+    BusinessConnectionHandler,
+    BusinessMessagesDeletedHandler,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
@@ -30,6 +32,7 @@ from telegram.ext import (
 )
 
 from .agent import Agent, ConversationReset
+from .business import BusinessHandlers, DMStore
 from .buttons import ButtonHandlers
 from .checkins import CheckinHandlers
 from .config import Config
@@ -90,6 +93,7 @@ PRIVATE_COMMANDS = [
     BotCommand("role", "Tell me your job so I can tailor everything to it"),
     BotCommand("reminders", "Your reminders and scheduled tasks"),
     BotCommand("waiting", "Replies you owe, and replies you're waiting on"),
+    BotCommand("dms", "Telegram chats waiting on your reply"),
     BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
@@ -106,12 +110,14 @@ GROUP_COMMANDS = [
 ]
 
 
-def brief_prompt(config: Config, profile: Profile | None) -> str:
+def brief_prompt(config: Config, profile: Profile | None, dms_connected: bool = False) -> str:
     prompt = BRIEF_PROMPT
     if config.location:
         prompt += " Open with today's weather where I live."
     if profile:
         prompt += f" Since my job is {profile.describe()}, also cover {profile.role.brief_focus}."
+    if dms_connected:
+        prompt += " Mention anyone waiting on a Telegram reply from me (list_telegram_dms)."
     return prompt
 
 
@@ -196,7 +202,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -218,6 +224,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, ButtonHandlers):
         self.google = google
         self.tracker = UsageTracker(self.db, config.timezone, config.monthly_budget_usd)
         self.agent = Agent(config, self.db, client, self.tracker)
+        self.dms = DMStore(self.db, config.owner_id)
         # Concurrent updates so an Undo tap is handled while a reply is still being written;
         # the agent's lock keeps conversation turns in order.
         self.app = (
@@ -253,6 +260,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, ButtonHandlers):
             send_photo=self.send_photo_to_owner,
             notify_owner=self.send_to_owner,
             workbench=self._workbench,
+            propose_dm_reply=self.propose_dm_reply,
         )
         self._register_handlers()
 
@@ -291,6 +299,14 @@ class TelegramBot(SetupHandlers, CheckinHandlers, ButtonHandlers):
         self.app.add_handler(CommandHandler("briefings", self.on_briefings, filters=owner))
         self.app.add_handler(CommandHandler("reminders", self.on_reminders, filters=owner))
         self.app.add_handler(CommandHandler("waiting", self.on_waiting, filters=owner))
+        self.app.add_handler(CommandHandler("dms", self.on_dms, filters=owner))
+        # Telegram Business: the owner's own chats. Stored as data, never handled as commands.
+        self.app.add_handler(BusinessConnectionHandler(self.on_business_connection))
+        self.app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGES, self.on_business_message))
+        self.app.add_handler(BusinessMessagesDeletedHandler(self.on_business_deleted))
+        self.app.add_handler(
+            CallbackQueryHandler(self.on_dm_button, pattern=r"^(dm:draft:\d+|dmsend:\d+|dmcancel:\d+)$")
+        )
         self.app.add_handler(CommandHandler("memory", self.on_memory, filters=owner))
         self.app.add_handler(CommandHandler("followups", self.on_followups_toggle, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_memory_delete, pattern=r"^mem:del:\d+$"))
@@ -855,7 +871,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, ButtonHandlers):
 
     async def _send_brief(self) -> None:
         # The brief reads untrusted email with nobody necessarily watching: no unattended sends.
-        prompt = brief_prompt(self.config, current_profile(self.db))
+        prompt = brief_prompt(self.config, current_profile(self.db), self.dms.active_connection_id() is not None)
         reply = await self._ask_agent([{"type": "text", "text": prompt}], owner_present=False)
         await self.send_to_owner(reply)
 
@@ -872,6 +888,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, ButtonHandlers):
         # Button bookkeeping only matters for recent messages.
         self.db.prune_settings("followups:", keep=50)
         self.db.prune_settings("alert:", keep=200)
+        self.dms.prune()
         if self.agent.busy:
             # A brief or task may still be replaying a conversation /new just retired; its files
             # aren't safe to delete yet. The next run picks them up.

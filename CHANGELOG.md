@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0 (in progress)
+
+**Your Telegram DMs** (Telegram Business)
+- Connect ClaudeBot to your own Telegram account. `/dms` shows who's waiting on your reply.
+- ClaudeBot drafts replies. Each one goes out from your account only when you tap **✅ Send as me**. A double tap sends once, and replies outside Telegram's 24-hour window are handed back for you to send yourself.
+- Check-ins mention people who've waited 2+ hours, and the daily brief mentions them too.
+- Only your own account can connect. Messages people send you are stored as data, never obeyed, and kept for 7 days.
+
 ## 1.1.0
 
 Based on market research into what people want from AI assistants and where they give up on them (`sleep-research/`).
