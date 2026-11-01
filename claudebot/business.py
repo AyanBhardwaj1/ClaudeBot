@@ -9,6 +9,7 @@ text, never an instruction: it is stored and shown, never obeyed.
 
 import json
 import logging
+import unicodedata
 import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -45,13 +46,20 @@ MAX_QUICK, MAX_QUICK_LEN = 3, 60  # short enough that a button shows all of it
 
 def quick_replies(db: Database) -> list[str]:
     saved = json.loads(db.get_setting(QUICK_KEY) or "null") or []
-    saved = [t[:MAX_QUICK_LEN] for t in saved if isinstance(t, str) and t.strip()][:MAX_QUICK]  # older, longer ones too
+    saved = [clean_quick(t) for t in saved if isinstance(t, str)]
+    saved = [t for t in saved if t][:MAX_QUICK]  # older, longer ones too
     return saved or DEFAULT_QUICK
+
+
+def clean_quick(text: str) -> str:
+    """One line, no invisible formatting characters (a hidden tail can't ride behind a button label)."""
+    visible = "".join(ch for ch in str(text) if unicodedata.category(ch) != "Cf" or ch == "\u200d")  # ZWJ keeps emoji whole
+    return " ".join(visible.split())[:MAX_QUICK_LEN]
 
 
 def set_quick_replies(db: Database, text: str) -> list[str]:
     """'/quickreplies On it | Running late | Call you soon': up to 3, each short."""
-    items = [" ".join(t.split())[:MAX_QUICK_LEN] for t in text.split("|")]
+    items = [clean_quick(t) for t in text.split("|")]
     items = [t for t in items if t][:MAX_QUICK]
     if not items:
         raise ValueError("Give up to 3 replies separated by |, e.g. /quickreplies On it 👍 | Running late | Thanks!")

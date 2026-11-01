@@ -17,6 +17,7 @@ BILLS_KEY = "bills"
 NEXT_ID_KEY = "bills_next_id"
 MAX_BILLS = 30
 REMIND_DAYS_BEFORE = 2
+EARLY_DAYS = 20  # how far ahead a Paid tap can settle the next bill
 
 
 def next_due(day: int, today: date) -> date:
@@ -27,6 +28,12 @@ def next_due(day: int, today: date) -> date:
         if due >= today:
             return due
     raise AssertionError("unreachable")
+
+
+def paid_dates(bill: dict) -> set[str]:
+    """The due dates already settled (an older bill stored just one, as a string)."""
+    paid = bill.get("paid") or []
+    return {paid} if isinstance(paid, str) else set(paid)
 
 
 def paying_for(day: int, today: date) -> date:
@@ -85,10 +92,17 @@ class Bills:
         bill = next((b for b in bills if b["id"] == bill_id), None)
         if bill is None:
             return False
+        settled = paid_dates(bill)
+        if bill.get("paid_on") == today.isoformat():
+            return False  # a double tap, or a second tap the same day
         cycle = paying_for(bill["day"], today).isoformat()
-        if bill.get("paid") == cycle:
+        upcoming = next_due(bill["day"], today)
+        if cycle in settled and (upcoming - today).days <= EARLY_DAYS:
+            cycle = upcoming.isoformat()  # the last one is settled: this pays the next one early
+        if cycle in settled:
             return False
-        bill["paid"] = cycle
+        bill["paid"] = sorted(settled | {cycle})[-3:]
+        bill["paid_on"] = today.isoformat()
         self._save(bills)
         return True
 
@@ -119,7 +133,7 @@ def bills_view(bills: Bills, today: date) -> tuple[str, InlineKeyboardMarkup | N
         due = next_due(b["day"], today)
         totals[b["currency"]] = totals.get(b["currency"], 0) + b["amount"]
         soon = " ⚠️" if (due - today).days <= REMIND_DAYS_BEFORE else ""
-        paid = " ✅ paid" if b.get("paid") == paying_for(b["day"], today).isoformat() else ""
+        paid = " ✅ paid" if due.isoformat() in paid_dates(b) else ""  # the date shown, not an earlier one
         lines.append(f"- {b['name']}: {b['amount']:,.2f} {b['currency']}, due {due:%b %-d}{soon}{paid}")
         rows.append([InlineKeyboardButton(f"✅ Paid {b['name'][:20]}", callback_data=f"bill:paid:{b['id']}"),
                      InlineKeyboardButton("🗑", callback_data=f"bill:del:{b['id']}")])
@@ -179,8 +193,7 @@ class BillHandlers:
         today = datetime.now(self.config.timezone).date()
         if action == "paid":
             if not bills.mark_paid(bill["id"], today):
-                await query.answer(f"{bill['name']} is already logged as paid for "
-                                   f"{paying_for(bill['day'], today):%b %-d}.")
+                await query.answer(f"{bill['name']} is already logged as paid (see /bills).")
                 return
             Expenses(self.db).log(bill["amount"], "bills", bill["name"], bill["currency"])
             ActionLog(self.db).record("money", f"Paid {bill['name']}: {bill['amount']:,.2f} {bill['currency']}")

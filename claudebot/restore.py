@@ -17,7 +17,7 @@ from telegram.ext import ContextTypes
 from .alert_rules import AlertRules
 from .bills import MAX_BILLS, Bills
 from .birthdays import MAX_BIRTHDAYS, Birthdays, parse_birthday
-from .business import MAX_QUICK, MAX_QUICK_LEN, QUICK_KEY
+from .business import MAX_QUICK, QUICK_KEY, clean_quick
 from .expenses import currency_code
 from .habits import Habits
 from .journal import Journal
@@ -99,7 +99,7 @@ def plan(payload: dict, tz=timezone.utc) -> dict:
         if bill["name"] and 0 < bill["amount"] <= 1_000_000_000 and 1 <= bill["day"] <= 31:
             bills.append(bill)
     raw_quick = payload.get("quick_replies")
-    quick = [" ".join(str(t).split())[:MAX_QUICK_LEN] for t in raw_quick][:MAX_QUICK] if isinstance(raw_quick, list) else []
+    quick = [clean_quick(t) for t in raw_quick][:MAX_QUICK] if isinstance(raw_quick, list) else []
     quick = [t for t in quick if t]
     return {
         "memories": list(dict.fromkeys(m for m in memories if m))[:MAX_MEMORIES],
@@ -144,7 +144,11 @@ def preview(p: dict) -> str:
         if lst["items"]:
             parts.append(f"📋 List {show(lst['name'])}:\n" + "\n".join(f"- {show(i)}" for i in lst["items"]))
     extra = [f"{len(p['lists'])} lists", f"{len(p['habits'])} habits", f"{len(p['journal'])} journal days"]
-    parts.append("Also: " + ", ".join(extra) + ". Nothing you have now is deleted.")
+    replaced = [what for what, there in (("your writing style", p["style"]), ("your quick replies", p["quick_replies"]))
+                if there]
+    parts.append("Also: " + ", ".join(extra) + ". " + (
+        f"This replaces {' and '.join(replaced)}; nothing else you have is deleted." if replaced
+        else "Nothing you have now is deleted."))
     return "\n\n".join(parts)
 
 
@@ -193,6 +197,9 @@ def restore(db, payload: dict, tz=timezone.utc) -> dict:
         db.set_setting(STYLE_KEY, p["style"])
     if p["quick_replies"]:
         db.set_setting(QUICK_KEY, json.dumps(p["quick_replies"]))
+        counts["quick replies"] = len(p["quick_replies"])
+    if p["style"]:
+        counts["writing style"] = 1
     habits = Habits(db)
     for h in p["habits"]:
         try:
@@ -239,11 +246,16 @@ class RestoreHandlers:
         if len(chunks) > MAX_CARD_MESSAGES:  # a big export: the full list as a file, not dozens of messages
             p = plan(payload, self.config.timezone)
             await message.reply_document(document=io.BytesIO(text.encode()), filename="restore-preview.txt")
-            chunks = [f"This export would add {len(p['memories'])} memories, {len(p['rules'])} alert rules, "
-                      f"{len(p['reminders'])} reminders{', a writing style' if p['style'] else ''} and "
-                      f"{sum(len(lst['items']) for lst in p['lists'])} list items. Every one is in "
-                      "restore-preview.txt above, exactly as it would be stored: memories, rules and reminders "
-                      "steer what I do, so read it before restoring, and only restore a file you made yourself."]
+            short = (f"This export would add {len(p['memories'])} memories, {len(p['rules'])} alert rules, "
+                     f"{len(p['reminders'])} reminders, {len(p['bills'])} bills, {len(p['birthdays'])} birthdays and "
+                     f"{sum(len(lst['items']) for lst in p['lists'])} list items"
+                     f"{' and replace your writing style' if p['style'] else ''}. Every one is in "
+                     "restore-preview.txt above, exactly as it would be stored: memories, rules and reminders "
+                     "steer what I do, so read it before restoring, and only restore a file you made yourself.")
+            if p["quick_replies"]:  # these go out from your own Telegram account: always on the card itself
+                short += ("\n\n⚡ It also replaces your quick replies with:\n" +
+                          "\n".join(f"- {defang_urls(t)}" for t in p["quick_replies"]))
+            chunks = split_message(short)
         for chunk in chunks[:-1]:
             await message.reply_text(chunk)
         await message.reply_text(chunks[-1], reply_markup=InlineKeyboardMarkup([[

@@ -31,6 +31,9 @@ def export_data(db: Database, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     lists = Lists(db)
     owned = {b.get("reminder_id") for b in Birthdays(db).all() + Bills(db).all()}
+    legacy = {f"{b['name']} ({b['amount']:,.2f} {b['currency']}) is due in 2 days" for b in Bills(db).all()
+              if not b.get("reminder_id")}  # bills saved before reminder ids: their reminder travels with them too
+    owned |= {r["id"] for r in db.active_reminders() if r["repeat"] == "monthly" and r["text"] in legacy}
     settings = {r["key"]: r["value"] for r in db.conn.execute("SELECT key, value FROM settings ORDER BY key")
                 if r["key"].startswith(EXPORTED_PREFIXES) and not r["key"].startswith("followups:")}
     return {

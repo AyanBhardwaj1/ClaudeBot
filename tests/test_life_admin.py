@@ -277,3 +277,28 @@ async def test_urgent_wakeups_are_capped_and_held_mail_isnt_listed_twice(tmp_pat
     assert len(notes) == 3 and all(n.startswith("🚨") for n in notes)
     held = [a["id"] for a in json.loads(db.get_setting("alert_digest"))]
     assert held == ["abc100", "abc3"]  # the 4th urgent one waits; the repeated plain one is held once
+
+
+async def test_a_failed_urgent_send_doesnt_use_up_a_wakeup(tmp_path):
+    """Batch 9 P-4."""
+    db = Database(tmp_path / "t.db")
+    fail = {"on": True}
+    notes = []
+
+    async def notify(text, actions=None):
+        if fail["on"]:
+            raise RuntimeError("telegram down")
+        notes.append(text)
+
+    watcher = InboxWatcher(db, FakeGoogle(inbox=[]), None, UsageTracker(db, TZ, None),
+                           make_config(tmp_path, quiet_hours="00:00-23:59"), notify)
+    watcher._urgent_only = True
+    alert = {"id": "abc1", "from": "x@y.z", "subject": "s", "summary": "m", "due": "", "kind": "other", "urgent": True}
+    for _ in range(3):
+        try:
+            await watcher._send([alert])
+        except RuntimeError:
+            pass
+    fail["on"] = False
+    await watcher._send([alert])
+    assert len(notes) == 1 and notes[0].startswith("🚨")

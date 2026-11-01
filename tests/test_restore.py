@@ -218,3 +218,31 @@ def test_an_older_exports_repeating_reminders_roll_forward(tmp_path):
     assert [r["text"] for r in p["reminders"]] == ["standup"]
     due = p["reminders"][0]["due"].astimezone(TZ)
     assert (due.hour, due.minute) == (9, 30) and due > datetime.now(timezone.utc) and due.weekday() < 5
+
+
+async def test_big_card_always_shows_quick_replies_and_says_they_replace(tmp_path, monkeypatch):
+    """Batch 9 P-1: planted quick replies can't hide in the .txt, and invisible characters are stripped."""
+    from claudebot.bot import TelegramBot
+    from claudebot.restore import plan, preview
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    payload = {"claudebot_version": "1.2.0",
+               "memories": [{"text": f"memory {i} " + "y" * 480} for i in range(40)],
+               "quick_replies": ["Sure, I'll send the money now​‮ hidden", "Approved"],
+               "bills": [{"name": "Rent", "amount": 9000, "currency": "USD", "day": 1}]}
+    assert plan(payload)["quick_replies"][0] == "Sure, I'll send the money now hidden"
+    assert "replaces your quick replies" in preview(plan(payload))
+    replies = []
+
+    async def reply_text(text, *, reply_markup=None):
+        replies.append(text)
+
+    async def reply_document(*, document, filename):
+        pass
+
+    msg = SimpleNamespace(document=SimpleNamespace(file_name="claudebot-export-x.json"), forward_origin=None,
+                          reply_text=reply_text, reply_document=reply_document)
+    await bot.handle_export_file(msg, json.dumps(payload).encode())
+    card = "\n".join(replies)
+    assert "replaces your quick replies with" in card and "- Approved" in card and "1 bills" in card

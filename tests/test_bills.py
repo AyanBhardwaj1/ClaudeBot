@@ -185,3 +185,15 @@ def test_paid_settles_the_nearest_due_date(tmp_path):
     assert bills.mark_paid(bill["id"], date(2026, 10, 30))
     assert not bills.mark_paid(bill["id"], date(2026, 11, 2))  # same Nov 1 bill
     assert bills.mark_paid(bill["id"], date(2026, 11, 29))  # Dec 1 is next
+
+
+def test_paying_early_after_the_last_one_is_settled(tmp_path):
+    """Batch 9 P-5: Oct 20 paid, then paying the Nov 20 bill early on Nov 3 works, and once only."""
+    bills = Bills(Database(tmp_path / "t.db"))
+    bill, _ = bills.add("Gym", 30, 20)
+    assert bills.mark_paid(bill["id"], date(2026, 10, 20))
+    assert bills.mark_paid(bill["id"], date(2026, 11, 3))  # nearest is Oct 20 (settled), so this pays Nov 20
+    assert not bills.mark_paid(bill["id"], date(2026, 11, 5))
+    from claudebot.bills import bills_view
+    assert "due Nov 20 ✅ paid" in bills_view(bills, date(2026, 11, 5))[0]
+    assert "✅ paid" not in bills_view(bills, date(2026, 11, 21))[0]  # Dec 20 isn't

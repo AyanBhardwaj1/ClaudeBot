@@ -270,10 +270,14 @@ class InboxWatcher:
         now = datetime.now(timezone.utc)
         recent = [t for t in json.loads(self.db.get_setting(WAKES_KEY) or "[]")
                   if now - datetime.fromisoformat(t) < timedelta(hours=12)]
-        if len(recent) >= MAX_WAKES:
-            return False
+        return len(recent) < MAX_WAKES
+
+    def _record_wake(self) -> None:
+        """Counted once the ping went out: a failed send doesn't use up the night's allowance."""
+        now = datetime.now(timezone.utc)
+        recent = [t for t in json.loads(self.db.get_setting(WAKES_KEY) or "[]")
+                  if now - datetime.fromisoformat(t) < timedelta(hours=12)]
         self.db.set_setting(WAKES_KEY, json.dumps(recent + [now.isoformat()]))
-        return True
 
     async def _send(self, alerts: list[dict], title: str = "📬 New email") -> None:
         if (self.db.get_setting(ALERT_MODE_KEY) == "hourly" or getattr(self, "_urgent_only", False)) \
@@ -300,6 +304,8 @@ class InboxWatcher:
         if len(alerts) > len(shown):
             lines.append(f"- ...and {len(alerts) - len(shown)} more")
         await self.notify(f"{title}\n" + "\n".join(lines), self._actions(shown))
+        if title == "🚨 Urgent email" and getattr(self, "_urgent_only", False):
+            self._record_wake()
         # JSON keeps each quoted field inside its string; the agent sees it as data to look up,
         # and reads the email itself via read_email (a tool result) when it needs the content.
         for a in shown:  # one notice per email, so per-notice length caps never cut one in half
