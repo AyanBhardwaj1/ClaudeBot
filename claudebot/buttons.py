@@ -80,6 +80,15 @@ class ButtonHandlers:
             except Exception:
                 log.exception("Archiving %s failed", message_id)
                 await query.answer("Couldn't archive that one.")
+        elif action == "cal":
+            await query.answer("📅 Adding...")
+            # Only the id goes in; the email is read as data. Not owner-present: no invites can go out.
+            prompt = (f"Add the event or deadline from the email with message id {message_id} to my calendar. "
+                      "Read it first; use its date, time and place, without attendees. Then tell me in one "
+                      "line what you added.")
+            async with self._message_order:
+                await self._converse([{"type": "text", "text": prompt}], "Add that to my calendar",
+                                     owner_present=False)
         elif action == "due":
             info = json.loads(self.db.get_setting(f"alert:{message_id}") or "{}")
             if info.get("reminded") or not info.get("due"):

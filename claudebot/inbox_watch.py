@@ -200,7 +200,8 @@ class InboxWatcher:
             if email and verdict.get("notify") is True:
                 summary = clip(verdict.get("summary") or email["subject"], MAX_SUMMARY)
                 due = parse_due(verdict.get("due") or "", datetime.now(self.config.timezone).date())
-                alerts.append({**email, "summary": summary, "due": due.isoformat() if due else ""})
+                kind = verdict.get("kind") if verdict.get("kind") in ("bill", "deadline", "delivery", "travel") else "other"
+                alerts.append({**email, "summary": summary, "due": due.isoformat() if due else "", "kind": kind})
         return alerts
 
     def _actions(self, alerts: list[dict]) -> list[tuple[str, str]]:
@@ -220,7 +221,10 @@ class InboxWatcher:
             # A dated email (a bill, a deadline) gets a reminder for the morning before, not "in 3 hours".
             later = ((f"⏰ {date.fromisoformat(due):%b %-d}", f"mail:due:{a['id']}") if due
                      else (f"⏰ {short}", f"mail:later:{a['id']}"))
-            actions += [(f"🗄 {short}", f"mail:arch:{a['id']}"), (f"✍️ {short}", f"mail:draft:{a['id']}"), later]
+            # A trip or a deadline belongs on the calendar more than it needs a reply.
+            middle = ((f"📅 {short}", f"mail:cal:{a['id']}") if due and a.get("kind") in ("travel", "deadline")
+                      else (f"✍️ {short}", f"mail:draft:{a['id']}"))
+            actions += [(f"🗄 {short}", f"mail:arch:{a['id']}"), middle, later]
         return actions
 
     async def _send(self, alerts: list[dict]) -> None:
