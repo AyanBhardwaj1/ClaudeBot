@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 NO_REPLY_DAYS = 3
 INBOX_FAILURE_NOTICE = 3  # consecutive failed checks before telling the owner
 INBOX_FAILURES_KEY = "inbox_failures"
+URGENT_WAKES_KEY = "urgent_wakes"  # "on": during quiet time, urgent email still pings; the rest waits
 MAX_LISTED = 5
 NUDGE_PROMPT = (
     "Draft a short, polite follow-up to the email with message id {id}: I wrote last and haven't "
@@ -319,14 +320,15 @@ class CheckinHandlers:
 
     async def _inbox_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         now = datetime.now(self.config.timezone)
-        if (in_quiet_hours(now, self.config.quiet_hours) or dnd_active(self.db, now)
-                or not self.google.is_connected()):
+        quiet = in_quiet_hours(now, self.config.quiet_hours) or dnd_active(self.db, now)
+        urgent_wakes = self.db.get_setting(URGENT_WAKES_KEY) == "on"
+        if (quiet and not urgent_wakes) or not self.google.is_connected():
             return  # Gmail wasn't asked, so this says nothing about whether alerts work
         # Kept in the database: /settings changes restart the bot, and a count that reset on every
         # restart would never reach the notice.
         failures = int(self.db.get_setting(INBOX_FAILURES_KEY) or 0)
         try:
-            await self.watcher.check(now)
+            await self.watcher.check(now, urgent_only=quiet)
         except Exception as e:
             failures += 1
             self.db.set_setting(INBOX_FAILURES_KEY, str(failures))

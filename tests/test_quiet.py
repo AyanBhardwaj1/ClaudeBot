@@ -39,7 +39,7 @@ async def test_paused_bot_stays_quiet(tmp_path, monkeypatch):
     async def reply_text(text, *, reply_markup=None):
         replies.append(text)
 
-    async def check(now=None):
+    async def check(now=None, urgent_only=False):
         checked.append(now)
         return []
 

@@ -55,6 +55,7 @@
 
 **Quiet when you need it**
 - Inbox alerts can come as one hourly digest instead of one ping per email (`/settings` → Instant / hourly). Truly urgent email (a flight cancelled today, a deadline in hours) still comes right away.
+- Opt-in: urgent email can wake you during quiet hours and `/quiet` (`/settings` → 🚨). Everything else waits and arrives as one digest when quiet time ends.
 - `/focus 25`: a 25-minute focus session (alerts and check-ins held), with a ping when time's up. `/note <text>` jots something into your Notes list.
 - `/quiet 2h` (or 30m, or `morning`) pauses inbox alerts, check-ins and meeting prep. Reminders you set still fire, and held email alerts catch up afterwards. `/quiet off` resumes.
 

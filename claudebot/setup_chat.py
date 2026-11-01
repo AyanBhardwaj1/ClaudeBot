@@ -380,7 +380,8 @@ class SetupHandlers:
             f"🎭 Mode: {MODES[current_mode(self.db)][0]}\n"
             f"☀️ Daily brief: {c.daily_brief_time or 'off'}"
             f"{' (weekdays only)' if self.db.get_setting('brief_weekends') == 'off' else ''}\n"
-            f"📬 Inbox alerts: {alerts}{', hourly digest' if self.db.get_setting(ALERT_MODE_KEY) == 'hourly' else ''}\n"
+            f"📬 Inbox alerts: {alerts}{', hourly digest' if self.db.get_setting(ALERT_MODE_KEY) == 'hourly' else ''}"
+            f"{', urgent can wake you' if self.db.get_setting('urgent_wakes') == 'on' else ''}\n"
             f"↩️ Undo window: {c.undo_send_seconds}s\n"
             f"💰 Budget: {budget}\n"
             f"💬 Suggestions: {'on' if self._followups_on() else 'off'}\n"
@@ -399,6 +400,7 @@ class SetupHandlers:
             [("🎭 Mode", "set:mode"), ("☀️ Brief", "set:brief"), ("🌙 Quiet hours", "set:quiet")],
             [("☀️ Brief on weekends on/off", "set:weekends")],
             [("📬 Alerts on/off", "set:alerts"), ("⏱ Instant / hourly", "set:alertmode")],
+            [("🚨 Urgent email can wake me", "set:urgent")],
             [("↩️ Undo", "set:undo"), ("💰 Budget", "set:budget")],
             [("💬 Suggestions on/off", "set:followups"), ("👋 Check-ins on/off", "set:checkins")],
             [("✉️ Send / drafts only", "set:drafts"), ("📋 Meeting prep on/off", "set:prep")],
@@ -460,6 +462,13 @@ class SetupHandlers:
             await self.send_to_owner(
                 "👋 Check-ins on: I'll message you when something needs you (at most 3 a day)." if on
                 else "Check-ins off. /waiting still shows what needs a reply.")
+        elif key == "urgent":
+            on = self.db.get_setting("urgent_wakes") != "on"
+            self.db.set_setting("urgent_wakes", "on" if on else "off")
+            await self.send_to_owner(
+                "🚨 During quiet hours and /quiet, truly urgent email (a flight cancelled today, a deadline in hours) "
+                "still pings you. Everything else waits for one digest afterwards." if on
+                else "Quiet time is fully quiet again.")
         elif key == "alertmode":
             hourly = self.db.get_setting(ALERT_MODE_KEY) != "hourly"
             self.db.set_setting(ALERT_MODE_KEY, "hourly" if hourly else "instant")

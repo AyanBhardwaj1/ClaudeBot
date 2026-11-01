@@ -511,7 +511,7 @@ async def test_inbox_failures_are_reported_once_and_recovery_too(tmp_path, monke
 
     outcomes = [RefreshError("revoked")] * 5 + [None]
 
-    async def check(now=None):
+    async def check(now=None, urgent_only=False):
         outcome = outcomes.pop(0)
         if outcome:
             raise outcome
@@ -539,7 +539,7 @@ async def test_quiet_hours_and_unconnected_google_say_nothing_about_inbox_health
     bot, sent, _ = make_bot(tmp_path, monkeypatch, inbox_alerts=True, quiet_hours="00:00-23:59")
     checked = []
 
-    async def check(now=None):
+    async def check(now=None, urgent_only=False):
         checked.append(now)
         return []
 

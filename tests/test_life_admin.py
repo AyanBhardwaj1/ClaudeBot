@@ -212,3 +212,45 @@ async def test_urgent_email_skips_the_hourly_digest(tmp_path):
     await watcher.check()
     assert len(notes) == 1 and notes[0].startswith("🚨 Urgent email") and "cancelled" in notes[0]
     assert [a["id"] for a in json.loads(db.get_setting("alert_digest"))] == ["abc222"]
+
+
+
+async def test_urgent_email_can_break_through_quiet_time(tmp_path, monkeypatch):
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc", quiet_hours="00:00-23:59"))
+    calls = []
+
+    async def check(now=None, urgent_only=False):
+        calls.append(urgent_only)
+        return []
+
+    bot.watcher.check = check
+    bot.google.is_connected = lambda: True
+    await bot._inbox_job(None)
+    assert calls == []  # fully quiet by default
+    bot.db.set_setting("urgent_wakes", "on")
+    await bot._inbox_job(None)
+    assert calls == [True]  # checks, but only urgent email may ping
+
+
+async def test_urgent_only_check_holds_the_rest(tmp_path):
+    db = Database(tmp_path / "t.db")
+    google = FakeGoogle(inbox=[])
+    notes = []
+
+    async def notify(text, actions=None):
+        notes.append(text)
+
+    body = {"emails": [
+        {"id": "abc111", "notify": True, "summary": "Mom: call me, it's urgent", "due": "", "kind": "other", "urgent": True},
+        {"id": "abc222", "notify": True, "summary": "Sam about lunch", "due": "", "kind": "other", "urgent": False}]}
+    client = FakeClient([message("end_turn", [{"type": "text", "text": json.dumps(body)}], model="claude-haiku-5-5")])
+    watcher = InboxWatcher(db, google, client, UsageTracker(db, TZ, None), make_config(tmp_path, quiet_hours="00:00-23:59"),
+                           notify)
+    await watcher.check(urgent_only=True)
+    google.inbox = [{"id": i, "from": "a@b.c", "subject": "s", "snippet": "", "unread": True} for i in ("abc111", "abc222")]
+    await watcher.check(urgent_only=True)
+    assert len(notes) == 1 and notes[0].startswith("🚨")
+    assert [a["id"] for a in json.loads(db.get_setting("alert_digest"))] == ["abc222"]

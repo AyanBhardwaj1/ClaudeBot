@@ -144,11 +144,15 @@ class InboxWatcher:
         self.config = config
         self.notify = notify
 
-    async def check(self, now: datetime | None = None) -> list[dict]:
-        """Look for new important email; notify the owner. Returns the alerts sent."""
+    async def check(self, now: datetime | None = None, urgent_only: bool = False) -> list[dict]:
+        """Look for new important email; notify the owner. Returns the alerts found.
+
+        urgent_only (quiet time, when the owner allowed urgent email through): only urgent alerts go
+        out now; the rest wait in the digest queue for when quiet time ends."""
         now = now or datetime.now(self.config.timezone)
-        if in_quiet_hours(now.astimezone(self.config.timezone), self.config.quiet_hours):
+        if not urgent_only and in_quiet_hours(now.astimezone(self.config.timezone), self.config.quiet_hours):
             return []
+        self._urgent_only = urgent_only
         emails = await asyncio.to_thread(self.google.search_emails, QUERY, MAX_CHECK)
         if self.db.get_setting(BASELINE_KEY) is None:
             # First run: everything already in the inbox is old news, not an alert storm.
@@ -260,7 +264,8 @@ class InboxWatcher:
         return actions
 
     async def _send(self, alerts: list[dict], title: str = "📬 New email") -> None:
-        if self.db.get_setting(ALERT_MODE_KEY) == "hourly" and title == "📬 New email":
+        if (self.db.get_setting(ALERT_MODE_KEY) == "hourly" or getattr(self, "_urgent_only", False)) \
+                and title == "📬 New email":
             # Hourly digest: held here, sent together by flush_digest; anything urgent goes now.
             urgent = [a for a in alerts if a.get("urgent")]
             held = json.loads(self.db.get_setting(DIGEST_QUEUE_KEY) or "[]")
