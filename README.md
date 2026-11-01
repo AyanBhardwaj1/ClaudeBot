@@ -11,6 +11,10 @@ Text it like a person:
 - "what's on my calendar tomorrow?" / "move my 3pm to 4"
 - "remember that my mom's email is ..." (ClaudeBot also saves useful facts on its own)
 - "remind me at 6pm to call mom" / "every weekday at 8 remind me to take my meds"
+- "rent is due on the 1st every month" / "remind me of Mom's birthday every year" (fired reminders have Done and Snooze buttons)
+- "add milk and eggs to my shopping list" (`/lists`, tap to check off)
+- "when am I free for an hour Thursday?" (worked out exactly from your calendar)
+- "tell Alex 6 works" (a reply in your Telegram DMs, sent when you tap)
 - "at 5pm check if Alex replied and tell me" (scheduled tasks that ClaudeBot carries out)
 - "what's the score of the Longhorns game?" (live web search)
 - Paste a link: "tl;dr this" (reads the page)
@@ -30,8 +34,14 @@ ClaudeBot also comes to you:
 - **Meeting prep**: about an hour before a meeting with other people, a short brief on who's coming and where you left things. Off in `/settings`.
 - **`/waiting`**: replies you owe and replies you're waiting on, each with a one-tap **Nudge** or **Reply** draft. Drafting never sends: if Claude tries, the email waits for your ✅ Send tap.
 
-- **Inbox alerts**: when important email lands (a professor, a recruiter, a real person writing to you), you get a ping like "📬 Prof Lee: moved Thursday's exam to Friday". Newsletters and promos are skipped, and it stays quiet overnight. Reply "tell her that works" and it knows which email you mean.
-- **Daily brief** at a time you choose (calendar, important email, reminders, and a few headlines picked for your interests), or anytime with `/brief`.
+- **Inbox alerts**: when important email lands, you get a ping like "📬 Prof Lee: moved Thursday's exam to Friday". Important means a real person writing to you, a bill or deadline, or a travel change. Newsletters and promos are skipped, and it stays quiet overnight. Reply "tell her that works" and it knows which email you mean.
+  - A dated email (a bill due, a deadline) gets a ⏰ button that reminds you the morning before.
+  - A trip gets a 📅 button that puts it on your calendar.
+  - `/rules never alert me about LinkedIn` tunes what counts.
+- **Daily brief** at a time you choose (calendar, important email, reminders, and a few headlines picked for your interests), or anytime with `/brief`. 👍 / ✏️ buttons let you tune it.
+- **Weekly review** every Sunday evening: what ClaudeBot did for you, what's still open, the week ahead.
+- **Telegram DMs**: connect your own Telegram account and `/dms` shows who's waiting on your reply, with drafts you send with one tap (see below).
+- `/quiet 2h` pauses all of it when you need to focus.
 
 ### Feels fast and easy
 
@@ -170,12 +180,15 @@ Then `/connect` from your phone. The Google token is saved in the volume, so it 
 ## Commands
 
 - `/help` lists everything; `/settings`, `/connect` and `/status` are covered above.
+- `/today` shows today at a glance (calendar, reminders, lists): instant, no AI cost.
+- `/dms` shows Telegram chats waiting on your reply; `/style` makes drafts sound like you; `/rules` sets your alert rules; `/quiet 2h` pauses alerts and check-ins.
+- `/sweep` archives old promotions, social and update emails in one tap (nothing is deleted); `/export` sends you everything ClaudeBot keeps about you as a JSON file.
 - `/lists` shows your lists (shopping, packing, to-dos) with tap-to-check-off buttons; add to them by asking.
 - `/log` shows what ClaudeBot actually did today (`/log week` for 7 days), recorded when it happened.
 - `/waiting` shows replies you owe and replies you're waiting on; `/reminders` lists every reminder and scheduled task with cancel buttons.
 - `/new` starts a fresh conversation (saved memories carry over). ClaudeBot also does this on its own after `NEW_THREAD_AFTER_HOURS` of silence.
 - `/brief` gives your daily brief now.
-- `/usage` shows estimated Claude API spend today and this month.
+- `/usage` shows estimated Claude API spend today and this month, broken down by feature.
 - `/role` tells ClaudeBot your job; `/mode` switches personality; `/research <question>` runs a deep dive; `/think <question>` reasons at maximum effort; `/briefings` lists and cancels scheduled briefings.
 - `/memory` shows and deletes what ClaudeBot remembers; `/followups on|off` toggles suggestion buttons.
 - In a group: `/enable` / `/disable` (owner only).

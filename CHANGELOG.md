@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 (in progress)
+## 1.2.0
 
 **Today at a glance**
 - `/today`: today's calendar, reminders due, Telegram chats waiting and open list items in one message. No AI call, so it's instant and free.
