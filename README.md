@@ -175,7 +175,7 @@ fly deploy && fly logs                    # send your bot /start <code> from the
 
 **Railway**: create a project from this repo (it builds the Dockerfile), add a volume mounted at `/data`, set `ANTHROPIC_API_KEY` and `TELEGRAM_BOT_TOKEN` as variables, deploy, and find the pairing code in the deploy logs.
 
-Then `/connect` from your phone. The Google token is saved in the volume, so it survives redeploys.
+Then `/connect` from your phone. ClaudeBot backs up its database every night to `data/backups/` (the last 7 are kept), and the Docker image has a health check. The Google token is saved in the volume, so it survives redeploys.
 
 ## Commands
 

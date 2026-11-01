@@ -3,6 +3,7 @@
 ## 1.2.0
 
 **Runs itself**
+- Nightly database backup at 03:00 into `data/backups/` (the last 7 are kept), taken safely while the bot runs.
 - Docker health check: the bot touches a file every minute and `python -m claudebot health` checks it, so Docker (and Fly/Railway) can see a stuck bot.
 
 **Today at a glance**

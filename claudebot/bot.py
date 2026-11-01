@@ -34,6 +34,7 @@ from telegram.ext import (
 from .actions import ActionLog
 from .agent import Agent, ConversationReset
 from .alert_rules import RuleHandlers
+from .backup import BACKUP_TIME, BackupHandlers
 from .business import BusinessHandlers, DMStore
 from .buttons import ButtonHandlers
 from .checkins import CheckinHandlers, snooze_keyboard
@@ -213,7 +214,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -396,6 +397,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             self.schedule_reminder(row["id"])  # overdue one-offs fire right away
         if (at := brief_time(self.config)) is not None:
             app.job_queue.run_daily(self._brief_job, time=at, name="daily-brief")
+        app.job_queue.run_daily(self._backup_job, time=BACKUP_TIME.replace(tzinfo=self.config.timezone),
+                                name="backup")
         app.job_queue.run_daily(self._journal_job, time=JOURNAL_TIME.replace(tzinfo=self.config.timezone),
                                 name="journal")
         app.job_queue.run_daily(self._habit_job, time=HABIT_TIME.replace(tzinfo=self.config.timezone),

@@ -48,3 +48,20 @@ async def test_export_command_sends_a_file_to_the_owner(tmp_path, monkeypatch):
     await bot.on_export(SimpleNamespace(effective_message=None), None)
     assert sent[0]["chat_id"] == 1 and sent[0]["filename"].startswith("claudebot-export-")
     assert json.loads(sent[0]["document"].getvalue())["claudebot_version"]
+
+
+def test_nightly_backup_is_a_consistent_copy_and_rotates(tmp_path):
+    import sqlite3
+    import stat
+
+    from claudebot.backup import backup
+
+    db = Database(tmp_path / "t.db")
+    db.add_memory("Mom's birthday is May 3")
+    for day in range(1, 10):
+        path = backup(db.conn, tmp_path, f"2026-11-{day:02d}")
+    kept = sorted(p.name for p in (tmp_path / "backups").iterdir())
+    assert kept == [f"claudebot-2026-11-{d:02d}.db" for d in range(3, 10)]
+    copy = sqlite3.connect(path)
+    assert copy.execute("SELECT text FROM memories").fetchone()[0] == "Mom's birthday is May 3"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
