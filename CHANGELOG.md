@@ -3,6 +3,8 @@
 ## 1.2.0
 
 **Today at a glance**
+- `/catchup`: what you missed since you last asked (important email, DMs, what ClaudeBot did). `/trips`: upcoming travel from your email and calendar, with anything that looks missing.
+- `/status` shows how many check-ins you got this week and how many you tapped, so you can tell whether they earn their place.
 - `/today`: today's calendar, reminders due, Telegram chats waiting and open list items in one message. No AI call, so it's instant and free.
 
 **Where the money goes**

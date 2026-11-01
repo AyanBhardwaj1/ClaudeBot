@@ -30,6 +30,7 @@ from .modes import MODES, current_mode
 from .review import FEEDBACK_AWAIT, REVIEW_KEY
 from .roles import ROLES, current_profile, pick_role, set_role
 from .settings import FIELDS, ONBOARDED_KEY, InvalidSetting, resolve_place, save
+from .shortcuts import last_days
 from .tools import DRAFTS_ONLY_KEY
 
 log = logging.getLogger(__name__)
@@ -57,6 +58,8 @@ HELP = (
     "Talk to me like a person: ask, tell me to do things, forward messages, send photos and files.\n\n"
     "Everyday\n"
     "/today – today at a glance: calendar, reminders, lists (instant)\n"
+    "/catchup – what you missed since last time\n"
+    "/trips – your upcoming travel, from email and calendar\n"
     "/brief – your daily brief now\n"
     "/waiting – replies you owe, and replies you're waiting on\n"
     "/sweep – archive old promotions and updates in one tap\n"
@@ -530,7 +533,9 @@ class SetupHandlers:
             f"🟢 ClaudeBot {__version__}, up {hours}h {rem // 60}m\n"
             f"🧠 Claude: {c.model} (effort {c.effort})\n"
             f"{google}\n{alerts}\n{brief}\n"
-            f"⏰ Reminders and briefings: {len(self.db.active_reminders())} active\n\n"
+            f"⏰ Reminders and briefings: {len(self.db.active_reminders())} active\n"
+            f"👋 Check-ins in the last 7 days: {last_days(self.db, 'checkins_sent')} sent, "
+            f"{last_days(self.db, 'checkins_tapped')} tapped\n\n"
             f"{self.tracker.summary()}"
         )
 

@@ -20,6 +20,7 @@ from .inbox_watch import GMAIL_ID, in_quiet_hours
 from .modes import defang_urls
 from .quiet import dnd_active
 from .replies import find_reply_gaps
+from .shortcuts import bump
 from .ui import split_message
 
 log = logging.getLogger(__name__)
@@ -221,6 +222,7 @@ class CheckinHandlers:
         await query.answer()
         if not self._from_owner(query):
             return
+        bump(self.db, "checkins_tapped")
         if query.data == "chk:dms":
             await self.on_dms(SimpleNamespace(effective_message=SimpleNamespace(
                 reply_text=lambda text, reply_markup=None: self.send_to_owner(text, reply_markup))), context)
@@ -260,6 +262,7 @@ class CheckinHandlers:
             return
         now = datetime.now(self.config.timezone)
         record_sent(self.db, checkin, now, self.config.timezone)
+        bump(self.db, "checkins_sent", now)
         # So "move the dentist" or "nudge her" later knows what the owner was just shown.
         self.db.add_notice("Check-in shown to the owner: " + json.dumps(
             {"items": checkin.text.splitlines(), "signal_keys": list(checkin.keys)}, ensure_ascii=False))

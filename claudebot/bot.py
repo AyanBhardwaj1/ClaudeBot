@@ -69,6 +69,7 @@ from .roles import (
 )
 from .settings import apply_saved, brief_time, save_owner_id
 from .setup_chat import ONBOARDING_OFFERED_KEY, WELCOME, SetupHandlers
+from .shortcuts import ShortcutHandlers
 from .style_handlers import StyleHandlers
 from .sweep import SweepHandlers
 from .today import TodayHandlers
@@ -98,6 +99,8 @@ ROLE_HINT = "Or describe it: /role nurse in the ER, /role student CS at UT Austi
 PRIVATE_COMMANDS = [
     BotCommand("help", "Everything I can do"),
     BotCommand("today", "Today at a glance (instant)"),
+    BotCommand("catchup", "What you missed since last time"),
+    BotCommand("trips", "Your upcoming travel"),
     BotCommand("brief", "Daily brief now"),
     BotCommand("think", "Think as hard as possible about one question"),
     BotCommand("research", "Deep research on a question"),
@@ -209,7 +212,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -316,6 +319,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("export", self.on_export, filters=owner))
         self.app.add_handler(CommandHandler("sweep", self.on_sweep, filters=owner))
         self.app.add_handler(CommandHandler("today", self.on_today, filters=owner))
+        self.app.add_handler(CommandHandler("catchup", self.on_catchup, filters=owner))
+        self.app.add_handler(CommandHandler("trips", self.on_trips, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_sweep_button, pattern=r"^sweep:(promo|social|updates)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_brief_button, pattern=r"^brief:(good|tune)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_rule_button, pattern=r"^rule:del:\d+$"))
