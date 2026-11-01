@@ -170,6 +170,7 @@ Then `/connect` from your phone. The Google token is saved in the volume, so it 
 ## Commands
 
 - `/help` lists everything; `/settings`, `/connect` and `/status` are covered above.
+- `/lists` shows your lists (shopping, packing, to-dos) with tap-to-check-off buttons; add to them by asking.
 - `/log` shows what ClaudeBot actually did today (`/log week` for 7 days), recorded when it happened.
 - `/waiting` shows replies you owe and replies you're waiting on; `/reminders` lists every reminder and scheduled task with cancel buttons.
 - `/new` starts a fresh conversation (saved memories carry over). ClaudeBot also does this on its own after `NEW_THREAD_AFTER_HOURS` of silence.

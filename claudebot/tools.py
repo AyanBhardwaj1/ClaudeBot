@@ -19,6 +19,7 @@ from .charts import CHART_TYPES, ChartError, render_chart, validate_spec
 from .db import Database
 from .files import UnsupportedFile, to_content_block
 from .google_services import MAX_EVENTS, Google, GoogleNotConnected
+from .lists import list_tool
 from .scheduling import busy_from_events, free_slots
 
 log = logging.getLogger(__name__)
@@ -378,6 +379,23 @@ CLIENT_TOOLS = [
         "input_schema": _schema({"reminder_id": {"type": "integer"}}, ["reminder_id"]),
     },
     {
+        "name": "show_lists",
+        "description": "The owner's lists (shopping, packing, to-dos...) with item ids and checked state.",
+        "input_schema": _schema({"list": {"type": "string", "description": "one list; omit for all"}}, []),
+    },
+    {
+        "name": "add_to_list",
+        "description": "Add items to one of the owner's lists, creating it if needed (e.g. \"Shopping\").",
+        "input_schema": _schema({"list": {"type": "string"},
+                                 "items": {"type": "array", "items": {"type": "string"}, "maxItems": 50}},
+                                ["list", "items"]),
+    },
+    {
+        "name": "check_off",
+        "description": "Mark list items done, by id (from show_lists).",
+        "input_schema": _schema({"item_ids": {"type": "array", "items": {"type": "integer"}}}, ["item_ids"]),
+    },
+    {
         "name": "action_log",
         "description": (
             "What you actually did for the owner (emails delivered, drafts, events, reminders, memories, "
@@ -666,6 +684,10 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
             }
             for r in ctx.db.active_reminders()
         ]
+    if name in ("show_lists", "add_to_list", "check_off"):
+        if name != "show_lists":
+            _require_owner(ctx, "change lists")
+        return list_tool(name, a, ctx.db)
     if name == "action_log":
         days = min(max(int(a.get("days", 1)), 1), 60)
         rows = ActionLog(ctx.db).since(datetime.now(ctx.tz) - timedelta(days=days))

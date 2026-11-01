@@ -50,6 +50,7 @@ from .google_services import Google
 from .groups import GroupResponder
 from .heartbeat import HEARTBEAT_HOURS
 from .inbox_watch import InboxWatcher
+from .lists import ListHandlers
 from .meeting_prep import JOB_MINUTES, MeetingPrepHandlers
 from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
@@ -99,6 +100,7 @@ PRIVATE_COMMANDS = [
     BotCommand("dms", "Telegram chats waiting on your reply"),
     BotCommand("log", "What I actually did today"),
     BotCommand("style", "Make my drafts sound like you"),
+    BotCommand("lists", "Shopping, packing and to-do lists"),
     BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
@@ -207,7 +209,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -307,6 +309,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("dms", self.on_dms, filters=owner))
         self.app.add_handler(CommandHandler("log", self.on_log, filters=owner))
         self.app.add_handler(CommandHandler("style", self.on_style, filters=owner))
+        self.app.add_handler(CommandHandler("lists", self.on_lists, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_list_button, pattern=r"^(li|lc):\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_style_button, pattern=r"^style:(learn|use|discard)$"))
         # Telegram Business: the owner's own chats. Stored as data, never handled as commands.
         self.app.add_handler(BusinessConnectionHandler(self.on_business_connection))

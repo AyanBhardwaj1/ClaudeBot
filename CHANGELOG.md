@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**Lists**
+- Shopping, packing and to-do lists: "add milk and eggs to my shopping list", then `/lists` and tap items off. Turns you didn't start can read them but not change them.
+
 **Ready for every meeting**
 - About an hour before a meeting with other people, ClaudeBot sends a short brief: who's coming, where you left things over email, open promises, anything to bring. Once per meeting, at most 4 a day, not in quiet hours, off in `/settings`. Claude gets only the event's id and reads the invite through its tools, so text in an invite can't steer it.
 
