@@ -46,9 +46,15 @@ MAX_QUICK, MAX_QUICK_LEN = 3, 60  # short enough that a button shows all of it
 
 def quick_replies(db: Database) -> list[str]:
     saved = json.loads(db.get_setting(QUICK_KEY) or "null") or []
-    saved = [clean_quick(t) for t in saved if isinstance(t, str)]
+    # Ones saved under the old 100-character cap are dropped, not cut mid-sentence (/quickreplies shows the rest).
+    saved = [clean_quick(t) for t in saved if isinstance(t, str) and len(t) <= MAX_QUICK_LEN]
     saved = [t for t in saved if t][:MAX_QUICK]  # older, longer ones too
     return saved or DEFAULT_QUICK
+
+
+def contact_label(name: str) -> str:
+    """A contact's display name inside the bot's own text: links defanged, no tappable /commands."""
+    return defang_urls(clip(name, 40)).replace("/", "⁄")
 
 
 def clean_quick(text: str) -> str:
@@ -268,7 +274,7 @@ def dm_signals(store: DMStore, now: datetime | None = None) -> list[Signal]:
         if waited >= NUDGE_AFTER and c.can_reply:
             hours = int(waited.total_seconds() // 3600)
             signals.append(Signal(f"dm:{c.chat_id}:{c.last_message_id}",
-                                  f"{c.name} has been waiting {hours}h for your Telegram reply", "dms"))
+                                  f"{defang_urls(c.name)} has been waiting {hours}h for your Telegram reply", "dms"))
     return signals
 
 
@@ -364,7 +370,7 @@ class BusinessHandlers:
             reply = self.dms.take_reply(reply_id, "cancelled")
             await query.answer("Cancelled." if reply else "Already handled.")
             if reply:
-                await query.edit_message_text(f"✖️ Cancelled reply to {reply['name']}.")
+                await query.edit_message_text(f"✖️ Cancelled reply to {defang_urls(reply['name'])}.")
             return
         reply = self.dms.take_reply(reply_id, "sending")
         if reply is None:
@@ -389,7 +395,7 @@ class BusinessHandlers:
         self.db.set_setting(key, "1")
         self.db.prune_settings("dm_later:", 50)
         when = datetime.now(self.config.timezone) + timedelta(hours=3)
-        reminder_id = self.db.add_reminder(f"💬 Reply to {defang_urls(clip(chat.name, 40))} on Telegram (/dms)", when, "none", False)
+        reminder_id = self.db.add_reminder(f"💬 Reply to “{contact_label(chat.name)}” on Telegram (/dms)", when, "none", False)
         self.schedule_reminder(reminder_id)
         ActionLog(self.db).record("reminder", f"Reminder to reply to {chat.name} at {when:%H:%M}")
         await query.answer(f"⏰ I'll remind you at {when:%H:%M}.")
@@ -479,7 +485,7 @@ class BusinessHandlers:
             ActionLog(self.db).record("telegram", f"MAY have sent a Telegram reply to {reply['name']} (connection dropped)")
             log.warning("Telegram reply may or may not have been sent: %s", e)
             await query.edit_message_text(
-                f"⚠️ The connection dropped while sending to {reply['name']}. It may have gone out: check the chat "
+                f"⚠️ The connection dropped while sending to {defang_urls(reply['name'])}. It may have gone out: check the chat "
                 f"before sending again.\n\n{reply['text']}")
             return
         except TelegramError as e:  # anything else Telegram raised before sending
@@ -491,7 +497,7 @@ class BusinessHandlers:
         now = datetime.now(timezone.utc)
         self.dms.record_sent(reply["chat_id"], getattr(sent, "message_id", None) or -reply["id"], reply["text"], now)
         ActionLog(self.db).record("telegram", f"Sent a Telegram reply to {reply['name']}: {reply['text']}")
-        await query.edit_message_text(f"✅ Sent to {reply['name']}:\n\n{reply['text']}")
+        await query.edit_message_text(f"✅ Sent to {defang_urls(reply['name'])}:\n\n{reply['text']}")
         self.db.add_notice(f"Telegram reply sent to {reply['name']} (chat {reply['chat_id']}).")
 
     async def _send_as_owner(self, chat_id: int, text: str, business_connection_id: str):

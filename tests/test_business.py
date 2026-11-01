@@ -463,12 +463,21 @@ async def test_later_button_sets_one_reminder_and_sends_nothing(tmp_path, monkey
     await bot.on_dm_button(update, None)
     await bot.on_dm_button(update, None)
     assert len(scheduled) == 1 and answers[-1] == "Already set." and delivered == []
-    assert bot.db.active_reminders()[0]["text"] == "💬 Reply to Alex Kim on Telegram (/dms)"
+    assert bot.db.active_reminders()[0]["text"] == "💬 Reply to “Alex Kim” on Telegram (/dms)"
 
 
 def test_quick_replies_saved_under_the_old_cap_are_trimmed(tmp_path):
     from claudebot.business import MAX_QUICK_LEN, QUICK_KEY, quick_replies
 
     db = Database(tmp_path / "t.db")
-    db.set_setting(QUICK_KEY, json.dumps(["x" * 100, "", 5]))
-    assert quick_replies(db) == ["x" * MAX_QUICK_LEN]
+    db.set_setting(QUICK_KEY, json.dumps(["x" * 100, "", 5, "ok"]))
+    assert quick_replies(db) == ["ok"] and MAX_QUICK_LEN == 60  # too long: dropped, not cut mid-sentence
+    db.set_setting(QUICK_KEY, json.dumps(["y" * 100]))
+    assert quick_replies(db)[0] == "On it 👍"  # nothing usable left: the defaults
+
+
+def test_contact_names_cant_add_commands_to_reminders():
+    from claudebot.business import contact_label
+
+    label = contact_label("Bank: card frozen /new https://evil.example")
+    assert "/new" not in label and "https://evil.example" not in label
