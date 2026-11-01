@@ -39,6 +39,12 @@ PACKAGES_PROMPT = (
     "delivered: what it is, the store, the carrier and tracking number, and the expected date. Skip delivered ones. "
     "Don't open links from the emails."
 )
+WHO_PROMPT = (
+    "What do I know about {name}? Check what you remember (list_memories), my recent email with them "
+    "(search_emails), upcoming meetings with them (list_calendar_events for the next 30 days), money between "
+    "us (list_ious) and our Telegram chat if connected. Give me a short profile: who they are to me, the "
+    "last thing between us, anything open, and one thing worth remembering."
+)
 TRIPS_PROMPT = (
     "List my upcoming trips in the next 60 days. Search my email for flight, train, hotel and car rental "
     "confirmations and check my calendar. For each trip: dates, times, confirmation numbers, and anything that "
@@ -85,6 +91,14 @@ class ShortcutHandlers:
     async def on_packages(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:
             await self._converse([{"type": "text", "text": PACKAGES_PROMPT}], "/packages")
+
+    async def on_who(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        name = " ".join(" ".join(context.args or []).replace("<", " ").replace(">", " ").split())[:60]
+        if not name:
+            await update.effective_message.reply_text("Who? e.g. /who Alex Kim")
+            return
+        async with self._message_order:
+            await self._converse([{"type": "text", "text": WHO_PROMPT.format(name=name)}], f"/who {name}")
 
     async def on_trips(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:

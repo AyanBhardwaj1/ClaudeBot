@@ -71,6 +71,7 @@ HELP = (
     "/triage – go through unread email one at a time (archive, reply, later)\n"
     "/waiting – replies you owe, and replies you're waiting on\n"
     "/dms – Telegram chats waiting on your reply\n"
+    "/who – everything about someone: memories, email, meetings, IOUs (/who Alex)\n"
     "/sweep – archive old promotions and updates in one tap\n"
     "/rules – what email pings you (/rules never alert me about LinkedIn)\n\n"
     "Life admin\n"

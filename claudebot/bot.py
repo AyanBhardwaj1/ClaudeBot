@@ -343,6 +343,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("subscriptions", self.on_subscriptions, filters=owner))
         self.app.add_handler(CommandHandler("plan", self.on_plan, filters=owner))
         self.app.add_handler(CommandHandler("packages", self.on_packages, filters=owner))
+        self.app.add_handler(CommandHandler("who", self.on_who, filters=owner))
         self.app.add_handler(CommandHandler("prep", self.on_prep, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_bill_button, pattern=r"^bill:(paid|del):\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_restore_button, pattern=r"^restore:(yes|no)$"))

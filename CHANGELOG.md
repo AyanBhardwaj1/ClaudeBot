@@ -12,6 +12,7 @@
 - Docker health check: the bot touches a file every minute and `python -m claudebot health` checks it, so Docker (and Fly/Railway) can see a stuck bot.
 
 **Today at a glance**
+- `/who Alex`: what ClaudeBot knows about someone, pulled from memories, recent email, upcoming meetings, IOUs and your Telegram chat.
 - `/packages`: deliveries on the way, from your shipping emails (store, carrier, tracking number, expected date).
 - `/plan`: a realistic, time-blocked plan for today around your fixed events (added to your calendar only if you say so). `/prep`: get ready for your next meeting, on demand.
 - `/menu` puts a button keyboard under the chat box: 📆 Today, 📰 Catch up, 📥 Triage, ⏳ Waiting, 🗒 Lists, 🔕 Quiet 1h.

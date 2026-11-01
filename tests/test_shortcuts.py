@@ -40,6 +40,15 @@ async def test_catchup_covers_the_time_since_last_time(tmp_path, monkeypatch):
     assert "Plan my day" in asked[-1] and "don't add anything" in asked[-1]
     await bot.on_prep(SimpleNamespace(), None)
     assert "next meeting" in asked[-1]
+    replies = []
+
+    async def reply_text(text, *, reply_markup=None):
+        replies.append(text)
+
+    await bot.on_who(SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text)), SimpleNamespace(args=[]))
+    assert "Who?" in replies[-1]
+    await bot.on_who(SimpleNamespace(), SimpleNamespace(args=["Alex", "<Kim>"]))
+    assert "What do I know about Alex Kim?" in asked[-1]
     await bot.on_packages(SimpleNamespace(), None)
     assert "deliveries" in asked[-1]
     await bot.on_subscriptions(SimpleNamespace(), None)
