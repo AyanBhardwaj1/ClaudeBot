@@ -39,6 +39,7 @@ from .buttons import ButtonHandlers
 from .checkins import CheckinHandlers, snooze_keyboard
 from .config import Config
 from .db import Database
+from .export import ExportHandlers
 from .files import (
     MAX_FILE_BYTES,
     FileUploader,
@@ -106,6 +107,7 @@ PRIVATE_COMMANDS = [
     BotCommand("lists", "Shopping, packing and to-do lists"),
     BotCommand("quiet", "Pause alerts and check-ins for a while"),
     BotCommand("rules", "Your rules for email alerts"),
+    BotCommand("export", "Download everything I keep about you"),
     BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
@@ -214,7 +216,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -318,6 +320,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("lists", self.on_lists, filters=owner))
         self.app.add_handler(CommandHandler("quiet", self.on_quiet, filters=owner))
         self.app.add_handler(CommandHandler("rules", self.on_rules, filters=owner))
+        self.app.add_handler(CommandHandler("export", self.on_export, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_brief_button, pattern=r"^brief:(good|tune)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_rule_button, pattern=r"^rule:del:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_quiet_button, pattern=r"^dnd:(\d{1,4}|morning|off)$"))

@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**Your data, yours**
+- `/export` sends you one JSON file with your memories, reminders, lists, alert rules, writing style, settings and the last 60 days of `/log`. Sign-in details are left out.
+
 **Reminders that fit real life**
 - Fired reminders have ✅ Done, ⏰ 1h and ⏰ Tomorrow buttons. Snoozing again moves the same reminder rather than stacking copies.
 - Reminders and briefings can repeat monthly (rent, bills) and yearly (birthdays). Jan 31 becomes Feb 28, then Mar 31.

@@ -81,7 +81,8 @@ HELP = (
     "/followups – suggestion buttons on or off\n\n"
     "Check on me\n"
     "/status – what's connected and working\n"
-    "/usage – what I've cost you\n\n"
+    "/usage – what I've cost you\n"
+    "/export – download everything I keep about you\n\n"
     "Send a photo of a flyer or a ticket and I'll add it to your calendar.\n\n"
     "Groups: add me to a group and send /enable there (/disable to stop); people can tag me to ask or fact-check."
 )
