@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**Never lose a thread**
+- Every sent email's confirmation has a ⏰ Follow up if no reply button. Three days later ClaudeBot checks whether they answered. If they did, you get one line; if not, it drafts a polite nudge for you to send.
+
 **Your data, yours**
 - `/export` sends you one JSON file with your memories, reminders, lists, alert rules, writing style, settings and the last 60 days of `/log`. Sign-in details are left out.
 

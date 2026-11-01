@@ -204,10 +204,14 @@ class TelegramOutboxUI:
         )
         return message.message_id
 
-    async def edit(self, message_id: int, text: str) -> None:
+    async def edit(self, message_id: int, text: str, followup_id: int | None = None) -> None:
+        markup = None
+        if followup_id is not None:
+            markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+                "⏰ Follow up if no reply", callback_data=f"nr:{followup_id}")]])
         try:
             await self.bot.app.bot.edit_message_text(
-                text, chat_id=self.bot.config.owner_id, message_id=message_id, reply_markup=None
+                text, chat_id=self.bot.config.owner_id, message_id=message_id, reply_markup=markup
             )
         except TelegramError:
             log.warning("Couldn't edit outbox message %s", message_id, exc_info=True)
@@ -360,6 +364,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             )
         )
         self.app.add_handler(CallbackQueryHandler(self.on_outbox_button, pattern=r"^(undo|send):\d+$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_no_reply_button, pattern=r"^nr:\d+$"))
         self.app.add_handler(MessageHandler(new_owner_message & filters.PHOTO, self.on_photo))
         self.app.add_handler(MessageHandler(new_owner_message & filters.Document.ALL, self.on_document))
         self.app.add_handler(MessageHandler(new_owner_message & (filters.VOICE | filters.AUDIO), self.on_voice))

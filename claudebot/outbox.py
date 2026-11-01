@@ -23,7 +23,8 @@ class OutboxUI(Protocol):
     async def announce(self, outbox_id: int, text: str, needs_approval: bool = False) -> int | None:
         """Show `text` with Undo (or Send/Cancel) buttons; return the chat message id."""
 
-    async def edit(self, message_id: int, text: str) -> None: ...
+    async def edit(self, message_id: int, text: str, followup_id: int | None = None) -> None:
+        """Replace the card's text; with followup_id, offer "follow up if no reply" for that email."""
 
     async def notify(self, text: str) -> None: ...
 
@@ -131,7 +132,7 @@ class Outbox:
         self.db.transition_outbox(outbox_id, "sending", "sent")
         ActionLog(self.db).record("email", f"Sent email to {_describe(email)}")
         if row["telegram_message_id"]:
-            await self.ui.edit(row["telegram_message_id"], f"📤 Sent to {_describe(email)}")
+            await self.ui.edit(row["telegram_message_id"], f"📤 Sent to {_describe(email)}", followup_id=outbox_id)
 
     async def resume(self) -> None:
         """After a restart: keep waiting emails waiting, and never send anything stale or twice."""

@@ -62,3 +62,49 @@ async def test_fired_reminders_have_done_and_snooze(tmp_path, monkeypatch):
     assert when.hour == 9
     await bot.on_reminder_button(tap(f"rem:done:{rid}"), None)
     assert "✅" in edits[-1]
+
+
+async def test_follow_up_if_no_reply(tmp_path, monkeypatch):
+    import json as _json
+
+    from claudebot.bot import TelegramBot
+    from claudebot.outbox import Outbox
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    edits, scheduled, answers = [], [], []
+
+    class UI:
+        async def announce(self, outbox_id, text, needs_approval=False):
+            return 77
+
+        async def edit(self, message_id, text, followup_id=None):
+            edits.append((text, followup_id))
+
+        async def notify(self, text):
+            pass
+
+    from helpers import FakeGoogle
+
+    outbox = Outbox(bot.db, FakeGoogle(), 20, lambda *a: None, UI())
+    queued = await outbox.submit({"to": "lee@uni.edu", "subject": "Extension?", "body": "Could I have until Friday?"})
+    await outbox.deliver(queued["outbox_id"])
+    assert edits[-1] == ("📤 Sent to lee@uni.edu: Extension?", queued["outbox_id"])
+
+    bot.schedule_reminder = scheduled.append
+
+    async def answer(text=None):
+        answers.append(text)
+
+    def tap(user_id=1):
+        return SimpleNamespace(callback_query=SimpleNamespace(
+            from_user=SimpleNamespace(id=user_id), data=f"nr:{queued['outbox_id']}", answer=answer))
+
+    await bot.on_no_reply_button(tap(user_id=999), None)
+    assert scheduled == []
+    await bot.on_no_reply_button(tap(), None)
+    await bot.on_no_reply_button(tap(), None)
+    tasks = bot.db.active_reminders()
+    assert len(tasks) == 1 and tasks[0]["run_as_task"] and "Extension?" in tasks[0]["text"]
+    assert "don't send it" in tasks[0]["text"] and answers[-1] == "Already on it."
+    assert _json  # the email itself stays in the outbox row

@@ -123,7 +123,7 @@ class FakeUI:
         self.announced.append((outbox_id, text, needs_approval))
         return 100 + outbox_id
 
-    async def edit(self, message_id, text):
+    async def edit(self, message_id, text, followup_id=None):
         self.edits.append((message_id, text))
 
     async def notify(self, text):

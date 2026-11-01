@@ -23,6 +23,7 @@ from .replies import find_reply_gaps
 
 log = logging.getLogger(__name__)
 
+NO_REPLY_DAYS = 3
 INBOX_FAILURE_NOTICE = 3  # consecutive failed checks before telling the owner
 INBOX_FAILURES_KEY = "inbox_failures"
 MAX_LISTED = 5
@@ -113,6 +114,31 @@ class CheckinHandlers:
         self.db.set_setting(snoozed_key, str(snooze_id))
         self.db.prune_settings("snoozed:", 100)
         await query.edit_message_text(f"⏰ {defang_urls(text)}\nSnoozed until {when:%a %H:%M}.")
+
+    async def on_no_reply_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """On a sent email: in 3 days, check for a reply, and draft a nudge if there's none."""
+        query = update.callback_query
+        if not self._from_owner(query):
+            await query.answer()
+            return
+        outbox_id = int(query.data.split(":")[1])
+        row = self.db.get_outbox(outbox_id)
+        if row is None or row["status"] != "sent":
+            await query.answer("I can't find that email.")
+            return
+        if self.db.get_setting(f"noreply:{outbox_id}"):
+            await query.answer("Already on it.")
+            return
+        email = json.loads(row["email_json"])
+        now = datetime.now(self.config.timezone)
+        when = datetime.combine(now.date() + timedelta(days=NO_REPLY_DAYS), time(9), tzinfo=self.config.timezone)
+        task = (f"Check whether {email['to']} replied to the email I sent on {now:%b %-d} with subject "
+                f"\"{email.get('subject') or '(reply)'}\" (search my inbox and that thread). If they replied, tell "
+                "me in one line. If not, draft a short, polite follow-up and show it to me; don't send it.")
+        self.schedule_reminder(self.db.add_reminder(task, when, "none", True))
+        self.db.set_setting(f"noreply:{outbox_id}", "1")
+        self.db.prune_settings("noreply:", 200)
+        await query.answer(f"⏰ I'll check {when:%a} morning")
 
     # --- /log ---
 
