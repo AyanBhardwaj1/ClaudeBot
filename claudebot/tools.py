@@ -25,7 +25,7 @@ from .scheduling import busy_from_events, free_slots
 
 log = logging.getLogger(__name__)
 
-REPEAT_OPTIONS = ["none", "daily", "weekdays", "weekly"]
+REPEAT_OPTIONS = ["none", "daily", "weekdays", "weekly", "monthly", "yearly"]
 MAX_BRIEFINGS = 10
 
 

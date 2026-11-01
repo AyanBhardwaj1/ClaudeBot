@@ -4,7 +4,7 @@ buttons), check-ins, and telling the owner when inbox alerts stop working. Mixed
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from types import SimpleNamespace
 
 from google.auth.exceptions import RefreshError
@@ -44,6 +44,12 @@ def _reason(error: Exception) -> str:
     return f"Checking Gmail keeps failing ({type(error).__name__}). I'll keep trying."
 
 
+def snooze_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done", callback_data=f"rem:done:{reminder_id}"),
+                                  InlineKeyboardButton("⏰ 1h", callback_data=f"rem:1h:{reminder_id}"),
+                                  InlineKeyboardButton("⏰ Tomorrow", callback_data=f"rem:tmr:{reminder_id}")]])
+
+
 class CheckinHandlers:
     # --- /reminders ---
 
@@ -80,6 +86,33 @@ class CheckinHandlers:
         self.db.deactivate_reminder(reminder_id)
         self.unschedule_reminder(reminder_id)
         await query.answer(f"Cancelled: {row['text'][:150]}")
+
+    async def on_reminder_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Done / snooze on a reminder that just fired. Snoozing moves one copy, it doesn't pile up."""
+        query = update.callback_query
+        await query.answer()
+        if not self._from_owner(query):
+            return
+        _, action, reminder_id = query.data.split(":")
+        text = self.db.reminder_text(int(reminder_id))
+        if text is None:
+            return
+        snoozed_key = f"snoozed:{reminder_id}"
+        if previous := self.db.get_setting(snoozed_key):  # drop the earlier snooze of the same reminder
+            self.db.deactivate_reminder(int(previous))
+            self.unschedule_reminder(int(previous))
+        if action == "done":
+            self.db.delete_setting(snoozed_key)
+            await query.edit_message_text(f"✅ {defang_urls(text)}")
+            return
+        now = datetime.now(self.config.timezone)
+        when = (now + timedelta(hours=1) if action == "1h" else
+                datetime.combine(now.date() + timedelta(days=1), time(9), tzinfo=self.config.timezone))
+        snooze_id = self.db.add_reminder(text, when, "none", False)
+        self.schedule_reminder(snooze_id)
+        self.db.set_setting(snoozed_key, str(snooze_id))
+        self.db.prune_settings("snoozed:", 100)
+        await query.edit_message_text(f"⏰ {defang_urls(text)}\nSnoozed until {when:%a %H:%M}.")
 
     # --- /log ---
 

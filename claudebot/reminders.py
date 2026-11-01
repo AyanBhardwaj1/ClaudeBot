@@ -1,7 +1,15 @@
 """Date arithmetic for repeating reminders."""
 
+import calendar
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+
+def _add_months(moment: datetime, months: int) -> datetime:
+    """Same day next month, or the month's last day when it's shorter (Jan 31 -> Feb 28)."""
+    month_index = moment.month - 1 + months
+    year, month = moment.year + month_index // 12, month_index % 12 + 1
+    return moment.replace(year=year, month=month, day=min(moment.day, calendar.monthrange(year, month)[1]))
 
 
 def previous_window(due: datetime, repeat: str) -> timedelta:
@@ -10,6 +18,10 @@ def previous_window(due: datetime, repeat: str) -> timedelta:
         return timedelta(days=1)
     if repeat == "weekdays":
         return timedelta(days=3) if due.weekday() == 0 else timedelta(days=1)  # Monday covers the weekend
+    if repeat == "monthly":
+        return due - _add_months(due, -1)
+    if repeat == "yearly":
+        return due - _add_months(due, -12)
     return timedelta(weeks=1)  # weekly, and a sensible window for one-off briefings
 
 
@@ -21,6 +33,14 @@ def next_occurrence(due: datetime, repeat: str, now: datetime, tz: ZoneInfo) -> 
     if repeat == "none":
         return None
     local = due.astimezone(tz)  # aware arithmetic in the local zone keeps the wall time across DST
+    if repeat in ("monthly", "yearly"):
+        months = 1 if repeat == "monthly" else 12
+        count = 1
+        while True:  # counted from the original date, so Jan 31 -> Feb 28 -> Mar 31
+            following = _add_months(local, months * count)
+            if following > now:
+                return following
+            count += 1
     step = timedelta(weeks=1) if repeat == "weekly" else timedelta(days=1)
     while True:
         local += step

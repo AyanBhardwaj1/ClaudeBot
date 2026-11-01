@@ -181,6 +181,11 @@ class Database:
             "SELECT * FROM reminders WHERE id = ? AND active = 1", (reminder_id,)
         ).fetchone()
 
+    def reminder_text(self, reminder_id: int) -> str | None:
+        """Any reminder's text, fired or not (for Done / Snooze on one that already went off)."""
+        row = self.conn.execute("SELECT text FROM reminders WHERE id = ?", (reminder_id,)).fetchone()
+        return row["text"] if row else None
+
     def active_reminders(self) -> list[sqlite3.Row]:
         return self.conn.execute(
             "SELECT * FROM reminders WHERE active = 1 ORDER BY due_at"

@@ -36,7 +36,7 @@ from .agent import Agent, ConversationReset
 from .alert_rules import RuleHandlers
 from .business import BusinessHandlers, DMStore
 from .buttons import ButtonHandlers
-from .checkins import CheckinHandlers
+from .checkins import CheckinHandlers, snooze_keyboard
 from .config import Config
 from .db import Database
 from .files import (
@@ -339,6 +339,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         )
         self.app.add_handler(CallbackQueryHandler(self.on_briefing_cancel, pattern=r"^unbrief:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_reminder_cancel, pattern=r"^unrem:\d+$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_reminder_button, pattern=r"^rem:(done|1h|tmr):\d+$"))
         self.app.add_handler(
             CallbackQueryHandler(self.on_reply_tracking, pattern=r"^rt:(nudge|reply):[0-9a-f]{6,32}$")
         )
@@ -836,7 +837,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
                 await self.send_to_owner(reply)
             else:
                 # Reminders can be set in turns the owner didn't start: links in them stay unclickable.
-                await self.send_to_owner(f"⏰ {defang_urls(row['text'])}")
+                await self.send_to_owner(f"⏰ {defang_urls(row['text'])}", snooze_keyboard(reminder_id))
                 self.db.add_notice(f"Reminder #{reminder_id} fired: {row['text']}")
         finally:
             now = datetime.now(self.config.timezone)
