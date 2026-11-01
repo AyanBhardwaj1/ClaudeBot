@@ -3,7 +3,7 @@
 ## 1.2.0
 
 **Safer**
-- Restoring an export shows every memory, reminder, rule, list item and the writing style in full on the card, exactly as it would be stored. Reminders with the same text at different times both come back.
+- Restoring an export shows every memory, reminder, rule, list item and the writing style in full on the card, exactly as it would be stored (a big export sends the full list as a .txt, with quick replies always on the card). Reminders with the same text at different times both come back.
 - Bills: replacing or deleting a bill removes only its own reminder, a double tap on ✅ Paid logs it once, and a bill Claude adds always gets a "🧾 New bill" message from the bot itself.
 - Turns you didn't start (the daily brief, weekly review, scheduled tasks, meeting prep, draft buttons) can no longer set reminders or archive, trash or mark email. An email read while you're away can't plant a reminder that later speaks in ClaudeBot's voice.
 - Brief feedback and journal entries only count when you reply to the question, so your next normal message isn't swallowed.
@@ -42,7 +42,7 @@
 - Sent emails' confirmations have a ⏰ Follow up if no reply button (not with Instant sending, which has no confirmation card). Three days later ClaudeBot checks whether they answered. If they did, you get one line; if not, it drafts a polite nudge for you to send.
 
 **Your data, yours**
-- Restore: send an export file back (on a new server, say). ClaudeBot shows every memory, rule, reminder and the writing style it would add, and restores after you tap ✅ Restore (capped, no duplicates; nothing you have is deleted).
+- Restore: send an export file back (on a new server, say). ClaudeBot shows every memory, rule, reminder and the writing style it would add, and restores after you tap ✅ Restore (capped, no duplicates). A writing style or quick replies in the file replace yours, and the card says so; nothing else you have is deleted.
 - `/privacy` shows what ClaudeBot keeps and, after a confirmation, clears conversation history, memories, stored DMs, the journal or the action log. Cleared data can linger in the nightly backups for up to 7 days.
 - `/export` sends you one JSON file with your memories, reminders, lists, alert rules, writing style, settings and the last 60 days of `/log`. Sign-in details are left out.
 
@@ -60,7 +60,7 @@
 
 **Quiet when you need it**
 - Inbox alerts can come as one hourly digest instead of one ping per email (`/settings` → Instant / hourly). Truly urgent email (a flight cancelled today, a deadline in hours) still comes right away.
-- Opt-in: urgent email can wake you during quiet hours and `/quiet` (`/settings` → 🚨). Everything else waits and arrives as one digest when quiet time ends.
+- Opt-in: urgent email can wake you during quiet hours and `/quiet` (`/settings` → 🚨), at most 3 times in 12 hours. Everything else waits and arrives as one digest when quiet time ends.
 - `/focus 25`: a 25-minute focus session (alerts and check-ins held), with a ping when time's up. `/note <text>` jots something into your Notes list.
 - `/quiet 2h` (or 30m, or `morning`) pauses inbox alerts, check-ins and meeting prep. Reminders you set still fire, and held email alerts catch up afterwards. `/quiet off` resumes.
 
@@ -76,7 +76,7 @@
 **Spending**
 - `/subscriptions` finds recurring charges in 90 days of receipts, flags forgotten ones and duplicates, gives the monthly total, and offers to track them as bills.
 - The daily brief mentions any bill due in the next 3 days.
-- Bills: "rent is $1200 on the 1st" saves it with a monthly reminder 2 days before. `/bills` shows what's due and your monthly total; ✅ Paid logs it as spending.
+- Bills: "rent is $1200 on the 1st" saves it with a monthly reminder a couple of days before that names the due day. `/bills` shows what's due and your monthly total; ✅ Paid logs it as spending.
 - IOUs: "Alex owes me $20 for dinner", "I owe Sam $15". `/owed` nets it out per person, with a ✅ Settled button.
 - "Spent $12 on lunch" logs it. "How much did I spend on food this month?" is summed exactly from what you logged, never estimated, and can be charted. `/spent` shows the month by category. Reminders can also repeat every 2 weeks.
 

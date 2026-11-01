@@ -445,7 +445,7 @@ CLIENT_TOOLS = [
     },
     {
         "name": "add_bill",
-        "description": "Save a recurring monthly bill (\"rent is $1200 on the 1st\"); ClaudeBot reminds the owner 2 days before.",
+        "description": "Save a recurring monthly bill (\"rent is $1200 on the 1st\"); ClaudeBot reminds the owner a couple of days before.",
         "input_schema": _schema({"name": {"type": "string"}, "amount": {"type": "number", "exclusiveMinimum": 0},
                                  "day": {"type": "integer", "minimum": 1, "maximum": 31},
                                  "currency": {"type": "string"}}, ["name", "amount", "day"]),
@@ -808,7 +808,7 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         if ctx.notify_owner is not None:  # a bill suggested by an email the owner asked about is seen, not silent
             await ctx.notify_owner(f"🧾 New bill: {bill['name']}, {bill['amount']:,.2f} {bill['currency']} "
                                    f"on day {bill['day']} of each month.\nSee or remove it with /bills.")
-        return {"bill": bill, "note": "Saved with a monthly reminder 2 days before. The owner sees them in /bills."}
+        return {"bill": bill, "note": "Saved with a monthly reminder a couple of days before (it names the due day). The owner sees them in /bills."}
     if name in ("record_iou", "list_ious"):
         if name == "record_iou":
             _require_owner(ctx, "record IOUs")

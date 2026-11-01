@@ -184,7 +184,7 @@ Then `/connect` from your phone. ClaudeBot backs up its database every night to 
 - `/today` shows today at a glance (calendar, reminders, lists): instant, no AI cost.
 - `/catchup` tells you what you missed since last time; `/trips` lists upcoming travel from your email and calendar.
 - `/plan` suggests a realistic plan for today; `/prep` gets you ready for your next meeting; `/packages` lists deliveries on the way.
-- `/bills` tracks monthly bills with a reminder 2 days before ("rent is $1200 on the 1st"); `/subscriptions` finds recurring charges in your receipts; `/owed` nets out IOUs.
+- `/bills` tracks monthly bills with a reminder a couple of days before ("rent is $1200 on the 1st"); `/subscriptions` finds recurring charges in your receipts; `/owed` nets out IOUs.
 - `/menu` puts a button keyboard under the chat box for the everyday ones.
 - `/owed` nets out IOUs per person (`/habits` is the same as `/habit`).
 - `/birthday Mom Mar 14` saves a birthday with a heads-up the day before; `/birthdays` lists them, and the week's show in `/today`.
