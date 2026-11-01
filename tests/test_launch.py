@@ -351,7 +351,7 @@ async def test_onboarding_starts_by_itself_once(tmp_path, monkeypatch):
     async def noop(*a, **k):
         pass
 
-    app = SimpleNamespace(job_queue=SimpleNamespace(run_daily=noop, run_repeating=lambda *a, **k: None),
+    app = SimpleNamespace(job_queue=SimpleNamespace(run_daily=lambda *a, **k: None, run_repeating=lambda *a, **k: None),
                           bot=SimpleNamespace(set_my_commands=noop))
     bot.outbox.resume = noop
     await bot._post_init(app)

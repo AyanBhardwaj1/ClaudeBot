@@ -57,6 +57,7 @@ from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
 from .quiet import QuietHandlers
 from .reminders import next_occurrence, previous_window
+from .review import BRIEF_BUTTONS, REVIEW_DAYS, REVIEW_TIME, ReviewHandlers
 from .roles import (
     Profile,
     clear_role,
@@ -213,7 +214,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -317,6 +318,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("lists", self.on_lists, filters=owner))
         self.app.add_handler(CommandHandler("quiet", self.on_quiet, filters=owner))
         self.app.add_handler(CommandHandler("rules", self.on_rules, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_brief_button, pattern=r"^brief:(good|tune)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_rule_button, pattern=r"^rule:del:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_quiet_button, pattern=r"^dnd:(\d{1,4}|morning|off)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_list_button, pattern=r"^(li|lc):\d+$"))
@@ -381,6 +383,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             self.schedule_reminder(row["id"])  # overdue one-offs fire right away
         if (at := brief_time(self.config)) is not None:
             app.job_queue.run_daily(self._brief_job, time=at, name="daily-brief")
+        app.job_queue.run_daily(self._weekly_review_job, time=REVIEW_TIME.replace(tzinfo=self.config.timezone),
+                                days=REVIEW_DAYS, name="weekly-review")
         if self.config.inbox_alerts:
             app.job_queue.run_repeating(
                 self._inbox_job, interval=self.config.inbox_check_minutes * 60, first=30, name="inbox-watch"
@@ -897,7 +901,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         # The brief reads untrusted email with nobody necessarily watching: no unattended sends.
         prompt = brief_prompt(self.config, current_profile(self.db), self.dms.active_connection_id() is not None)
         reply = await self._ask_agent([{"type": "text", "text": prompt}], owner_present=False)
-        await self.send_to_owner(reply)
+        await self.send_to_owner(reply, BRIEF_BUTTONS)
 
     # --- outbox and inbox alerts ---
 

@@ -2,6 +2,10 @@
 
 ## 1.2.0 (in progress)
 
+**Your week, and a brief that learns**
+- Every Sunday at 18:00, a weekly review: what ClaudeBot did for you (from `/log`), what's still open, and the week ahead. Off in `/settings`.
+- The daily brief has 👍 / ✏️ buttons. Tell it what to change ("skip the headlines") and it remembers.
+
 **Your rules for alerts**
 - `/rules never alert me about LinkedIn` or `/rules always alert for my landlord`, or just tell ClaudeBot. The inbox classifier follows your rules ahead of its defaults. `/rules` lists them with remove buttons. Only you can add rules: an email can't hide the next one.
 
