@@ -36,6 +36,8 @@ async def test_catchup_covers_the_time_since_last_time(tmp_path, monkeypatch):
     assert "last 5 hours" in asked[-1] and "newer_than:5h" in asked[-1]
     await bot.on_trips(SimpleNamespace(), None)
     assert "trips" in asked[-1]
+    await bot.on_subscriptions(SimpleNamespace(), None)
+    assert "subscriptions" in asked[-1] and "Don't cancel" in asked[-1]
 
 
 

@@ -77,6 +77,7 @@ HELP = (
     "/spent – this month's spending (\"spent $12 on lunch\")\n"
     "/owed – who owes whom (\"Alex owes me $20 for dinner\")\n"
     "/bills – monthly bills with reminders (\"rent is $1200 on the 1st\")\n"
+    "/subscriptions – find your recurring charges in email\n"
     "/habit – a daily habit with streaks\n"
     "/journal – a private evening journal (/journal on)\n"
     "/briefings – scheduled news briefings\n\n"
