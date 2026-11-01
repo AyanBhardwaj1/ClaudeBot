@@ -44,7 +44,8 @@ MAX_QUICK, MAX_QUICK_LEN = 3, 60  # short enough that a button shows all of it
 
 
 def quick_replies(db: Database) -> list[str]:
-    saved = json.loads(db.get_setting(QUICK_KEY) or "null")
+    saved = json.loads(db.get_setting(QUICK_KEY) or "null") or []
+    saved = [t[:MAX_QUICK_LEN] for t in saved if isinstance(t, str) and t.strip()][:MAX_QUICK]  # older, longer ones too
     return saved or DEFAULT_QUICK
 
 

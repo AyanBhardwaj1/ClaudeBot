@@ -464,3 +464,11 @@ async def test_later_button_sets_one_reminder_and_sends_nothing(tmp_path, monkey
     await bot.on_dm_button(update, None)
     assert len(scheduled) == 1 and answers[-1] == "Already set." and delivered == []
     assert bot.db.active_reminders()[0]["text"] == "💬 Reply to Alex Kim on Telegram (/dms)"
+
+
+def test_quick_replies_saved_under_the_old_cap_are_trimmed(tmp_path):
+    from claudebot.business import MAX_QUICK_LEN, QUICK_KEY, quick_replies
+
+    db = Database(tmp_path / "t.db")
+    db.set_setting(QUICK_KEY, json.dumps(["x" * 100, "", 5]))
+    assert quick_replies(db) == ["x" * MAX_QUICK_LEN]
