@@ -91,6 +91,7 @@ Connect ClaudeBot to your own Telegram account and it keeps track of your privat
 - Tap **✍️ Reply** and ClaudeBot drafts an answer.
 - Ask it naturally ("tell Alex 6 works") and it writes the reply.
 - Each reply appears with **✅ Send as me**. Nothing goes out from your account until you tap it.
+- **⚡ Quick** offers up to three short replies you've set ("On it 👍"); one tap sends the one you pick. Change them with `/quickreplies On it 👍 | Running late | Thanks!`.
 - People you've kept waiting a couple of hours show up in check-ins, and the daily brief mentions them.
 
 **To set it up:**
@@ -186,6 +187,8 @@ Then `/connect` from your phone. ClaudeBot backs up its database every night to 
 - `/bills` tracks monthly bills with a reminder 2 days before ("rent is $1200 on the 1st"); `/subscriptions` finds recurring charges in your receipts; `/owed` nets out IOUs.
 - `/menu` puts a button keyboard under the chat box for the everyday ones.
 - `/owed` nets out IOUs per person (`/habits` is the same as `/habit`).
+- `/birthday Mom Mar 14` saves a birthday with a heads-up the day before; `/birthdays` lists them, and the week's show in `/today`.
+- In `/settings`, **🚨 Urgent email can wake me** lets only urgent email through during quiet hours and `/quiet`; the rest waits for later.
 - `/spent` shows this month's spending (just say "spent $12 on lunch"); `/habit workout` tracks a daily habit with an evening check-in and streaks; `/journal on` asks how your day went each evening.
 - `/note <text>` jots something into your Notes list; `/focus 25` starts a focus session (alerts held, a ping when time's up).
 - `/privacy` shows what ClaudeBot keeps and clears any of it after a confirmation.
