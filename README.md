@@ -41,13 +41,13 @@ ClaudeBot also comes to you:
 - **Daily brief** at a time you choose (calendar, important email, reminders, and a few headlines picked for your interests), or anytime with `/brief`. 👍 / ✏️ buttons let you tune it.
 - **Weekly review** every Sunday evening: what ClaudeBot did for you, what's still open, the week ahead.
 - **Telegram DMs**: connect your own Telegram account and `/dms` shows who's waiting on your reply, with drafts you send with one tap (see below).
-- `/quiet 2h` pauses all of it when you need to focus.
+- `/quiet 2h` pauses inbox alerts, check-ins and meeting prep when you need to focus (reminders you set and your daily brief still come).
 
 ### Feels fast and easy
 
 - **Live replies.** Answers stream into the chat as Claude writes them, after a "Thinking..." placeholder, instead of after a long pause.
 - **Follow-up buttons.** Under each answer, up to three tappable next steps ("Draft a reply to Sam", "Add it to my calendar"). Picked by Claude Haiku for a fraction of a cent; `/followups off` to hide them.
-- **Inbox alerts you can act on.** Every alert has 🗄 Archive, ✍️ Reply (shows you a draft first) and ⏰ Later (reminds you in 3 hours) buttons.
+- **Inbox alerts you can act on.** The first few emails in an alert get buttons: 🗄 Archive, ✍️ Reply (a draft you check first; 📅 instead for trips, deadlines and meeting requests) and ⏰ (in 3 hours, or the morning before for a dated email like a bill).
 - **Swipe to reply.** Reply to any earlier message, or quote just part of it, and ClaudeBot knows exactly what "this" means.
 - **Drafts that sound like you.** `/style` learns your writing style from your sent email (you approve it first), or you describe it in a sentence.
 - **`/memory`.** See everything ClaudeBot remembers about you and delete anything with a tap.
@@ -185,12 +185,13 @@ Then `/connect` from your phone. ClaudeBot backs up its database every night to 
 - `/plan` suggests a realistic plan for today; `/prep` gets you ready for your next meeting; `/packages` lists deliveries on the way.
 - `/bills` tracks monthly bills with a reminder 2 days before ("rent is $1200 on the 1st"); `/subscriptions` finds recurring charges in your receipts; `/owed` nets out IOUs.
 - `/menu` puts a button keyboard under the chat box for the everyday ones.
+- `/owed` nets out IOUs per person (`/habits` is the same as `/habit`).
 - `/spent` shows this month's spending (just say "spent $12 on lunch"); `/habit workout` tracks a daily habit with an evening check-in and streaks; `/journal on` asks how your day went each evening.
 - `/note <text>` jots something into your Notes list; `/focus 25` starts a focus session (alerts held, a ping when time's up).
 - `/privacy` shows what ClaudeBot keeps and clears any of it after a confirmation.
 - `/dms` shows Telegram chats waiting on your reply; `/style` makes drafts sound like you; `/rules` sets your alert rules; `/quiet 2h` pauses alerts and check-ins.
 - `/triage` goes through unread important email one card at a time (Archive / Reply / Later / Next).
-- `/sweep` archives old promotions, social and update emails in one tap (nothing is deleted); `/export` sends you everything ClaudeBot keeps about you as a JSON file.
+- `/sweep` archives old promotions, social and update emails in one tap (nothing is deleted); `/export` sends you a JSON file of your memories, reminders, lists, rules, style, habits, journal, settings, spending and IOU totals and the last 60 days of `/log` (not chat history or DMs); send it back to restore.
 - `/lists` shows your lists (shopping, packing, to-dos) with tap-to-check-off buttons; add to them by asking.
 - `/log` shows what ClaudeBot actually did today (`/log week` for 7 days), recorded when it happened.
 - `/waiting` shows replies you owe and replies you're waiting on; `/reminders` lists every reminder and scheduled task with cancel buttons.

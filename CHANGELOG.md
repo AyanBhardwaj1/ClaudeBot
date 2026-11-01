@@ -9,14 +9,14 @@
 
 **Runs itself**
 - Nightly database backup at 03:00 into `data/backups/` (the last 7 are kept), taken safely while the bot runs.
-- Docker health check: the bot touches a file every minute and `python -m claudebot health` checks it, so Docker (and Fly/Railway) can see a stuck bot.
+- Docker health check: the bot touches a file every minute and `python -m claudebot health` checks it, so Docker can see a stuck bot (Fly and Railway use their own checks).
 
 **Today at a glance**
 - `/who Alex`: what ClaudeBot knows about someone, pulled from memories, recent email, upcoming meetings, IOUs and your Telegram chat.
 - `/packages`: deliveries on the way, from your shipping emails (store, carrier, tracking number, expected date).
 - `/plan`: a realistic, time-blocked plan for today around your fixed events (added to your calendar only if you say so). `/prep`: get ready for your next meeting, on demand.
 - `/menu` puts a button keyboard under the chat box: 📆 Today, 📰 Catch up, 📥 Triage, ⏳ Waiting, 🗒 Lists, 🔕 Quiet 1h.
-- `/catchup`: what you missed since you last asked (important email, DMs, what ClaudeBot did). `/trips`: upcoming travel from your email and calendar, with anything that looks missing.
+- `/catchup`: what you missed since you last asked, up to 3 days back (important email, DMs, what ClaudeBot did). `/trips`: upcoming travel from your email and calendar, with anything that looks missing.
 - `/status` shows how many check-ins you got this week and how many you tapped, so you can tell whether they earn their place.
 - `/today`: today's calendar, reminders due, Telegram chats waiting and open list items in one message. No AI call, so it's instant and free.
 
@@ -24,9 +24,9 @@
 - `/usage` breaks this month's spend down by feature: conversations, inbox alerts, check-ins, reply tracking and so on.
 
 **Inbox cleanup**
-- Email snooze: 💤 on a `/triage` card archives the email and brings it back to your inbox, unread, at 8:00 tomorrow, with a ping.
+- Email snooze: 💤 on a `/triage` card archives the email and brings it back to your inbox, unread, at the next 8:00 (tomorrow, or this morning if you tap it in the small hours), with a ping.
 - `/triage`: go through unread important email one card at a time: 🗄 Archive, ✍️ Reply (a draft you check), ⏰ Later, ⏭ Next. Listing and archiving use no AI.
-- Optional Saturday newsletter digest (`/settings`): ClaudeBot reads the week's newsletters and sends the 5 things worth knowing, then `/sweep` clears them out.
+- Optional Saturday newsletter digest (`/settings`): ClaudeBot reads the week's newsletters and sends the 5 things worth knowing. `/sweep` then clears out old promotions and updates.
 - `/sweep` counts old promotions, social and update emails and archives a whole category in one tap. Archived means out of the inbox but still in All Mail: nothing is deleted. No AI involved, so it's free.
 
 **Undo for your calendar too**
@@ -34,11 +34,11 @@
 - Every event ClaudeBot adds shows up as a card with ↩️ Remove, including events added by scheduled tasks or the 📅 alert button.
 
 **Never lose a thread**
-- Every sent email's confirmation has a ⏰ Follow up if no reply button. Three days later ClaudeBot checks whether they answered. If they did, you get one line; if not, it drafts a polite nudge for you to send.
+- Sent emails' confirmations have a ⏰ Follow up if no reply button (not with Instant sending, which has no confirmation card). Three days later ClaudeBot checks whether they answered. If they did, you get one line; if not, it drafts a polite nudge for you to send.
 
 **Your data, yours**
 - Restore: send an export file back (on a new server, say) and tap ✅ Restore. Memories, lists, upcoming reminders, rules, style, habits and journal come back; nothing you have is deleted.
-- `/privacy` shows what ClaudeBot keeps (conversation history, DMs, journal, action log, memories) and clears any of them after a confirmation.
+- `/privacy` shows what ClaudeBot keeps and, after a confirmation, clears conversation history, stored DMs, the journal or the action log (memories are cleared in `/memory`). Cleared data can linger in the nightly backups for up to 7 days.
 - `/export` sends you one JSON file with your memories, reminders, lists, alert rules, writing style, settings and the last 60 days of `/log`. Sign-in details are left out.
 
 **Reminders that fit real life**
@@ -51,7 +51,7 @@
 - The daily brief has 👍 / ✏️ buttons. Tell it what to change ("skip the headlines") and it remembers.
 
 **Your rules for alerts**
-- `/rules never alert me about LinkedIn` or `/rules always alert for my landlord`, or just tell ClaudeBot. The inbox classifier follows your rules ahead of its defaults. `/rules` lists them with remove buttons. Only you can add rules: an email can't hide the next one.
+- `/rules never alert me about LinkedIn` or `/rules always alert for my landlord`, or just tell ClaudeBot. The inbox classifier follows your rules ahead of its defaults. `/rules` lists them with remove buttons. Rules can't be added while you're away, and every new rule is announced by the bot, so an email can't quietly hide the next one.
 
 **Quiet when you need it**
 - Inbox alerts can come as one hourly digest instead of one ping per email (`/settings` → Instant / hourly).

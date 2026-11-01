@@ -70,14 +70,25 @@ async def test_review_is_scheduled_for_sunday_evening(tmp_path, monkeypatch):
     async def noop(*a, **k):
         pass
 
-    def run_daily(job, time, days=tuple(range(7)), name=None):
-        daily[name] = (time.hour, days)
+    repeating = {}
 
-    app = SimpleNamespace(job_queue=SimpleNamespace(run_daily=run_daily, run_repeating=lambda *a, **k: None),
+    def run_daily(job, time, days=tuple(range(7)), name=None):
+        daily[name] = ((time.hour, time.minute), days)
+
+    def run_repeating(job, interval, first=None, name=None):
+        repeating[name] = interval
+
+    app = SimpleNamespace(job_queue=SimpleNamespace(run_daily=run_daily, run_repeating=run_repeating),
                           bot=SimpleNamespace(set_my_commands=noop))
     bot.outbox.resume = noop
     await bot._post_init(app)
-    assert daily["weekly-review"] == (18, (0,))
+    every_day = tuple(range(7))
+    assert daily["weekly-review"] == ((18, 0), (0,))  # Sunday
+    assert daily["newsletter-digest"] == ((10, 0), (6,))  # Saturday
+    assert daily["journal"] == ((21, 30), every_day) and daily["habits"] == ((20, 30), every_day)
+    assert daily["backup"] == ((3, 0), every_day)
+    assert repeating["meeting-prep"] == 15 * 60 and repeating["check-ins"] == 3 * 3600
+    assert repeating["alert-digest"] == 3600 and repeating["alive"] == 60
 
 
 
@@ -125,3 +136,48 @@ async def test_weekend_brief_can_be_turned_off(tmp_path, monkeypatch):
     bot.db.set_setting("brief_weekends", "off")
     await bot._brief_job(None)
     assert briefs == [1]
+
+
+
+async def test_the_brief_and_scheduled_tasks_run_as_turns_the_owner_didnt_start(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from helpers import TZ
+
+    bot, sent, asked = make_bot(tmp_path, monkeypatch)
+    await bot._send_brief()
+    assert asked[-1][1] is False  # the brief
+    seen = []
+
+    async def ask_agent(content, owner_present=True, effort=None, source="chat"):
+        seen.append(owner_present)
+        return "done"
+
+    bot._ask_agent = ask_agent
+    rid = bot.db.add_reminder("check the inbox", datetime.now(TZ) + timedelta(minutes=1), "none", True)
+    await bot._reminder_job(SimpleNamespace(job=SimpleNamespace(data=rid)))
+    assert seen == [False]  # a scheduled task
+
+
+def test_sweep_never_touches_starred_or_important_mail():
+    from claudebot.sweep import SWEEPS
+
+    assert all("-is:starred" in q and "-is:important" in q for _, q in SWEEPS.values())
+
+
+async def test_meeting_prep_stays_quiet_during_a_pause(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from helpers import TZ
+
+    bot, sent, asked = make_bot(tmp_path, monkeypatch)
+    soon = datetime.now(TZ) + timedelta(minutes=50)
+    bot.google.list_events = lambda *a, **k: [{
+        "id": "e1", "summary": "Sync", "start": soon.isoformat(), "end": (soon + timedelta(hours=1)).isoformat(),
+        "attendees": ["a@x.com", "b@y.com"], "accepted": True}]
+    bot.db.set_setting("dnd_until", (datetime.now(TZ) + timedelta(hours=2)).isoformat())
+    await bot._meeting_prep_job(None)
+    assert asked == []
+    bot.db.delete_setting("dnd_until")
+    await bot._meeting_prep_job(None)
+    assert len(asked) == 1  # the same meeting, once the pause is over

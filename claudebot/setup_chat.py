@@ -104,7 +104,7 @@ HELP = (
     "/log – what I actually did (/log week)\n"
     "/status – what's connected and working\n"
     "/usage – what I've cost you\n"
-    "/export – download everything I keep about you (send the file back to restore it)\n"
+    "/export – download your data as a file (send it back to restore)\n"
     "/privacy – see what I keep, and clear it\n"
     "/menu – a button keyboard for everyday things (/menu off hides it)\n"
     "/help – this list\n\n"
