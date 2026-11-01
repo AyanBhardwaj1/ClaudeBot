@@ -61,6 +61,7 @@
 - `/habit workout` and ClaudeBot asks each evening at 20:30, with a tap to mark it done and a running streak. `/habits` shows them all.
 
 **Spending**
+- IOUs: "Alex owes me $20 for dinner", "I owe Sam $15". `/owed` nets it out per person, with a ✅ Settled button.
 - "Spent $12 on lunch" logs it. "How much did I spend on food this month?" is summed exactly from what you logged, never estimated, and can be charted. `/spent` shows the month by category. Reminders can also repeat every 2 weeks.
 
 **Lists**

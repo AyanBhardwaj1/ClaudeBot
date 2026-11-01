@@ -75,6 +75,7 @@ HELP = (
     "/lists – shopping, packing and to-do lists\n"
     "/note – jot something down (/note call the landlord)\n"
     "/spent – this month's spending (\"spent $12 on lunch\")\n"
+    "/owed – who owes whom (\"Alex owes me $20 for dinner\")\n"
     "/habit – a daily habit with streaks\n"
     "/journal – a private evening journal (/journal on)\n"
     "/briefings – scheduled news briefings\n\n"

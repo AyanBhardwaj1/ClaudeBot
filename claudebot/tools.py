@@ -21,6 +21,7 @@ from .db import Database
 from .expenses import expense_tool
 from .files import UnsupportedFile, to_content_block
 from .google_services import MAX_EVENTS, Google, GoogleNotConnected
+from .ious import iou_tool
 from .lists import list_tool
 from .scheduling import busy_from_events, free_slots, rrule
 
@@ -428,6 +429,19 @@ CLIENT_TOOLS = [
         "input_schema": _schema({"expense_id": {"type": "integer"}}, ["expense_id"]),
     },
     {
+        "name": "record_iou",
+        "description": "Record money owed between the owner and someone (\"Alex owes me $20 for dinner\").",
+        "input_schema": _schema({"person": {"type": "string"}, "amount": {"type": "number", "exclusiveMinimum": 0},
+                                 "they_owe_me": {"type": "boolean", "description": "true if the person owes the owner"},
+                                 "note": {"type": "string"}, "currency": {"type": "string"}},
+                                ["person", "amount", "they_owe_me"]),
+    },
+    {
+        "name": "list_ious",
+        "description": "Who owes the owner money and whom the owner owes, summed exactly.",
+        "input_schema": _schema({}, []),
+    },
+    {
         "name": "add_alert_rule",
         "description": (
             "Save one of the owner's own rules for inbox alerts, in plain English, when they ask for it "
@@ -744,6 +758,10 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         if name != "spending_summary":
             _require_owner(ctx, "change expenses")
         return expense_tool(name, a, ctx.db, ctx.tz)
+    if name in ("record_iou", "list_ious"):
+        if name == "record_iou":
+            _require_owner(ctx, "record IOUs")
+        return iou_tool(name, a, ctx.db)
     if name == "add_alert_rule":
         _require_owner(ctx, "change alert rules")
         rule = AlertRules(ctx.db).add(a["rule"])

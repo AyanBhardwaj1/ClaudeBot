@@ -56,6 +56,7 @@ from .habits import CHECK_TIME as HABIT_TIME
 from .habits import HabitHandlers
 from .heartbeat import HEARTBEAT_HOURS
 from .inbox_watch import InboxWatcher
+from .ious import IouHandlers
 from .journal import ASK_TIME as JOURNAL_TIME
 from .journal import JournalHandlers
 from .lists import ListHandlers
@@ -221,7 +222,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -328,6 +329,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("focus", self.on_focus, filters=owner))
         self.app.add_handler(CommandHandler("privacy", self.on_privacy, filters=owner))
         self.app.add_handler(CommandHandler("triage", self.on_triage, filters=owner))
+        self.app.add_handler(CommandHandler("owed", self.on_owed, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_iou_button, pattern=r"^iou:\d{1,3}$"))
         self.app.add_handler(CallbackQueryHandler(self.on_triage_button, pattern=r"^tri:(arch|draft|later|next):[0-9a-f]{6,32}$"))
         self.app.add_handler(CallbackQueryHandler(self.on_privacy_button, pattern=r"^priv:(ask|do|no):(chat|dms|journal|log)$"))
         self.app.add_handler(CommandHandler("note", self.on_note, filters=owner))
