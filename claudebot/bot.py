@@ -361,6 +361,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("export", self.on_export, filters=owner))
         self.app.add_handler(CommandHandler("sweep", self.on_sweep, filters=owner))
         self.app.add_handler(CommandHandler("today", self.on_today, filters=owner))
+        self.app.add_handler(CommandHandler("week", self.on_week, filters=owner))
         self.app.add_handler(CommandHandler("catchup", self.on_catchup, filters=owner))
         self.app.add_handler(CommandHandler("trips", self.on_trips, filters=owner))
         self.app.add_handler(CommandHandler("spent", self.on_spent, filters=owner))

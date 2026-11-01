@@ -61,6 +61,8 @@ HELP = (
     "Talk to me like a person: ask, tell me to do things, forward messages, send photos and files.\n\n"
     "Your day\n"
     "/today – today at a glance (instant)\n"
+    "/week – the next 7 days at a glance: events, reminders, bills, birthdays (no AI, instant)\n"
+
     "/catchup – what you missed since last time\n"
     "/plan – a realistic plan for today\n"
     "/prep – get ready for your next meeting\n"

@@ -97,3 +97,32 @@ async def test_menu_buttons_run_their_command_and_forwards_dont(tmp_path, monkey
     assert called == [("today", []), ("quiet", ["1h"])]
     await bot.on_menu(update("/menu"), SimpleNamespace(args=[]))
     assert replies[-1][1].keyboard[0][0].text == "📆 Today"
+
+
+async def test_week_lists_seven_days_without_a_model_call(tmp_path, monkeypatch):
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    bot.client = None
+    now = datetime.now(TZ)
+    in3 = now + timedelta(days=3)
+    bot.google.is_connected = lambda: True
+    bot.google.list_events = lambda start, end, max_results=100: [
+        {"id": "e1", "summary": "Dentist http://evil.example", "start": in3.replace(hour=10, minute=0).isoformat(),
+         "end": in3.replace(hour=11, minute=0).isoformat()},
+        {"id": "e2", "summary": "Declined thing", "declined": True, "start": in3.replace(hour=12).isoformat(),
+         "end": in3.replace(hour=13).isoformat()}]
+    bot.db.add_reminder("call mom", (now + timedelta(days=1)).replace(hour=18, minute=0), "none", False)
+    bot.db.add_reminder("meds", (now + timedelta(days=1)).replace(hour=8, minute=0), "daily", False)
+    replies = []
+
+    async def reply_text(text, *, reply_markup=None):
+        replies.append(text)
+
+    await bot.on_week(SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text)), None)
+    text = replies[-1]
+    assert text.startswith("🗓 Your week") and "10:00 Dentist" in text and "http://evil" not in text
+    assert "Declined" not in text and "⏰ 18:00 call mom" in text and text.count(": free") <= 1
+    assert len([ln for ln in text.splitlines() if not ln.startswith("  ")]) == 8  # title + 7 days
+    assert text.count("⏰ 08:00 meds") == 6  # tomorrow through day 7
