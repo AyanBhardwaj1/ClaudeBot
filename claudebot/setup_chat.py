@@ -68,6 +68,7 @@ HELP = (
     "Make it yours\n"
     "/settings – name, location, brief time, alerts, check-ins, drafts-only, budget\n"
     "/role – your job, so I tailor everything to it\n"
+    "/style – make my drafts sound like you\n"
     "/mode – personality (fun, brief, deep)\n"
     "/connect – connect Gmail and Calendar\n"
     "/setup – the first-time questions again\n"

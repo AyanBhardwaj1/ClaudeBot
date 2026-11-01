@@ -63,6 +63,7 @@ from .roles import (
 )
 from .settings import apply_saved, brief_time, save_owner_id
 from .setup_chat import ONBOARDING_OFFERED_KEY, WELCOME, SetupHandlers
+from .style_handlers import StyleHandlers
 from .tools import ToolContext
 from .ui import (
     LivePreview,
@@ -96,6 +97,7 @@ PRIVATE_COMMANDS = [
     BotCommand("waiting", "Replies you owe, and replies you're waiting on"),
     BotCommand("dms", "Telegram chats waiting on your reply"),
     BotCommand("log", "What I actually did today"),
+    BotCommand("style", "Make my drafts sound like you"),
     BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
@@ -204,7 +206,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -303,6 +305,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, ButtonHandle
         self.app.add_handler(CommandHandler("waiting", self.on_waiting, filters=owner))
         self.app.add_handler(CommandHandler("dms", self.on_dms, filters=owner))
         self.app.add_handler(CommandHandler("log", self.on_log, filters=owner))
+        self.app.add_handler(CommandHandler("style", self.on_style, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_style_button, pattern=r"^style:(learn|use|discard)$"))
         # Telegram Business: the owner's own chats. Stored as data, never handled as commands.
         self.app.add_handler(BusinessConnectionHandler(self.on_business_connection))
         self.app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGES, self.on_business_message))

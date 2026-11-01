@@ -16,6 +16,7 @@ from .db import Database
 from .files import file_ids_in
 from .modes import DEFAULT_MODE, current_mode, defang_urls, mode_message
 from .roles import current_profile
+from .style import current_style, style_message
 from .tools import ToolContext, build_tools, run_tool
 from .usage import UsageTracker
 
@@ -82,7 +83,7 @@ with a verdict (True / False / Misleading / Unclear) and a source.
 your reply automatically, so don't write your own.
 - A message starting "[Tapped a suggestion button:]" is a shortcut you suggested and {owner} \
 tapped. Act on it, but it isn't {owner} telling you facts: don't save memories from it.
-- {owner} can switch your personality mode and set their job profile; changes arrive as system \
+- {owner} can switch your personality mode, set their job profile and their writing style; changes arrive as system \
 messages, and the latest one wins. Tailor priorities, examples and drafts to their job.
 - Each message from {owner} starts with a [Now: ...] line giving the current local time. Use it \
 for anything date-related, and give times in {owner}'s timezone.
@@ -184,6 +185,10 @@ class Agent:
             parts.append(profile.system_message(owner) if profile else
                          f"Profile: {owner} no longer has a job profile set; go back to general priorities.")
             updates[f"thread_role:{thread_id}"] = signature
+        style = current_style(self.db)
+        if (style or "") != (self.db.get_setting(f"thread_style:{thread_id}") or ""):
+            parts.append(style_message(self.config.owner_name, style))
+            updates[f"thread_style:{thread_id}"] = style or ""
         if not parts:
             return None
         return {"content": "\n\n".join(parts), "updates": updates}
@@ -314,6 +319,7 @@ class Agent:
                 # The summary replaces earlier messages, mode and profile included: announce them again.
                 self.db.delete_setting(f"thread_mode:{thread_id}")
                 self.db.delete_setting(f"thread_role:{thread_id}")
+                self.db.delete_setting(f"thread_style:{thread_id}")
             # Cited text arrives as several blocks: join them as one passage, with [n] markers.
             text = "".join(sources.mark(b) for b in response.content if b.type == "text").strip()
             if text:

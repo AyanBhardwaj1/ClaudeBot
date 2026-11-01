@@ -38,6 +38,7 @@ ClaudeBot also comes to you:
 - **Follow-up buttons.** Under each answer, up to three tappable next steps ("Draft a reply to Sam", "Add it to my calendar"). Picked by Claude Haiku for a fraction of a cent; `/followups off` to hide them.
 - **Inbox alerts you can act on.** Every alert has 🗄 Archive, ✍️ Reply (shows you a draft first) and ⏰ Later (reminds you in 3 hours) buttons.
 - **Swipe to reply.** Reply to any earlier message, or quote just part of it, and ClaudeBot knows exactly what "this" means.
+- **Drafts that sound like you.** `/style` learns your writing style from your sent email (you approve it first), or you describe it in a sentence.
 - **`/memory`.** See everything ClaudeBot remembers about you and delete anything with a tap.
 - **Knows where you live.** Tell it your city (first-run questions or `/settings`) and "best tacos near me" gets local results, and the daily brief opens with your weather.
 

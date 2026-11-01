@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**Sounds like you**
+- `/style` learns how you write from your recent sent emails (only the parts you wrote; quoted replies are stripped), shows it to you, and uses it in drafts only after you tap ✅ Use this. Or describe it yourself: `/style short, warm, sign off -A`.
+
 **What did you actually do?**
 - `/log` (and `/log week`) lists what ClaudeBot did: emails delivered, drafts saved, events added, reminders set, Telegram replies sent. Each entry is recorded when the thing happened, never from what the model said. Claude checks this log (`action_log`) before telling you something was sent.
 
