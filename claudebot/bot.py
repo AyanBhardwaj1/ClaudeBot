@@ -85,6 +85,7 @@ from .roles import (
 from .settings import apply_saved, brief_time, save_owner_id
 from .setup_chat import ONBOARDING_OFFERED_KEY, WELCOME, SetupHandlers
 from .shortcuts import ShortcutHandlers
+from .snooze import SnoozeHandlers
 from .style_handlers import StyleHandlers
 from .sweep import SweepHandlers
 from .today import TodayHandlers
@@ -222,7 +223,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -331,7 +332,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("triage", self.on_triage, filters=owner))
         self.app.add_handler(CommandHandler("owed", self.on_owed, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_iou_button, pattern=r"^iou:\d{1,3}$"))
-        self.app.add_handler(CallbackQueryHandler(self.on_triage_button, pattern=r"^tri:(arch|draft|later|next):[0-9a-f]{6,32}$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_triage_button, pattern=r"^tri:(arch|draft|later|next|snooze):[0-9a-f]{6,32}$"))
         self.app.add_handler(CallbackQueryHandler(self.on_privacy_button, pattern=r"^priv:(ask|do|no):(chat|dms|journal|log)$"))
         self.app.add_handler(CommandHandler("note", self.on_note, filters=owner))
         self.app.add_handler(CommandHandler("rules", self.on_rules, filters=owner))
@@ -434,6 +435,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             self._heartbeat_job, interval=HEARTBEAT_HOURS * 3600, first=15 * 60, name="check-ins"
         )
         app.job_queue.run_repeating(self._alive_job, interval=60, first=1, name="alive")
+        app.job_queue.run_repeating(self._snooze_job, interval=300, first=60, name="email-snooze")
         app.job_queue.run_repeating(self._alert_digest_job, interval=3600, first=3600, name="alert-digest")
         app.job_queue.run_repeating(
             self._cleanup_job, interval=UPLOAD_CLEANUP_HOURS * 3600, first=60, name="file-cleanup"

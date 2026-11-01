@@ -39,7 +39,7 @@ async def test_triage_cards_and_actions(tmp_path, monkeypatch):
     text, markup = replies[-1]
     assert "3 to go" in text and "http://evil" not in text
     assert [b.callback_data for b in markup.inline_keyboard[0]] == [
-        "tri:arch:abc000", "tri:draft:abc000", "tri:later:abc000", "tri:next:abc000"]
+        "tri:arch:abc000", "tri:draft:abc000", "tri:later:abc000", "tri:snooze:abc000", "tri:next:abc000"]
     await bot.on_triage_button(tap("tri:arch:abc000", user_id=999), None)
     assert archived == []
     await bot.on_triage_button(tap("tri:arch:abc000"), None)
@@ -49,3 +49,39 @@ async def test_triage_cards_and_actions(tmp_path, monkeypatch):
     assert len(scheduled) == 1
     await bot.on_triage_button(tap("tri:draft:abc002"), None)
     assert "That's all" in edits[-1][0] and conversed[0][1] is False and "abc002" in conversed[0][0]
+
+
+
+async def test_snoozed_email_comes_back(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from helpers import TZ
+
+    from claudebot.bot import TelegramBot
+    from claudebot.snooze import due
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    bot.google.search_emails = lambda q, n: [{"id": "abc000", "from": "Sam <s@x.com>", "subject": "Lunch", "snippet": ""}]
+    moves, sent = [], []
+    bot.google.modify_email = lambda mid, action: moves.append((mid, action))
+
+    async def send_to_owner(text, reply_markup=None):
+        sent.append(text)
+
+    async def noop(*a, **k):
+        pass
+
+    bot.send_to_owner = send_to_owner
+    await bot.on_triage(SimpleNamespace(effective_message=SimpleNamespace(reply_text=noop)), None)
+    await bot.on_triage_button(SimpleNamespace(callback_query=SimpleNamespace(
+        from_user=SimpleNamespace(id=1), data="tri:snooze:abc000", answer=noop, edit_message_text=noop)), None)
+    assert moves == [("abc000", "archive")] and due(bot.db, datetime.now(TZ)) == []
+    later = datetime.now(TZ) + timedelta(days=2)
+    assert len(due(bot.db, later)) == 1
+    monkeypatch.setattr("claudebot.snooze.datetime", SimpleNamespace(now=lambda tz=None: later,
+                                                                     fromisoformat=datetime.fromisoformat))
+    await bot._snooze_job(None)
+    assert moves[-1] == ("abc000", "inbox") and "Back in your inbox: Sam: Lunch" in sent[-1]
+    await bot._snooze_job(None)
+    assert len(sent) == 1

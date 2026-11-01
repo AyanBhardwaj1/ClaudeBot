@@ -278,6 +278,7 @@ class Google:
             "star": {"addLabelIds": ["STARRED"]},
             "unstar": {"removeLabelIds": ["STARRED"]},
             "mark_important": {"addLabelIds": ["IMPORTANT"]},
+            "inbox": {"addLabelIds": ["INBOX", "UNREAD"]},  # back from snooze
         }
         if action not in changes:
             raise ValueError(f"Unknown action {action!r}")
