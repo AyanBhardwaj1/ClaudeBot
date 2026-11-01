@@ -13,7 +13,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import TelegramError
+from telegram.error import (
+    BadRequest,
+    Forbidden,
+    NetworkError,
+    RetryAfter,
+    TelegramError,
+    TimedOut,
+)
 from telegram.ext import ContextTypes
 
 from .actions import ActionLog
@@ -87,9 +94,12 @@ class DMStore:
         rights = connection.rights
         self.db.set_setting(CONNECTION_KEY, json.dumps({
             "id": connection.id,
+            "user_id": connection.user.id,
             "enabled": bool(connection.is_enabled),
             "can_reply": bool(rights and rights.can_reply),
         }))
+        if not connection.is_enabled:
+            self.clear()  # "I've stopped reading your chats" means their messages go too
         return True
 
     def connection(self) -> dict | None:
@@ -97,15 +107,36 @@ class DMStore:
         return json.loads(raw) if raw else None
 
     def active_connection_id(self) -> str | None:
+        """The connection to use, only while enabled and only for the current owner (the owner can
+        change: an ID in .env beats a paired one)."""
         conn = self.connection()
-        return conn["id"] if conn and conn["enabled"] else None
+        if not conn or not conn["enabled"] or conn.get("user_id") != self.owner_id or self.owner_id is None:
+            return None
+        return conn["id"]
+
+    def can_reply(self) -> bool:
+        conn = self.connection()
+        return bool(conn and conn.get("can_reply"))
+
+    def clear(self) -> None:
+        self.db.conn.execute("DELETE FROM dm_messages")
+        self.db.conn.execute("UPDATE dm_replies SET status = 'cancelled' WHERE status = 'pending'")
+        self.db.conn.commit()
 
     # --- messages ---
 
-    def record(self, message) -> bool:
-        """Keep a message from the owner's private chats. False if it isn't one."""
+    def record(self, message, edited: bool = False) -> bool:
+        """Keep a message from the owner's private chats. False if it isn't one. An edit only
+        updates a message already kept (an old message edited later isn't news)."""
         if message.business_connection_id != self.active_connection_id() or message.chat.type != "private":
             return False
+        if edited:
+            cur = self.db.conn.execute(
+                "UPDATE dm_messages SET text = ? WHERE chat_id = ? AND message_id = ?",
+                (clip(message.text or message.caption or "[a photo, sticker or file]", MAX_TEXT),
+                 message.chat.id, message.message_id))
+            self.db.conn.commit()
+            return cur.rowcount > 0
         from_owner = bool(message.from_user and message.from_user.id == self.owner_id)
         sender = "me" if from_owner else clip(message.chat.full_name or "someone", 60)
         text = clip(message.text or message.caption or "[a photo, sticker or file]", MAX_TEXT)
@@ -117,6 +148,20 @@ class DMStore:
         )
         self.db.conn.commit()
         return True
+
+    def record_sent(self, chat_id: int, message_id: int, text: str, at: datetime) -> None:
+        """A reply sent by tap: the chat is answered now, whether or not Telegram echoes it back."""
+        self.db.conn.execute(
+            "INSERT OR REPLACE INTO dm_messages (chat_id, message_id, from_owner, sender, text, at) "
+            "VALUES (?, ?, 1, 'me', ?, ?)",
+            (chat_id, message_id, clip(text, MAX_TEXT), at.astimezone(timezone.utc).isoformat()))
+        self.db.conn.commit()
+
+    def last_incoming_at(self, chat_id: int) -> datetime | None:
+        """Telegram's 24-hour reply window counts from their last message, not the owner's."""
+        row = self.db.conn.execute(
+            "SELECT MAX(at) AS at FROM dm_messages WHERE chat_id = ? AND from_owner = 0", (chat_id,)).fetchone()
+        return datetime.fromisoformat(row["at"]) if row and row["at"] else None
 
     def forget_messages(self, chat_id: int, message_ids: list[int]) -> None:
         self.db.conn.executemany("DELETE FROM dm_messages WHERE chat_id = ? AND message_id = ?",
@@ -133,7 +178,8 @@ class DMStore:
         rows = self.db.conn.execute(
             "SELECT * FROM (SELECT * FROM dm_messages WHERE chat_id = ? ORDER BY at DESC, message_id DESC LIMIT ?) "
             "ORDER BY at, message_id", (chat_id, limit)).fetchall()
-        return [{"from": r["sender"], "text": r["text"], "at": r["at"]} for r in rows]
+        return [{"from": "OWNER (you are drafting for them)" if r["from_owner"] else r["sender"],
+                 "is_owner": bool(r["from_owner"]), "text": r["text"], "at": r["at"]} for r in rows]
 
     def unanswered(self, now: datetime | None = None) -> list[DMChat]:
         """Chats where someone else wrote last, longest-waiting first."""
@@ -151,7 +197,8 @@ class DMStore:
             waiting.append(DMChat(chat_id, pending[0]["sender"], datetime.fromisoformat(pending[0]["at"]),
                                   last["message_id"], datetime.fromisoformat(last["at"]),
                                   [r["text"] for r in pending][-5:], now))
-        return sorted(waiting, key=lambda c: c.waiting_since)[:MAX_CHATS]
+        # Chats that can still be answered first, newest first: last week's spam shouldn't hide today's Mom.
+        return sorted(waiting, key=lambda c: (not c.can_reply, -c.last_at.timestamp()))[:MAX_CHATS]
 
     # --- replies waiting for the owner's tap ---
 
@@ -178,15 +225,17 @@ class DMStore:
 
 
 def dm_signals(store: DMStore, now: datetime | None = None) -> list[Signal]:
-    """Check-in signals: people kept waiting on a Telegram reply for a while."""
+    """Check-in signals: people kept waiting on a Telegram reply for a while (still answerable)."""
     now = now or datetime.now(timezone.utc)
+    if store.active_connection_id() is None:
+        return []
     signals = []
     for c in store.unanswered(now):
         waited = now - c.waiting_since
-        if waited >= NUDGE_AFTER:
+        if waited >= NUDGE_AFTER and c.can_reply:
             hours = int(waited.total_seconds() // 3600)
             signals.append(Signal(f"dm:{c.chat_id}:{c.last_message_id}",
-                                  f"{c.name} has been waiting {hours}h for your Telegram reply", "replies"))
+                                  f"{c.name} has been waiting {hours}h for your Telegram reply", "dms"))
     return signals
 
 
@@ -211,9 +260,10 @@ class BusinessHandlers:
 
     async def on_business_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Stored, never obeyed: these are other people's words (or the owner's own outgoing ones).
-        message = update.business_message or getattr(update, "edited_business_message", None)
-        if message is not None:
-            self.dms.record(message)
+        if update.business_message is not None:
+            self.dms.record(update.business_message)
+        elif getattr(update, "edited_business_message", None) is not None:
+            self.dms.record(update.edited_business_message, edited=True)
 
     async def on_business_deleted(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         deleted = update.deleted_business_messages
@@ -245,7 +295,7 @@ class BusinessHandlers:
         reply_id = self.dms.propose(chat_id, name, text)
         buttons = [InlineKeyboardButton("✅ Send as me", callback_data=f"dmsend:{reply_id}"),
                    InlineKeyboardButton("✖️ Cancel", callback_data=f"dmcancel:{reply_id}")]
-        await self.send_to_owner(f"💬 Reply to {name} (from your account):\n\n{text}",
+        await self.send_to_owner(f"💬 To: {name} (sent from your account)\n\n{text}",
                                  InlineKeyboardMarkup([buttons]))
         return reply_id
 
@@ -279,14 +329,14 @@ class BusinessHandlers:
 
     async def _deliver_dm(self, query, reply: dict) -> None:
         connection_id = self.dms.active_connection_id()
-        chat = next((c for c in self.dms.unanswered() if c.chat_id == reply["chat_id"]), None)
-        recent = chat.last_at if chat else None
-        if recent is None:
-            history = self.dms.chat(reply["chat_id"], limit=1)
-            recent = datetime.fromisoformat(history[-1]["at"]) if history else None
-        if connection_id is None:
+        recent = self.dms.last_incoming_at(reply["chat_id"])
+        retry = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Send as me", callback_data=f"dmsend:{reply['id']}"),
+                                       InlineKeyboardButton("✖️ Cancel", callback_data=f"dmcancel:{reply['id']}")]])
+        if connection_id is None or not self.dms.can_reply():
             self.dms.set_reply_status(reply["id"], "pending")
-            await query.edit_message_text("I'm not connected to your Telegram account anymore. Reconnect, then tap again.")
+            await query.edit_message_text(
+                "I can't reply from your account right now: connect me in Telegram Settings → Business → Chatbots "
+                f"and allow \"Reply to messages\". Then tap Send again.\n\n{reply['text']}", reply_markup=retry)
             return
         if recent is None or datetime.now(timezone.utc) - recent >= REPLY_WINDOW:
             self.dms.set_reply_status(reply["id"], "expired")
@@ -295,16 +345,32 @@ class BusinessHandlers:
                 f"{reply['text']}")
             return
         try:
-            await self._send_as_owner(reply["chat_id"], reply["text"], connection_id)
-        except TelegramError as e:
-            self.dms.set_reply_status(reply["id"], "pending")  # let the owner fix permissions and tap again
-            await query.edit_message_text(f"Telegram refused that ({e.message}). Check that I'm allowed to reply "
-                                          "(Settings → Business → Chatbots), then tap again.")
+            sent = await self._send_as_owner(reply["chat_id"], reply["text"], connection_id)
+        except (BadRequest, Forbidden, RetryAfter) as e:  # refused: nothing was sent (checked first:
+            # in python-telegram-bot, BadRequest is a subclass of NetworkError)
+            self.dms.set_reply_status(reply["id"], "pending")
+            await query.edit_message_text(f"Telegram refused that ({e.message}). Nothing was sent; tap Send to try "
+                                          f"again.\n\n{reply['text']}", reply_markup=retry)
+            return
+        except (TimedOut, NetworkError) as e:
+            # It may have gone out anyway: no Send button, or a second tap could send it twice.
+            self.dms.set_reply_status(reply["id"], "unknown")
+            log.warning("Telegram reply may or may not have been sent: %s", e)
+            await query.edit_message_text(
+                f"⚠️ The connection dropped while sending to {reply['name']}. It may have gone out: check the chat "
+                f"before sending again.\n\n{reply['text']}")
+            return
+        except TelegramError as e:  # anything else Telegram raised before sending
+            self.dms.set_reply_status(reply["id"], "pending")
+            await query.edit_message_text(f"Telegram said no ({e.message}). Tap Send to try again.\n\n{reply['text']}",
+                                          reply_markup=retry)
             return
         self.dms.set_reply_status(reply["id"], "sent")
+        now = datetime.now(timezone.utc)
+        self.dms.record_sent(reply["chat_id"], getattr(sent, "message_id", None) or -reply["id"], reply["text"], now)
         ActionLog(self.db).record("telegram", f"Sent a Telegram reply to {reply['name']}: {reply['text']}")
         await query.edit_message_text(f"✅ Sent to {reply['name']}:\n\n{reply['text']}")
         self.db.add_notice(f"Telegram reply sent to {reply['name']} (chat {reply['chat_id']}).")
 
-    async def _send_as_owner(self, chat_id: int, text: str, business_connection_id: str) -> None:
-        await self.app.bot.send_message(chat_id=chat_id, text=text, business_connection_id=business_connection_id)
+    async def _send_as_owner(self, chat_id: int, text: str, business_connection_id: str):
+        return await self.app.bot.send_message(chat_id=chat_id, text=text, business_connection_id=business_connection_id)

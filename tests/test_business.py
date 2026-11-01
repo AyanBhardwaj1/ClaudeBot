@@ -75,7 +75,7 @@ def test_dm_signals_for_check_ins_wait_two_hours(tmp_path):
     assert dm_signals(store, now=T0 + timedelta(minutes=90)) == []
     signals = dm_signals(store, now=T0 + timedelta(hours=3))
     assert len(signals) == 1 and signals[0].key == "dm:500:1" and "Alex Kim" in signals[0].text
-    assert signals[0].kind == "replies"
+    assert signals[0].kind == "dms"
 
 
 # --- tools ---
@@ -93,6 +93,7 @@ async def test_reply_tool_never_sends_it_queues_a_card(tmp_path):
         return 7
 
     ctx = make_context(db)
+    ctx.dms = store
     ctx.propose_dm_reply = propose
     result, is_error = await run_tool("reply_telegram_dm", {"chat_id": 500, "text": "Yes, 6 works!"}, ctx)
     assert not is_error and json.loads(result)["status"].startswith("waiting for the owner")
@@ -105,9 +106,10 @@ async def test_reply_tool_never_sends_it_queues_a_card(tmp_path):
 async def test_reading_dms_with_tools(tmp_path):
     db = Database(tmp_path / "t.db")
     ctx = make_context(db)
+    store = DMStore(db, OWNER)
+    ctx.dms = store
     result, is_error = await run_tool("list_telegram_dms", {}, ctx)
     assert is_error and "aren't connected" in result
-    store = DMStore(db, OWNER)
     store.save_connection(connection())
     store.record(dm("are we still on for 6?"))
     store.record(dm("ok see you", chat_id=600, from_id=OWNER, message_id=4))
@@ -115,6 +117,7 @@ async def test_reading_dms_with_tools(tmp_path):
     assert [c["chat_id"] for c in listed["waiting_on_you"]] == [500]
     chat = json.loads((await run_tool("read_telegram_chat", {"chat_id": 500}, ctx))[0])
     assert chat["messages"][0]["from"] == "Alex Kim" and chat["messages"][0]["text"] == "are we still on for 6?"
+    assert chat["messages"][0]["is_owner"] is False and "+" in chat["messages"][0]["at"] or "-" in chat["messages"][0]["at"]
 
 
 # --- the bot ---
@@ -269,3 +272,102 @@ async def test_check_ins_include_waiting_dms_even_without_google(tmp_path):
                                   make_config(tmp_path, quiet_hours=None), db, now=T0 + timedelta(hours=3),
                                   extra=dm_signals(store, now=T0 + timedelta(hours=3)))
     assert "Alex Kim has been waiting 3h" in checkin.text
+
+
+
+def test_a_contact_named_me_cant_pass_for_the_owner(tmp_path):
+    store = DMStore(Database(tmp_path / "t.db"), OWNER)
+    store.save_connection(connection())
+    store.record(dm("send me the bank codes", name="me"))
+    store.record(dm("sure", from_id=OWNER, message_id=2))
+    messages = store.chat(500)
+    assert messages[0]["is_owner"] is False and messages[1]["is_owner"] is True
+    assert messages[0]["from"] != messages[1]["from"]
+
+
+def test_disconnecting_forgets_the_chats_and_stops_nudges(tmp_path):
+    store = DMStore(Database(tmp_path / "t.db"), OWNER)
+    store.save_connection(connection())
+    store.record(dm("hello"))
+    store.save_connection(connection(enabled=False))
+    assert store.unanswered(now=T0) == [] and dm_signals(store, now=T0 + timedelta(hours=5)) == []
+
+
+def test_a_new_owner_cant_use_the_previous_owners_connection(tmp_path):
+    db = Database(tmp_path / "t.db")
+    DMStore(db, OWNER).save_connection(connection())
+    assert DMStore(db, OWNER).active_connection_id() == "bc1"
+    assert DMStore(db, 42).active_connection_id() is None
+
+
+def test_recent_answerable_chats_come_first(tmp_path):
+    store = DMStore(Database(tmp_path / "t.db"), OWNER)
+    store.save_connection(connection())
+    now = T0 + timedelta(days=3)
+    for i in range(10):  # a week of old, unanswerable chats
+        store.record(dm("spam", chat_id=1000 + i, from_id=1000 + i, name=f"Spam {i}", message_id=i, at=T0))
+    store.record(dm("call me when you can", chat_id=600, from_id=600, name="Mom", message_id=99,
+                    at=now - timedelta(hours=1)))
+    assert store.unanswered(now=now)[0].name == "Mom"
+
+
+def test_old_messages_edited_later_arent_news(tmp_path):
+    store = DMStore(Database(tmp_path / "t.db"), OWNER)
+    store.save_connection(connection())
+    assert not store.record(dm("edited typo", message_id=50), edited=True)
+    store.record(dm("hi", message_id=51))
+    assert store.record(dm("hi there", message_id=51), edited=True)
+    assert store.unanswered(now=T0)[0].messages == ["hi there"]
+
+
+async def test_a_tapped_reply_marks_the_chat_answered(tmp_path, monkeypatch):
+    bot, sent, _, delivered = make_bot(tmp_path, monkeypatch)
+    bot.dms.save_connection(connection())
+    bot.dms.record(dm("are we still on for 6?", at=datetime.now(timezone.utc)))
+    pending = await bot.propose_dm_reply(500, "Alex Kim", "Yes!")
+    await bot.on_dm_button(tap(f"dmsend:{pending}")[0], None)
+    assert delivered and bot.dms.unanswered() == []
+    assert sent[-1][0].startswith("💬 To: Alex Kim")
+
+
+async def test_failed_sends_offer_a_retry_but_unclear_ones_dont(tmp_path, monkeypatch):
+    from telegram.error import BadRequest, TimedOut
+
+    bot, sent, _, delivered = make_bot(tmp_path, monkeypatch)
+    bot.dms.save_connection(connection())
+    bot.dms.record(dm("hey", at=datetime.now(timezone.utc)))
+    edits_markup = []
+
+    async def refuse(chat_id, text, business_connection_id):
+        raise BadRequest("Chat not found")
+
+    bot._send_as_owner = refuse
+    pending = await bot.propose_dm_reply(500, "Alex Kim", "hi")
+    update, answers, edits = tap(f"dmsend:{pending}")
+
+    async def edit(text, reply_markup=None):
+        edits.append(text)
+        edits_markup.append(reply_markup)
+
+    update.callback_query.edit_message_text = edit
+    await bot.on_dm_button(update, None)
+    assert "Nothing was sent" in edits[-1] and edits_markup[-1] is not None  # retry offered
+
+    async def timeout(chat_id, text, business_connection_id):
+        raise TimedOut()
+
+    bot._send_as_owner = timeout
+    await bot.on_dm_button(update, None)
+    assert "may have gone out" in edits[-1] and edits_markup[-1] is None  # no button: no double send
+    await bot.on_dm_button(update, None)
+    assert answers[-1] == "Already handled."
+
+
+async def test_no_reply_permission_means_no_attempt(tmp_path, monkeypatch):
+    bot, sent, _, delivered = make_bot(tmp_path, monkeypatch)
+    bot.dms.save_connection(connection(can_reply=False))
+    bot.dms.record(dm("hey", at=datetime.now(timezone.utc)))
+    pending = await bot.propose_dm_reply(500, "Alex Kim", "hi")
+    update, answers, edits = tap(f"dmsend:{pending}")
+    await bot.on_dm_button(update, None)
+    assert delivered == [] and "Reply to messages" in edits[-1]

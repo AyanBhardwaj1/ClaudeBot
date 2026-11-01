@@ -5,6 +5,7 @@ buttons), check-ins, and telling the owner when inbox alerts stop working. Mixed
 import json
 import logging
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 from google.auth.exceptions import RefreshError
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -156,6 +157,10 @@ class CheckinHandlers:
         await query.answer()
         if not self._from_owner(query):
             return
+        if query.data == "chk:dms":
+            await self.on_dms(SimpleNamespace(effective_message=SimpleNamespace(
+                reply_text=lambda text, reply_markup=None: self.send_to_owner(text, reply_markup))), context)
+            return
         try:
             gaps = await find_reply_gaps(self.google, self.client, self.tracker, self.config, self.db)
         except Exception:
@@ -178,9 +183,12 @@ class CheckinHandlers:
             return
         if checkin is None:
             return
-        markup = None
+        buttons = []
         if "replies" in checkin.kinds:
-            markup = InlineKeyboardMarkup([[InlineKeyboardButton("📬 Show what's waiting", callback_data="chk:waiting")]])
+            buttons.append(InlineKeyboardButton("📬 Email waiting", callback_data="chk:waiting"))
+        if "dms" in checkin.kinds:
+            buttons.append(InlineKeyboardButton("💬 Telegram DMs", callback_data="chk:dms"))
+        markup = InlineKeyboardMarkup([buttons]) if buttons else None
         try:
             await self.send_to_owner(f"👋 {checkin.text}", markup)
         except TelegramError:

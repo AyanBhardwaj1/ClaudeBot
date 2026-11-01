@@ -268,6 +268,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             notify_owner=self.send_to_owner,
             workbench=self._workbench,
             propose_dm_reply=self.propose_dm_reply,
+            dms=self.dms,
         )
         self._register_handlers()
 
@@ -331,7 +332,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(
             CallbackQueryHandler(self.on_reply_tracking, pattern=r"^rt:(nudge|reply):[0-9a-f]{6,32}$")
         )
-        self.app.add_handler(CallbackQueryHandler(self.on_checkin_button, pattern=r"^chk:waiting$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_checkin_button, pattern=r"^chk:(waiting|dms)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_mode_button, pattern=r"^mode:\w+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_role_button, pattern=r"^role:\w+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_onboard_button, pattern=r"^ob:\w+(:\w+)?$"))
