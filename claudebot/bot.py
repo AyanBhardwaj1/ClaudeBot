@@ -35,6 +35,7 @@ from .actions import ActionLog
 from .agent import Agent, ConversationReset
 from .alert_rules import RuleHandlers
 from .backup import BACKUP_TIME, BackupHandlers
+from .bills import BillHandlers
 from .business import BusinessHandlers, DMStore
 from .buttons import ButtonHandlers
 from .checkins import CheckinHandlers, snooze_keyboard
@@ -227,7 +228,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, RestoreHandlers, MenuHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, RestoreHandlers, MenuHandlers, BillHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -288,6 +289,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             propose_dm_reply=self.propose_dm_reply,
             dms=self.dms,
             event_created=self.event_created,
+            add_bill=self.add_bill,
         )
         self._register_handlers()
 
@@ -336,6 +338,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("triage", self.on_triage, filters=owner))
         self.app.add_handler(CommandHandler("owed", self.on_owed, filters=owner))
         self.app.add_handler(CommandHandler("menu", self.on_menu, filters=owner))
+        self.app.add_handler(CommandHandler("bills", self.on_bills, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_bill_button, pattern=r"^bill:(paid|del):\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_restore_button, pattern=r"^restore:(yes|no)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_iou_button, pattern=r"^iou:\d{1,3}$"))
         self.app.add_handler(CallbackQueryHandler(self.on_triage_button, pattern=r"^tri:(arch|draft|later|next|snooze):[0-9a-f]{6,32}$"))

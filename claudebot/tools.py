@@ -52,6 +52,7 @@ class ToolContext:
     events_left: int = 1  # events an unattended turn may create (owner turns aren't limited)
     propose_dm_reply: Callable[[int, str, str], Awaitable[int]] | None = None  # (chat_id, name, text) -> id
     dms: object | None = None  # the bot's DMStore (it knows the owner's id)
+    add_bill: Callable[..., dict] | None = None  # (name, amount, day, currency) -> bill
     event_created: Callable[..., Awaitable[None]] | None = None  # (event id, title, start, has_attendees)
     briefings_left: int = 1
     # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
@@ -443,6 +444,13 @@ CLIENT_TOOLS = [
         "input_schema": _schema({}, []),
     },
     {
+        "name": "add_bill",
+        "description": "Save a recurring monthly bill (\"rent is $1200 on the 1st\"); ClaudeBot reminds the owner 2 days before.",
+        "input_schema": _schema({"name": {"type": "string"}, "amount": {"type": "number", "exclusiveMinimum": 0},
+                                 "day": {"type": "integer", "minimum": 1, "maximum": 31},
+                                 "currency": {"type": "string"}}, ["name", "amount", "day"]),
+    },
+    {
         "name": "add_alert_rule",
         "description": (
             "Save one of the owner's own rules for inbox alerts, in plain English, when they ask for it "
@@ -770,6 +778,12 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         if name != "spending_summary":
             _require_owner(ctx, "change expenses")
         return expense_tool(name, a, ctx.db, ctx.tz)
+    if name == "add_bill":
+        _require_owner(ctx, "add bills")
+        if ctx.add_bill is None:
+            raise ValueError("Bills aren't available here.")
+        return {"bill": ctx.add_bill(a["name"], float(a["amount"]), int(a["day"]), a.get("currency", "USD")),
+                "note": "Saved with a monthly reminder 2 days before. The owner sees them in /bills."}
     if name in ("record_iou", "list_ious"):
         if name == "record_iou":
             _require_owner(ctx, "record IOUs")
