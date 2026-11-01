@@ -2,6 +2,12 @@
 
 ## 1.2.0 (in progress)
 
+**Today at a glance**
+- `/today`: today's calendar, reminders due, Telegram chats waiting and open list items in one message. No AI call, so it's instant and free.
+
+**Where the money goes**
+- `/usage` breaks this month's spend down by feature: conversations, inbox alerts, check-ins, reply tracking and so on.
+
 **Inbox cleanup**
 - `/sweep` counts old promotions, social and update emails and archives a whole category in one tap. Archived means out of the inbox but still in All Mail: nothing is deleted. No AI involved, so it's free.
 

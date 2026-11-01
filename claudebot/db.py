@@ -265,6 +265,13 @@ class Database:
         row = self.conn.execute(query, params).fetchone()
         return row["n"], row["cost"]
 
+    def usage_by_source(self, since: datetime) -> list[tuple[str, int, float]]:
+        """[(source, request count, cost)] since `since`, most expensive first."""
+        rows = self.conn.execute(
+            "SELECT source, COUNT(*) AS n, COALESCE(SUM(cost_usd), 0) AS cost FROM usage WHERE created_at >= ? "
+            "GROUP BY source ORDER BY cost DESC", (since.astimezone(timezone.utc).isoformat(),)).fetchall()
+        return [(r["source"], r["n"], r["cost"]) for r in rows]
+
     # --- settings ---
 
     def get_setting(self, key: str) -> str | None:

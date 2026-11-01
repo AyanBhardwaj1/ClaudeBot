@@ -56,6 +56,7 @@ WELCOME = (
 HELP = (
     "Talk to me like a person: ask, tell me to do things, forward messages, send photos and files.\n\n"
     "Everyday\n"
+    "/today – today at a glance: calendar, reminders, lists (instant)\n"
     "/brief – your daily brief now\n"
     "/waiting – replies you owe, and replies you're waiting on\n"
     "/sweep – archive old promotions and updates in one tap\n"

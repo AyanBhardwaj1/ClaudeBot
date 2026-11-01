@@ -19,6 +19,13 @@ WEB_SEARCH_USD = 0.01  # $10 per 1,000 searches
 PER_MILLION = 1_000_000
 
 
+SOURCE_LABELS = {
+    "chat": "Conversations", "inbox": "Inbox alerts", "heartbeat": "Check-ins", "replies": "Reply tracking",
+    "followups": "Suggestion buttons", "style": "Writing style", "setup": "Setup", "workbench": "Documents & data",
+    "research": "Deep research", "briefing": "Briefings", "group": "Group answers",
+}
+
+
 class BudgetExceeded(RuntimeError):
     pass
 
@@ -110,5 +117,9 @@ class UsageTracker:
         if self.monthly_budget is not None:
             lines.append(f"- Monthly budget: ${self.monthly_budget:.2f} "
                          f"(${max(self.monthly_budget - month_cost, 0):.2f} left)")
+        by_source = self.db.usage_by_source(self._month_start(now))
+        if by_source:
+            lines.append("This month by feature:")
+            lines += [f"- {SOURCE_LABELS.get(source, source)}: ${cost:.2f} ({n})" for source, n, cost in by_source[:8]]
         lines.append("Exact billing: console.anthropic.com")
         return "\n".join(lines)
