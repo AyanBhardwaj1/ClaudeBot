@@ -792,8 +792,11 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         _require_owner(ctx, "add bills")
         if ctx.add_bill is None:
             raise ValueError("Bills aren't available here.")
-        return {"bill": ctx.add_bill(a["name"], float(a["amount"]), int(a["day"]), a.get("currency", "USD")),
-                "note": "Saved with a monthly reminder 2 days before. The owner sees them in /bills."}
+        bill = ctx.add_bill(a["name"], float(a["amount"]), int(a["day"]), a.get("currency", "USD"))
+        if ctx.notify_owner is not None:  # a bill suggested by an email the owner asked about is seen, not silent
+            await ctx.notify_owner(f"🧾 New bill: {bill['name']}, {bill['amount']:,.2f} {bill['currency']} "
+                                   f"on day {bill['day']} of each month.\nSee or remove it with /bills.")
+        return {"bill": bill, "note": "Saved with a monthly reminder 2 days before. The owner sees them in /bills."}
     if name in ("record_iou", "list_ious"):
         if name == "record_iou":
             _require_owner(ctx, "record IOUs")

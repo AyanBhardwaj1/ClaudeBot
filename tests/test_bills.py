@@ -27,6 +27,12 @@ async def test_bill_tool_reminder_and_paid_button(tmp_path, monkeypatch):
     bot.schedule_reminder = lambda rid: None
     bot.unschedule_reminder = lambda rid: None
     ctx = bot.agent.tool_context
+    told = []
+
+    async def notify(text):
+        told.append(text)
+
+    ctx.notify_owner = notify
     result, is_error = await run_tool("add_bill", {"name": "Rent", "amount": 1200, "day": 1}, ctx)
     assert not is_error and json.loads(result)["bill"]["name"] == "Rent"
     reminders = bot.db.active_reminders()
@@ -84,3 +90,82 @@ async def test_bills_can_be_listed_for_the_brief(tmp_path):
     listed = json.loads((await run_tool("list_bills", {}, make_context(db)))[0])["bills"]
     assert listed[0]["name"] == "Rent" and listed[0]["next_due"].endswith("-01")
     assert "list_bills" in brief_prompt(make_config(tmp_path), None)
+
+
+async def test_bill_reminders_are_tied_to_their_bill(tmp_path, monkeypatch):
+    """Batch 6 N-3/N-4/N-6/N-8: replace and delete touch only the bill's own reminder; Paid logs once."""
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    bot.schedule_reminder = lambda rid: None
+    bot.unschedule_reminder = lambda rid: None
+    mine = bot.db.add_reminder("Gas (check the meter reading)", datetime(2030, 1, 1, tzinfo=TZ), "monthly", False)
+    bot.add_bill("Gas (garage)", 40, 3)
+    bot.add_bill("Gas", 60, 10)
+    bot.add_bill("gas", 65, 12)  # same bill, new amount and day: one reminder, the new one
+    texts = sorted(r["text"] for r in bot.db.active_reminders())
+    assert texts == ["Gas (check the meter reading)", "🧾 Gas (garage) (40.00 USD) is due on the 3rd",
+                     "🧾 gas (65.00 USD) is due on the 12th"]
+
+    async def answer(text=None):
+        answers.append(text)
+
+    async def edit(text, *, reply_markup=None):
+        from telegram.error import BadRequest
+        raise BadRequest("Message is not modified")
+
+    def tap(data):
+        return SimpleNamespace(callback_query=SimpleNamespace(from_user=SimpleNamespace(id=1), data=data,
+                                                              answer=answer, edit_message_text=edit))
+
+    answers = []
+    gas = next(b for b in Bills(bot.db).all() if b["name"] == "gas")
+    await bot.on_bill_button(tap(f"bill:paid:{gas['id']}"), None)
+    await bot.on_bill_button(tap(f"bill:paid:{gas['id']}"), None)  # double tap
+    spent = Expenses(bot.db).summary(datetime.now(timezone.utc) - timedelta(days=1), datetime.now(timezone.utc) + timedelta(days=1))
+    assert spent["total"] == {"USD": 65.0} and "already" in answers[-1]
+    await bot.on_bill_button(tap(f"bill:del:{gas['id']}"), None)
+    assert sorted(r["text"] for r in bot.db.active_reminders()) == texts[:2]
+    assert mine in [r["id"] for r in bot.db.active_reminders()]
+    new = bot.add_bill("Gym", 30, 5)
+    assert new["id"] > gas["id"]  # ids aren't reused, so an old card's button can't hit a new bill
+
+
+def test_bill_reminder_names_the_due_day():
+    from claudebot.bills import reminder_text
+
+    assert reminder_text({"name": "Rent", "amount": 1200, "currency": "USD", "day": 1}) == \
+        "🧾 Rent (1,200.00 USD) is due on the 1st"
+    assert "31st (or the month's last day)" in reminder_text({"name": "X", "amount": 1, "currency": "USD", "day": 31})
+
+
+async def test_bill_tool_tells_the_owner(tmp_path):
+    from helpers import make_context
+
+    from claudebot.tools import run_tool
+
+    db = Database(tmp_path / "t.db")
+    told = []
+    ctx = make_context(db)
+
+    async def notify(text):
+        told.append(text)
+
+    ctx.notify_owner = notify
+    ctx.add_bill = lambda name, amount, day, currency="USD": Bills(db).add(name, amount, day, currency)[0]
+    result, is_error = await run_tool("add_bill", {"name": "Rent", "amount": 1200, "day": 1}, ctx)
+    assert not is_error and told and told[0].startswith("🧾 New bill: Rent")
+
+
+async def test_old_bills_without_a_reminder_id_still_clean_up(tmp_path, monkeypatch):
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    bot.unschedule_reminder = lambda rid: None
+    when = datetime(2030, 1, 1, tzinfo=TZ)
+    old = bot.db.add_reminder("Gas (60.00 USD) is due in 2 days", when, "monthly", False)
+    other = bot.db.add_reminder("Gas (60.00 USD) is due in 2 days, check", when, "monthly", False)
+    bot._cancel_bill_reminder({"id": 1, "name": "Gas", "amount": 60.0, "currency": "USD", "day": 3})
+    assert [r["id"] for r in bot.db.active_reminders()] == [other] and old != other

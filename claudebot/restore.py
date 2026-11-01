@@ -14,7 +14,6 @@ from telegram.ext import ContextTypes
 
 from .alert_rules import AlertRules
 from .habits import Habits
-from .inbox_watch import clip
 from .journal import Journal
 from .lists import Lists
 from .modes import defang_urls
@@ -28,6 +27,7 @@ MAX_FILE = 2_000_000
 MAX_MEMORIES = 100
 MAX_REMINDERS = 50
 MAX_RULES = 20
+MAX_LIST_ITEMS = 300
 REPEATS = ("none", "daily", "weekdays", "weekly", "biweekly", "monthly", "yearly")
 
 
@@ -39,6 +39,10 @@ def looks_like_export(name: str, data: bytes) -> dict | None:
     except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
         return None
     return payload if isinstance(payload, dict) and "claudebot_version" in payload else None
+
+
+def _clean(text, limit: int) -> str:
+    return " ".join(str(text).replace("<", " ").replace(">", " ").split())[:limit]
 
 
 def _due(value) -> datetime | None:
@@ -60,21 +64,31 @@ def plan(payload: dict) -> dict:
         due = _due(r.get("next_run"))
         if due and due > now:
             reminders.append({"text": str(r.get("text", ""))[:300], "due": due, "repeat": r["repeat"]})
+    lists = []
+    room = MAX_LIST_ITEMS
+    for lst in payload.get("lists", [])[:20]:
+        if not isinstance(lst, dict):
+            continue
+        items = [_clean(i.get("text", ""), 200) for i in lst.get("items", []) if isinstance(i, dict)]
+        items = [i for i in items if i][:room]
+        room -= len(items)
+        lists.append({"name": _clean(lst.get("name", "List"), 40) or "List", "items": items})
     return {
-        "memories": [m for m in memories if m][:MAX_MEMORIES],
-        "rules": [str(t)[:150] for t in payload.get("alert_rules", []) if t][:MAX_RULES],
+        "memories": list(dict.fromkeys(m for m in memories if m))[:MAX_MEMORIES],
+        "rules": list(dict.fromkeys(_clean(t, 150) for t in payload.get("alert_rules", []) if t))[:MAX_RULES],
         "reminders": reminders[:MAX_REMINDERS],
         "style": clean_style(str(payload["writing_style"])) if payload.get("writing_style") else "",
-        "lists": [lst for lst in payload.get("lists", []) if isinstance(lst, dict)][:20],
+        "lists": lists,
         "habits": [h for h in payload.get("habits", []) if isinstance(h, dict)][:10],
         "journal": [e for e in payload.get("journal", []) if isinstance(e, dict)][:3650],
     }
 
 
 def preview(p: dict) -> str:
-    """Everything that steers the assistant, spelled out (links defanged) before the owner taps."""
+    """Everything that steers the assistant, spelled out in full (links defanged) before the owner taps:
+    the card shows exactly the text that would be stored, so nothing can hide past a cut-off."""
     def show(text: str) -> str:
-        return defang_urls(clip(text, 160))
+        return defang_urls(text)
 
     parts = ["This looks like a ClaudeBot export. Check what it would add before restoring: memories, rules "
              "and reminders steer what I do, so only restore a file you made yourself."]
@@ -87,6 +101,9 @@ def preview(p: dict) -> str:
             f"- {show(r['text'])} ({r['repeat']}, next {r['due']:%b %-d})" for r in p["reminders"]))
     if p["style"]:
         parts.append(f"✍️ Writing style:\n{show(p['style'])}")
+    for lst in p["lists"]:
+        if lst["items"]:
+            parts.append(f"📋 List {show(lst['name'])}:\n" + "\n".join(f"- {show(i)}" for i in lst["items"]))
     extra = [f"{len(p['lists'])} lists", f"{len(p['habits'])} habits", f"{len(p['journal'])} journal days"]
     parts.append("Also: " + ", ".join(extra) + ". Nothing you have now is deleted.")
     return "\n\n".join(parts)
@@ -105,15 +122,18 @@ def restore(db, payload: dict) -> dict:
     lists = Lists(db)
     for lst in p["lists"]:
         try:
-            counts["list items"] += len(lists.add(str(lst.get("name", "List")),
-                                                  [str(i.get("text", "")) for i in lst.get("items", []) if isinstance(i, dict)]))
+            counts["list items"] += len(lists.add(lst["name"], lst["items"]))
         except ValueError:
             continue
-    existing = {(r["text"], r["repeat"]) for r in db.active_reminders()}
+    def key(text, repeat, due: datetime):  # "Take meds" at 8:00 and at 20:00 are two reminders
+        return text, repeat, due.astimezone(timezone.utc).strftime("%H:%M") if repeat != "none" else due.isoformat()
+
+    existing = {key(r["text"], r["repeat"], datetime.fromisoformat(r["due_at"])) for r in db.active_reminders()}
     for r in p["reminders"]:
-        if (r["text"], r["repeat"]) not in existing:  # restoring twice doesn't stack copies
+        k = key(r["text"], r["repeat"], r["due"])
+        if k not in existing:  # restoring twice doesn't stack copies
             db.add_reminder(r["text"], r["due"], r["repeat"], False)
-            existing.add((r["text"], r["repeat"]))
+            existing.add(k)
             counts["reminders"] += 1
     rules = AlertRules(db)
     have = {r["text"] for r in rules.all()}
