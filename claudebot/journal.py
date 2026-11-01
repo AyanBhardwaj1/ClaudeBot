@@ -3,7 +3,7 @@ message is saved as that day's entry (the owner's own words, kept locally)."""
 
 from datetime import datetime, time, timedelta, timezone
 
-from telegram import Update
+from telegram import ForceReply, Update
 from telegram.ext import ContextTypes
 
 from .db import Database
@@ -70,8 +70,9 @@ class JournalHandlers:
         now = datetime.now(self.config.timezone)
         if self.db.get_setting(JOURNAL_KEY) != "on" or dnd_active(self.db, now):
             return
-        self._expect(AWAIT)
-        await self.send_to_owner("📓 How was your day? Reply with a few lines (or ignore this).")
+        asked = await self.send_to_owner("📓 How was your day? Reply to this message with a few lines (or ignore it).",
+                                         ForceReply(input_field_placeholder="How was your day?"))
+        self._expect(AWAIT, reply_to=getattr(asked, "message_id", None))
 
     def save_journal_answer(self, text: str) -> None:
         Journal(self.db).write(datetime.now(self.config.timezone).date().isoformat(), text)

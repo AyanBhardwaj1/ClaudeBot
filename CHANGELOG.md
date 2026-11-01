@@ -2,6 +2,11 @@
 
 ## 1.2.0
 
+**Safer**
+- Turns you didn't start (the daily brief, weekly review, scheduled tasks, meeting prep, draft buttons) can no longer set reminders or archive, trash or mark email. An email read while you're away can't plant a reminder that later speaks in ClaudeBot's voice.
+- Brief feedback and journal entries only count when you reply to the question, so your next normal message isn't swallowed.
+- `/sweep` never touches starred or important mail.
+
 **Runs itself**
 - Nightly database backup at 03:00 into `data/backups/` (the last 7 are kept), taken safely while the bot runs.
 - Docker health check: the bot touches a file every minute and `python -m claudebot health` checks it, so Docker (and Fly/Railway) can see a stuck bot.

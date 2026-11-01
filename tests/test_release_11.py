@@ -41,14 +41,17 @@ async def test_destructive_tools_need_the_owner(tmp_path, name, args):
     assert db.get_reminder(reminder_id)["active"]
 
 
-async def test_unattended_turns_can_still_archive(tmp_path):
+async def test_unattended_turns_cant_change_email_or_plant_reminders(tmp_path):
     db = Database(tmp_path / "t.db")
     google = FakeGoogle()
     google.modify_email = lambda message_id, action: {"status": "done", "action": action}
     ctx = make_context(db, google=google)
-    ctx.owner_present = False  # "at 5pm archive the newsletters" is a fine scheduled task
+    ctx.owner_present = False  # the brief, weekly review and tasks read email nobody is watching
     result, is_error = await run_tool("modify_email", {"message_id": "m1", "action": "archive"}, ctx)
-    assert not is_error
+    assert is_error
+    result, is_error = await run_tool("set_reminder", {"text": "Call 0800 123 re your bank",
+                                                       "when": "2099-01-01T09:00:00", "repeat": "monthly"}, ctx)
+    assert is_error and db.active_reminders() == []
 
 
 async def test_owner_turns_can_still_forget(tmp_path):

@@ -216,6 +216,7 @@ class Agent:
         owner_present: bool = True,
         effort: str | None = None,
         on_text: Callable[[str], Awaitable[None]] | None = None,
+        source: str = "chat",
     ) -> str:
         """Handle one turn and return the reply.
 
@@ -249,6 +250,7 @@ class Agent:
                 # the history by a failed call would make the next request invalid.
                 messages.append({"role": "system", "content": context_change["content"]})
             try:
+                self._source = source  # what /usage files this turn's cost under
                 return await self._loop(thread_id, messages, tool_context, context_change, effort, on_text)
             except (anthropic.BadRequestError, anthropic.RequestTooLargeError) as e:
                 # A malformed or oversized history fails every later turn too: start fresh, and
@@ -311,7 +313,7 @@ class Agent:
             self.tracker.check_budget()
             step_starting = True
             response = await self._call(messages, effort, on_piece if on_text else None)
-            self.tracker.record(response, "chat")
+            self.tracker.record(response, getattr(self, "_source", "chat"))
             if context_change:
                 self._store(thread_id, {"role": "system", "content": context_change["content"]})
                 # Record what was actually announced, even if the owner switched again meanwhile.

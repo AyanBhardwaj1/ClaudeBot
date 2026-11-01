@@ -74,7 +74,8 @@ class MeetingPrepHandlers:
             minutes = max(int((start - now).total_seconds() // 60), 0)
             # Only the id: the invite's title and description are someone else's text, read via tools.
             prompt = PREP_PROMPT.format(event_id=e["id"], minutes=minutes)
-            reply, ok = await self._run_agent([{"type": "text", "text": prompt}], owner_present=False, effort="low")
+            reply, ok = await self._run_agent([{"type": "text", "text": prompt}], owner_present=False, effort="low",
+                                              source="meeting_prep")
             if ok:  # an API or budget error isn't a brief
                 await self.send_to_owner(reply)
         self.db.prune_settings(PREP_KEY, 200)

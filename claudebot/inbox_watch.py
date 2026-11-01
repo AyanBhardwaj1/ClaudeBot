@@ -167,9 +167,13 @@ class InboxWatcher:
         self.tracker.check_budget()
         memories = "\n".join(f"- {m['text']}" for m in self.db.list_memories()) or "- (none yet)"
         payload = [
-            {"id": e["id"], "from": e["from"], "subject": e["subject"], "snippet": e["snippet"]}
+            {"id": e["id"], "from": e["from"], "subject": e["subject"], "snippet": e["snippet"],
+             "date": e.get("date", "")}
             for e in emails
         ]
+        today = datetime.now(self.config.timezone)
+        # Escaped so a subject can't close the <emails> fence.
+        fenced = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
         owner = self.config.owner_name
         profile = current_profile(self.db)
         job = (f"{owner}'s job: {profile.describe()}. For this job, also notify for: "
@@ -181,7 +185,9 @@ class InboxWatcher:
             messages=[{
                 "role": "user",
                 "content": f"{job}{AlertRules(self.db).for_classifier(owner)}What I know about {owner}:\n{memories}\n\n"
-                           f"<emails>{json.dumps(payload, ensure_ascii=False)}</emails>",
+                           f"Today is {today:%A %Y-%m-%d} ({self.config.timezone.key}); resolve dates like "
+                           f"\"Friday\" or \"tomorrow\" against it and each email's own date.\n\n"
+                           f"<emails>{fenced}</emails>",
             }],
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": CLASSIFIER_SCHEMA}},
         )

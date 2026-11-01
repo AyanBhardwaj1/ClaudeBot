@@ -42,7 +42,7 @@ def make_bot(tmp_path, monkeypatch, **config):
     async def send_to_owner(text, reply_markup=None):
         sent.append(text)
 
-    async def run_agent(content, owner_present=True, effort=None, live=False):
+    async def run_agent(content, owner_present=True, effort=None, live=False, source=None):
         asked.append((content[0]["text"], owner_present))
         return "📋 Prep for your Sync with Dana: ...", True
 

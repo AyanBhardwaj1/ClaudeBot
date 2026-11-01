@@ -17,7 +17,9 @@ def test_parse_pause():
     assert parse_pause("2h", NOW) == NOW + timedelta(hours=2)
     assert parse_pause("30 min", NOW) == NOW + timedelta(minutes=30)
     assert parse_pause("morning", NOW) == datetime(2026, 11, 11, 8, 0, tzinfo=TZ)
-    assert parse_pause("99 days", NOW) == NOW + timedelta(days=7)
+    after_midnight = datetime(2026, 11, 11, 1, 15, tzinfo=TZ)
+    assert parse_pause("morning", after_midnight) == datetime(2026, 11, 11, 8, 0, tzinfo=TZ)  # this morning
+    assert parse_pause("99 days", NOW) == NOW + timedelta(days=2)  # alerts only catch up 2 days
     assert parse_pause("forever", NOW) is None and parse_pause("0h", NOW) is None
 
 

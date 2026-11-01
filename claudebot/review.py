@@ -5,9 +5,10 @@ the brief already reads; nothing from an email can change how the brief works.""
 
 from datetime import datetime, time
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from .inbox_watch import in_quiet_hours
 from .quiet import dnd_active
 
 REVIEW_KEY = "weekly_review"  # "off" turns it off
@@ -42,16 +43,20 @@ class ReviewHandlers:
 
     async def _weekly_review_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         now = datetime.now(self.config.timezone)
-        if self.db.get_setting(REVIEW_KEY) == "off" or dnd_active(self.db, now):
+        if (self.db.get_setting(REVIEW_KEY) == "off" or dnd_active(self.db, now)
+                or in_quiet_hours(now, self.config.quiet_hours) or not self.google.is_connected()):
             return
-        reply = await self._ask_agent([{"type": "text", "text": REVIEW_PROMPT}], owner_present=False)
-        await self.send_to_owner(f"🗓 Your week\n\n{reply}")
+        reply, ok = await self._run_agent([{"type": "text", "text": REVIEW_PROMPT}], owner_present=False,
+                                          source="review")
+        if ok:  # an API or budget error isn't a review
+            await self.send_to_owner(f"🗓 Your week\n\n{reply}")
 
     async def _digest_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         now = datetime.now(self.config.timezone)
         if self.db.get_setting(DIGEST_KEY) != "on" or dnd_active(self.db, now) or not self.google.is_connected():
             return
-        reply, ok = await self._run_agent([{"type": "text", "text": DIGEST_PROMPT}], owner_present=False, effort="low")
+        reply, ok = await self._run_agent([{"type": "text", "text": DIGEST_PROMPT}], owner_present=False, effort="low",
+                                          source="digest")
         if ok:
             await self.send_to_owner(f"📰 Your newsletters this week\n\n{reply}")
 
@@ -66,10 +71,10 @@ class ReviewHandlers:
             await query.answer("👍 Noted")
             return
         await query.answer()
-        self._expect(FEEDBACK_AWAIT)
-        await self.send_to_owner(
-            "What should I change in your daily brief? e.g. \"skip the headlines\", \"more on the Longhorns\", "
-            "\"put my first meeting at the top\".")
+        asked = await self.send_to_owner(
+            "Reply to this message with what to change in your daily brief, e.g. \"skip the headlines\" or "
+            "\"more on the Longhorns\".", ForceReply(input_field_placeholder="What should I change?"))
+        self._expect(FEEDBACK_AWAIT, reply_to=getattr(asked, "message_id", None))
 
     def save_brief_feedback(self, text: str) -> str:
         fact = "Daily brief preference: " + " ".join(text.replace("<", " ").replace(">", " ").split())[:300]

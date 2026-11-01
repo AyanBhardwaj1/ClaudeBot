@@ -18,16 +18,16 @@ from .journal import Journal
 from .lists import Lists
 from .style import current_style
 
-# Settings that are secrets, one-time sign-in state, or button bookkeeping: never exported.
-PRIVATE_PREFIXES = ("google_oauth", "await", "followups:", "alert:", "hb_", "prep", "thread_", "expects_reply:",
-                    "snoozed:", "business_connection", "style_pending", "inbox_failures", "onboarding")
+# Only the owner's own preferences are exported (an allow-list: new internal keys stay out).
+EXPORTED_PREFIXES = ("cfg:", "role", "mode", "followups", "checkins", "drafts_only", "meeting_prep", "weekly_review",
+                     "newsletter_digest", "journal", "onboarded")
 
 
 def export_data(db: Database, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     lists = Lists(db)
     settings = {r["key"]: r["value"] for r in db.conn.execute("SELECT key, value FROM settings ORDER BY key")
-                if not r["key"].startswith(PRIVATE_PREFIXES)}
+                if r["key"].startswith(EXPORTED_PREFIXES) and not r["key"].startswith("followups:")}
     return {
         "exported_at": now.isoformat(),
         "claudebot_version": __version__,
@@ -53,5 +53,5 @@ class ExportHandlers:
         stamp = datetime.now(self.config.timezone).strftime("%Y-%m-%d")
         await self.app.bot.send_document(
             chat_id=self.config.owner_id, document=io.BytesIO(data), filename=f"claudebot-export-{stamp}.json",
-            caption="Everything I keep about you: memories, reminders, lists, rules, style, settings and what I did "
-                    "in the last 60 days. Sign-in details aren't included.")
+            caption="Your memories, reminders, lists, alert rules, writing style, expenses, habits, journal, settings "
+                    "and what I did in the last 60 days. Not included: chat history, Telegram DMs and sign-in details.")

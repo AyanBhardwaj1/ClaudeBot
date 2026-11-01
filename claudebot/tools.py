@@ -625,8 +625,7 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "create_draft":
         return await asyncio.to_thread(g.create_draft, **email_args())
     if name == "modify_email":
-        if a["action"] == "trash":
-            _require_owner(ctx, "trash emails")
+        _require_owner(ctx, "archive, trash or mark emails")  # unattended turns read untrusted email
         return await asyncio.to_thread(g.modify_email, a["message_id"], a["action"])
     if name == "list_calendar_events":
         limit = min(int(a.get("max_results", 50)), MAX_EVENTS)
@@ -719,8 +718,9 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         return {"scheduled": True, "briefing_id": briefing_id, "first_run": when.isoformat(), "repeat": repeat}
     if name == "set_reminder":
         repeat, when = _schedule(a, ctx)
-        if a.get("run_as_task"):
-            _require_owner(ctx, "schedule tasks")
+        # A reminder fires later in the bot's own voice: an email read while the owner is away must
+        # not be able to plant one ("call 0800... about your bank"). Suggest it instead.
+        _require_owner(ctx, "set reminders or tasks")
         reminder_id = ctx.db.add_reminder(a["text"], when, repeat, bool(a.get("run_as_task", False)))
         ctx.schedule_reminder(reminder_id)
         return {"scheduled": True, "reminder_id": reminder_id, "when": when.isoformat(), "repeat": repeat}
@@ -747,6 +747,9 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "add_alert_rule":
         _require_owner(ctx, "change alert rules")
         rule = AlertRules(ctx.db).add(a["rule"])
+        if ctx.notify_owner is not None:
+            # From the bot, not the model: a rule an email talked Claude into can't hide unnoticed.
+            await ctx.notify_owner(f"📏 New alert rule: {rule['text']}\nSee or remove it with /rules.")
         return {"saved": rule["text"], "note": "Applies to new email. The owner can see and remove rules with /rules."}
     if name == "action_log":
         days = min(max(int(a.get("days", 1)), 1), 60)

@@ -45,6 +45,8 @@ class TodayHandlers:
                 start = datetime.combine(now.date(), time(0), tzinfo=self.config.timezone)
                 events = await asyncio.to_thread(self.google.list_events, start.isoformat(), day_end.isoformat(), 50)
                 lines = calendar_lines(events, self.config.timezone)
+                if len(lines) > 25:
+                    lines = lines[:25] + [f"  ...and {len(lines) - 25} more"]
                 parts.append("📅 Calendar\n" + ("\n".join(lines) if lines else "  nothing scheduled"))
             except Exception:
                 log.exception("Reading today's calendar failed")

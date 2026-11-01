@@ -27,7 +27,8 @@ def previous_window(due: datetime, repeat: str) -> timedelta:
     return timedelta(weeks=1)  # weekly, and a sensible window for one-off briefings
 
 
-def next_occurrence(due: datetime, repeat: str, now: datetime, tz: ZoneInfo) -> datetime | None:
+def next_occurrence(due: datetime, repeat: str, now: datetime, tz: ZoneInfo,
+                    anchor: datetime | None = None) -> datetime | None:
     """The first run of a repeating reminder strictly after `now`, keeping its local wall-clock time.
 
     Returns None for one-off reminders.
@@ -37,9 +38,10 @@ def next_occurrence(due: datetime, repeat: str, now: datetime, tz: ZoneInfo) -> 
     local = due.astimezone(tz)  # aware arithmetic in the local zone keeps the wall time across DST
     if repeat in ("monthly", "yearly"):
         months = 1 if repeat == "monthly" else 12
+        start = (anchor or due).astimezone(tz)  # the first date: Jan 31 -> Feb 28 -> Mar 31, not Mar 28
         count = 1
-        while True:  # counted from the original date, so Jan 31 -> Feb 28 -> Mar 31
-            following = _add_months(local, months * count)
+        while True:
+            following = _add_months(start, months * count)
             if following > now:
                 return following
             count += 1

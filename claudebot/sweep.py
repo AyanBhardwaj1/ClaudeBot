@@ -13,10 +13,11 @@ from .google_services import GoogleNotConnected
 log = logging.getLogger(__name__)
 
 MAX_SWEEP = 500
+KEEP = "-is:starred -is:important"  # bills and statements in Updates are often marked important
 SWEEPS = {
-    "promo": ("promotions", "in:inbox category:promotions older_than:3d"),
-    "social": ("social updates", "in:inbox category:social older_than:3d"),
-    "updates": ("automatic updates", "in:inbox category:updates older_than:7d -is:starred"),
+    "promo": ("promotions", f"in:inbox category:promotions older_than:3d {KEEP}"),
+    "social": ("social updates", f"in:inbox category:social older_than:3d {KEEP}"),
+    "updates": ("automatic updates", f"in:inbox category:updates older_than:7d {KEEP}"),
 }
 
 

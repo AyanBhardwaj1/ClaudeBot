@@ -19,7 +19,7 @@ from .google_services import GoogleNotConnected
 from .heartbeat import record_sent, run_heartbeat
 from .inbox_watch import GMAIL_ID, clip, in_quiet_hours
 from .modes import defang_urls
-from .quiet import dnd_active
+from .quiet import dnd_active, next_morning
 from .replies import find_reply_gaps
 from .shortcuts import bump
 from .ui import split_message
@@ -89,6 +89,9 @@ class CheckinHandlers:
             return
         self.db.deactivate_reminder(reminder_id)
         self.unschedule_reminder(reminder_id)
+        if snoozed := self.db.get_setting(f"snoozed:{reminder_id}"):  # its snoozed copy goes too
+            self.db.deactivate_reminder(int(snoozed))
+            self.unschedule_reminder(int(snoozed))
         ActionLog(self.db).record("reminder", f"Cancelled reminder: {row['text']}")
         await query.answer(f"Cancelled: {row['text'][:150]}")
 
@@ -108,11 +111,14 @@ class CheckinHandlers:
             self.unschedule_reminder(int(previous))
         if action == "done":
             self.db.delete_setting(snoozed_key)
-            await query.edit_message_text(f"✅ {defang_urls(text)}")
+            row = self.db.get_reminder(int(reminder_id))
+            repeat = (f"\nRepeats {row['repeat']}; next "
+                      f"{datetime.fromisoformat(row['due_at']).astimezone(self.config.timezone):%a %b %-d %H:%M}. "
+                      "/reminders to stop it.") if row and row["repeat"] != "none" else ""
+            await query.edit_message_text(f"✅ {defang_urls(text)}{repeat}")
             return
         now = datetime.now(self.config.timezone)
-        when = (now + timedelta(hours=1) if action == "1h" else
-                datetime.combine(now.date() + timedelta(days=1), time(9), tzinfo=self.config.timezone))
+        when = now + timedelta(hours=1) if action == "1h" else next_morning(now, time(9))
         snooze_id = self.db.add_reminder(text, when, "none", False)
         self.schedule_reminder(snooze_id)
         self.db.set_setting(snoozed_key, str(snooze_id))
@@ -136,9 +142,11 @@ class CheckinHandlers:
         email = json.loads(row["email_json"])
         now = datetime.now(self.config.timezone)
         when = datetime.combine(now.date() + timedelta(days=NO_REPLY_DAYS), time(9), tzinfo=self.config.timezone)
-        task = (f"Check whether {email['to']} replied to the email I sent on {now:%b %-d} with subject "
-                f"\"{email.get('subject') or '(reply)'}\" (search my inbox and that thread). If they replied, tell "
-                "me in one line. If not, draft a short, polite follow-up and show it to me; don't send it.")
+        # The subject may be someone else's words ("Re: ..."): quoted as a JSON string, as data.
+        task = (f"Check whether {email['to']} replied to the email I sent on {now:%b %-d}. Its subject, quoted as "
+                f"data: {json.dumps(email.get('subject') or '(reply)', ensure_ascii=False)}. Search my inbox and that "
+                "thread. If they replied, tell me in one line. If not, draft a short, polite follow-up and show it "
+                "to me; don't send it.")
         self.schedule_reminder(self.db.add_reminder(task, when, "none", True))
         ActionLog(self.db).record("reminder", f"Will check for a reply from {email['to']} on {when:%a %b %-d}")
         self.db.set_setting(f"noreply:{outbox_id}", "1")

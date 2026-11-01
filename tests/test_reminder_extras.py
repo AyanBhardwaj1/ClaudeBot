@@ -19,6 +19,15 @@ def test_monthly_and_yearly_repeats():
     assert next_occurrence(at(2026, 5, 3), "yearly", at(2026, 5, 4), TZ) == at(2027, 5, 3)
     assert next_occurrence(at(2028, 2, 29), "yearly", at(2028, 3, 1), TZ) == at(2029, 2, 28)
     assert next_occurrence(at(2026, 3, 1), "monthly", at(2026, 7, 10), TZ) == at(2026, 8, 1)  # catches up
+    # several firings in a row keep the original day: Jan 31 -> Feb 28 -> Mar 31 -> Apr 30
+    anchor, due = at(2026, 1, 31), at(2026, 1, 31)
+    seen = []
+    for _ in range(3):
+        due = next_occurrence(due, "monthly", due, TZ, anchor)
+        seen.append(due.day)
+    assert seen == [28, 31, 30]
+    leap = at(2028, 2, 29)
+    assert next_occurrence(at(2031, 2, 28), "yearly", at(2031, 3, 1), TZ, leap) == at(2032, 2, 29)
     assert previous_window(at(2026, 3, 1), "monthly").days >= 28
     assert next_occurrence(at(2026, 11, 2), "biweekly", at(2026, 11, 3), TZ) == at(2026, 11, 16)
 

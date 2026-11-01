@@ -100,6 +100,8 @@ class Database:
         reminder_columns = {r["name"] for r in self.conn.execute("PRAGMA table_info(reminders)")}
         if "briefing" not in reminder_columns:
             self.conn.execute("ALTER TABLE reminders ADD COLUMN briefing INTEGER NOT NULL DEFAULT 0")
+        if "anchor" not in reminder_columns:  # the first due date: monthly/yearly repeats keep its day
+            self.conn.execute("ALTER TABLE reminders ADD COLUMN anchor TEXT NOT NULL DEFAULT ''")
 
     # --- conversation threads ---
 
@@ -170,8 +172,9 @@ class Database:
         self, text: str, due_at: datetime, repeat: str, run_as_task: bool, briefing: bool = False
     ) -> int:
         cur = self.conn.execute(
-            "INSERT INTO reminders (text, due_at, repeat, run_as_task, briefing) VALUES (?, ?, ?, ?, ?)",
-            (text, due_at.astimezone(timezone.utc).isoformat(), repeat, int(run_as_task), int(briefing)),
+            "INSERT INTO reminders (text, due_at, repeat, run_as_task, briefing, anchor) VALUES (?, ?, ?, ?, ?, ?)",
+            (text, due_at.astimezone(timezone.utc).isoformat(), repeat, int(run_as_task), int(briefing),
+             due_at.astimezone(timezone.utc).isoformat()),
         )
         self.conn.commit()
         return cur.lastrowid

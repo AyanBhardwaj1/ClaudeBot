@@ -14,13 +14,15 @@ def make_bot(tmp_path, monkeypatch):
 
     async def send_to_owner(text, reply_markup=None):
         sent.append((text, reply_markup))
+        return SimpleNamespace(message_id=700 + len(sent))
 
-    async def ask_agent(content, owner_present=True, effort=None):
+    async def run_agent(content, owner_present=True, effort=None, live=False, source=None):
         asked.append((content[0]["text"], owner_present))
-        return "You had a good week."
+        return "You had a good week.", True
 
     bot.send_to_owner = send_to_owner
-    bot._ask_agent = ask_agent
+    bot._run_agent = run_agent
+    bot.google.is_connected = lambda: True
     return bot, sent, asked
 
 
@@ -49,7 +51,10 @@ async def test_brief_has_feedback_buttons_and_feedback_becomes_a_memory(tmp_path
     await bot.on_brief_button(tap("brief:tune", user_id=999), None)
     assert bot._awaiting() is None
     await bot.on_brief_button(tap("brief:tune"), None)
-    message = SimpleNamespace(text="skip the headlines <please>", forward_origin=None)
+    assert not await bot.handle_answer(SimpleNamespace(text="remind me at 6pm to call mom", forward_origin=None,
+                                                       reply_to_message=None))
+    message = SimpleNamespace(text="skip the headlines <please>", forward_origin=None,
+                              reply_to_message=SimpleNamespace(message_id=700 + len(sent)))
     assert await bot.handle_answer(message)
     facts = [m["text"] for m in bot.db.list_memories()]
     assert facts == ["Daily brief preference: skip the headlines please"]
@@ -80,7 +85,7 @@ async def test_newsletter_digest_is_opt_in(tmp_path, monkeypatch):
     bot, sent, _ = make_bot(tmp_path, monkeypatch)
     ran = []
 
-    async def run_agent(content, owner_present=True, effort=None, live=False):
+    async def run_agent(content, owner_present=True, effort=None, live=False, source=None):
         ran.append((content[0]["text"], owner_present))
         return "1. AI news", True
 

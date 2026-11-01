@@ -149,8 +149,18 @@ def _choices(prefix: str, choices) -> list[list[tuple[str, str]]]:
 class SetupHandlers:
     # --- pending questions ---
 
-    def _expect(self, what: str) -> None:
-        self.db.set_setting(AWAIT_KEY, json.dumps({"what": what, "at": time.time()}))
+    def _expect(self, what: str, reply_to: int | None = None) -> None:
+        """The owner's next text answers `what`. With reply_to, only a reply to that message does
+        (for open-ended questions like the journal: "remind me at 6pm" mustn't become an entry)."""
+        self.db.set_setting(AWAIT_KEY, json.dumps({"what": what, "at": time.time(), "reply_to": reply_to}))
+
+    def _answers_question(self, message: Message) -> bool:
+        raw = self.db.get_setting(AWAIT_KEY)
+        reply_to = json.loads(raw).get("reply_to") if raw else None
+        if reply_to is None:
+            return True
+        replied = getattr(message, "reply_to_message", None)
+        return replied is not None and replied.message_id == reply_to
 
     def _awaiting(self) -> str | None:
         raw = self.db.get_setting(AWAIT_KEY)
@@ -174,7 +184,7 @@ class SetupHandlers:
         if is_sign_in_reply(self.db, text, expecting_code=what == "google:code"):
             await self._finish_connect(message, text)
             return True
-        if what is None or what == "google:code" or what == "google:client":
+        if what is None or what == "google:code" or what == "google:client" or not self._answers_question(message):
             return False
         self._stop_expecting()
         try:

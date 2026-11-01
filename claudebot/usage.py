@@ -22,7 +22,9 @@ PER_MILLION = 1_000_000
 SOURCE_LABELS = {
     "chat": "Conversations", "inbox": "Inbox alerts", "heartbeat": "Check-ins", "replies": "Reply tracking",
     "followups": "Suggestion buttons", "style": "Writing style", "setup": "Setup", "workbench": "Documents & data",
-    "research": "Deep research", "briefing": "Briefings", "group": "Group answers",
+    "research": "Deep research", "briefing": "Briefings", "group": "Group answers", "brief": "Daily brief",
+    "review": "Weekly review", "meeting_prep": "Meeting prep", "task": "Scheduled tasks",
+    "digest": "Newsletter digest",
 }
 
 

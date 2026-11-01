@@ -27,6 +27,7 @@ async def test_evening_prompt_and_answer(tmp_path, monkeypatch):
 
     async def send_to_owner(text, reply_markup=None):
         sent.append(text)
+        return SimpleNamespace(message_id=500 + len(sent))
 
     async def reply_text(text, *, reply_markup=None):
         replies.append(text)
@@ -38,7 +39,13 @@ async def test_evening_prompt_and_answer(tmp_path, monkeypatch):
     await bot.on_journal(update, SimpleNamespace(args=["on"]))
     await bot._journal_job(None)
     assert "How was your day" in sent[-1]
-    assert await bot.handle_answer(SimpleNamespace(text="Shipped the release. Tired but happy.", forward_origin=None))
+    prompt_id = 500 + len(sent)
+    # A normal message right after the prompt isn't an entry...
+    assert not await bot.handle_answer(SimpleNamespace(text="remind me at 6pm", forward_origin=None,
+                                                       reply_to_message=None))
+    # ...a reply to the prompt is.
+    assert await bot.handle_answer(SimpleNamespace(text="Shipped the release. Tired but happy.", forward_origin=None,
+                                                   reply_to_message=SimpleNamespace(message_id=prompt_id)))
     await bot.on_journal(update, SimpleNamespace(args=[]))
     assert "Shipped the release" in replies[-1]
     assert not await bot.handle_answer(SimpleNamespace(text="what's on tomorrow?", forward_origin=None))

@@ -11,7 +11,7 @@ from .db import Database
 
 DND_KEY = "dnd_until"
 MORNING = time(8)
-MAX_PAUSE = timedelta(days=7)
+MAX_PAUSE = timedelta(days=2)  # inbox alerts catch up on the last 2 days of email, no further
 
 
 def dnd_until(db: Database, now: datetime) -> datetime | None:
@@ -26,11 +26,17 @@ def dnd_active(db: Database, now: datetime) -> bool:
     return dnd_until(db, now) is not None
 
 
+def next_morning(now: datetime, at: time = MORNING) -> datetime:
+    """The coming morning: today's if it's still before then (tapped at 1am), else tomorrow's."""
+    today = datetime.combine(now.date(), at, tzinfo=now.tzinfo)
+    return today if now < today else today + timedelta(days=1)
+
+
 def parse_pause(text: str, now: datetime) -> datetime | None:
     """'2h', '30m', '90 min', '1 day', 'morning'/'tomorrow' (08:00 next day). None if unreadable."""
     text = text.strip().lower()
     if text in ("morning", "tomorrow", "tonight", "night"):
-        return datetime.combine(now.date() + timedelta(days=1), MORNING, tzinfo=now.tzinfo)
+        return next_morning(now)
     match = re.fullmatch(r"(\d{1,3})\s*(m|min|mins|minutes?|h|hr|hrs|hours?|d|days?)", text)
     if not match:
         return None

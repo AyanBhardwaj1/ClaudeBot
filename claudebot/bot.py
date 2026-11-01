@@ -145,6 +145,10 @@ def brief_prompt(config: Config, profile: Profile | None, dms_connected: bool = 
     return prompt
 
 
+def _anchor(row) -> datetime | None:
+    return datetime.fromisoformat(row["anchor"]) if "anchor" in row.keys() and row["anchor"] else None
+
+
 def task_prompt(reminder_id: int, text: str) -> str:
     """A scheduled task's text was written by the model earlier: links in it stay unfetchable."""
     return f"[Scheduled task #{reminder_id} that I set earlier - do it now]\n{defang_urls(text)}"
@@ -392,7 +396,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         for row in self.db.active_reminders():
             due = datetime.fromisoformat(row["due_at"])
             if due <= now and row["repeat"] != "none":
-                due = next_occurrence(due, row["repeat"], now, self.config.timezone)
+                due = next_occurrence(due, row["repeat"], now, self.config.timezone, _anchor(row))
                 self.db.reschedule_reminder(row["id"], due)
             self.schedule_reminder(row["id"])  # overdue one-offs fire right away
         if (at := brief_time(self.config)) is not None:
@@ -467,9 +471,10 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
     async def send_photo_to_owner(self, png: bytes, caption: str) -> None:
         await self.app.bot.send_photo(chat_id=self.config.owner_id, photo=png, caption=caption or None)
 
-    async def _ask_agent(self, content: list[dict], owner_present: bool = True, effort: str | None = None) -> str:
+    async def _ask_agent(self, content: list[dict], owner_present: bool = True, effort: str | None = None,
+                         source: str = "chat") -> str:
         """Run the agent (no live preview), turning API failures into a short message."""
-        return (await self._run_agent(content, owner_present, effort))[0]
+        return (await self._run_agent(content, owner_present, effort, source=source))[0]
 
     async def _converse(
         self, content: list[dict], question: str, effort: str | None = None, owner_present: bool = True
@@ -495,7 +500,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         return choice == "on" if choice in ("on", "off") else self.config.followups
 
     async def _run_agent(
-        self, content: list[dict], owner_present: bool = True, effort: str | None = None, live: bool = False
+        self, content: list[dict], owner_present: bool = True, effort: str | None = None, live: bool = False,
+        source: str = "chat",
     ) -> tuple[str, bool]:
         """(reply, ok). API failures become a short message with ok=False."""
         preview = LivePreview(self.app.bot, self.config.owner_id) if live else None
@@ -505,7 +511,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         typing = asyncio.create_task(self._keep_typing(stop, preview))
         try:
             reply = await self.agent.run(
-                content, owner_present=owner_present, effort=effort, on_text=preview.update if preview else None
+                content, owner_present=owner_present, effort=effort, on_text=preview.update if preview else None,
+                source=source,
             )
             return reply, True
         except BudgetExceeded as e:
@@ -854,7 +861,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
                 await self._send_briefing(reminder_id, row)
             elif row["run_as_task"]:
                 reply = await self._ask_agent(
-                    [{"type": "text", "text": task_prompt(reminder_id, row["text"])}], owner_present=False
+                    [{"type": "text", "text": task_prompt(reminder_id, row["text"])}], owner_present=False, source="task"
                 )
                 await self.send_to_owner(reply)
             else:
@@ -864,7 +871,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         finally:
             now = datetime.now(self.config.timezone)
             following = next_occurrence(
-                datetime.fromisoformat(row["due_at"]), row["repeat"], now, self.config.timezone
+                datetime.fromisoformat(row["due_at"]), row["repeat"], now, self.config.timezone, _anchor(row)
             )
             if following is None:
                 self.db.deactivate_reminder(reminder_id)
@@ -923,8 +930,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
     async def _send_brief(self) -> None:
         # The brief reads untrusted email with nobody necessarily watching: no unattended sends.
         prompt = brief_prompt(self.config, current_profile(self.db), self.dms.active_connection_id() is not None)
-        reply = await self._ask_agent([{"type": "text", "text": prompt}], owner_present=False)
-        await self.send_to_owner(reply, BRIEF_BUTTONS)
+        reply, ok = await self._run_agent([{"type": "text", "text": prompt}], owner_present=False, source="brief")
+        await self.send_to_owner(reply, BRIEF_BUTTONS if ok else None)
 
     # --- outbox and inbox alerts ---
 
