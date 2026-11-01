@@ -72,8 +72,11 @@ def plan(payload: dict, tz=timezone.utc) -> dict:
         due = _due(r.get("next_run"))
         if due and due <= now and r["repeat"] != "none":  # an older export: the next one, same wall time
             due = next_occurrence(due, r["repeat"], now, tz)
+        anchor = _due(r.get("anchor")) if r.get("anchor") else None  # Jan 31 keeps landing on month ends
+        if anchor and (anchor > due if due else True):
+            anchor = None
         if due and due > now:
-            reminders.append({"text": str(r.get("text", ""))[:300], "due": due, "repeat": r["repeat"]})
+            reminders.append({"text": str(r.get("text", ""))[:300], "due": due, "repeat": r["repeat"], "anchor": anchor})
     lists = []
     room = MAX_LIST_ITEMS
     for lst in payload.get("lists", [])[:20]:
@@ -168,20 +171,22 @@ def restore(db, payload: dict, tz=timezone.utc) -> dict:
             counts["list items"] += len(lists.add(lst["name"], lst["items"]))
         except ValueError:
             continue
-    def key(text, repeat, due: datetime):
+    def key(text, repeat, due: datetime, anchor: datetime | None = None):
         """Same reminder only if it fires at the same local time on the same pattern: "Take meds" at 8:00 and
         20:00, gym on Mondays and Thursdays, rent on the 1st and the 15th all stay separate (DST-proof)."""
         local = due.astimezone(tz)
+        first = (anchor or due).astimezone(tz)  # a month-end reminder: Nov 30 and Dec 31 are the same one
         pattern = {"none": local.date().isoformat(), "weekly": local.weekday(),
-                   "biweekly": (local.weekday(), local.date().toordinal() // 7 % 2), "monthly": local.day,
+                   "biweekly": (local.weekday(), local.date().toordinal() // 7 % 2), "monthly": first.day,
                    "yearly": (local.month, local.day)}.get(repeat, "")
         return text, repeat, local.strftime("%H:%M"), pattern
 
-    existing = {key(r["text"], r["repeat"], datetime.fromisoformat(r["due_at"])) for r in db.active_reminders()}
+    existing = {key(r["text"], r["repeat"], datetime.fromisoformat(r["due_at"]),
+                    datetime.fromisoformat(r["anchor"]) if r["anchor"] else None) for r in db.active_reminders()}
     for r in p["reminders"]:
-        k = key(r["text"], r["repeat"], r["due"])
+        k = key(r["text"], r["repeat"], r["due"], r["anchor"])
         if k not in existing:  # restoring twice doesn't stack copies
-            db.add_reminder(r["text"], r["due"], r["repeat"], False)
+            db.add_reminder(r["text"], r["due"], r["repeat"], False, anchor=r["anchor"])
             existing.add(k)
             counts["reminders"] += 1
     rules = AlertRules(db)

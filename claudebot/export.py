@@ -40,7 +40,7 @@ def export_data(db: Database, now: datetime | None = None) -> dict:
         "exported_at": now.isoformat(),
         "claudebot_version": __version__,
         "memories": [dict(m) for m in db.conn.execute("SELECT id, text, created_at FROM memories ORDER BY id")],
-        "reminders": [{"id": r["id"], "text": r["text"], "next_run": r["due_at"], "repeat": r["repeat"],
+        "reminders": [{"id": r["id"], "text": r["text"], "next_run": r["due_at"], "anchor": r["anchor"], "repeat": r["repeat"],
                        "task": bool(r["run_as_task"]), "briefing": bool(r["briefing"])} for r in db.active_reminders()
                       if r["id"] not in owned],  # a bill's or birthday's reminder comes back with it
         "lists": [{"name": n, "items": lists.items(n)} for n in lists.names()],

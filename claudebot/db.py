@@ -169,12 +169,13 @@ class Database:
     # --- reminders ---
 
     def add_reminder(
-        self, text: str, due_at: datetime, repeat: str, run_as_task: bool, briefing: bool = False
+        self, text: str, due_at: datetime, repeat: str, run_as_task: bool, briefing: bool = False,
+        anchor: datetime | None = None,
     ) -> int:
         cur = self.conn.execute(
             "INSERT INTO reminders (text, due_at, repeat, run_as_task, briefing, anchor) VALUES (?, ?, ?, ?, ?, ?)",
             (text, due_at.astimezone(timezone.utc).isoformat(), repeat, int(run_as_task), int(briefing),
-             due_at.astimezone(timezone.utc).isoformat()),
+             (anchor or due_at).astimezone(timezone.utc).isoformat()),
         )
         self.conn.commit()
         return cur.lastrowid

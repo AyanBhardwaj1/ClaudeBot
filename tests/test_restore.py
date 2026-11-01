@@ -246,3 +246,20 @@ async def test_big_card_always_shows_quick_replies_and_says_they_replace(tmp_pat
     await bot.handle_export_file(msg, json.dumps(payload).encode())
     card = "\n".join(replies)
     assert "replaces your quick replies with" in card and "- Approved" in card and "1 bills" in card
+
+
+def test_month_end_reminders_keep_their_anchor_and_restore_once(tmp_path):
+    """Batch 9 P-3: a monthly reminder that started on the 31st, now due Nov 30, isn't doubled."""
+    from helpers import TZ
+
+    db = Database(tmp_path / "a.db")
+    db.add_reminder("pay card", datetime(2099, 11, 30, 9, tzinfo=TZ), "monthly", False,
+                    anchor=datetime(2099, 10, 31, 9, tzinfo=TZ))
+    payload = export_data(db)
+    assert payload["reminders"][0]["anchor"]
+    new = Database(tmp_path / "b.db")
+    assert restore(new, payload, TZ)["reminders"] == 1
+    row = new.active_reminders()[0]
+    assert datetime.fromisoformat(row["anchor"]).astimezone(TZ).day == 31
+    later = dict(payload, reminders=[dict(payload["reminders"][0], next_run="2099-12-31T09:00:00-06:00")])
+    assert restore(new, later, TZ)["reminders"] == 0  # Dec 31 is the same reminder
