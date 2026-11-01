@@ -14,6 +14,7 @@ from .alert_rules import AlertRules
 from .db import Database
 from .expenses import Expenses
 from .habits import Habits
+from .journal import Journal
 from .lists import Lists
 from .style import current_style
 
@@ -40,6 +41,7 @@ def export_data(db: Database, now: datetime | None = None) -> dict:
         "action_log_60_days": ActionLog(db).since(now - timedelta(days=60)),
         "expenses_1_year": Expenses(db).summary(now - timedelta(days=365), now + timedelta(days=1))["by_category"],
         "habits": Habits(db).export(),
+        "journal": [dict(r) for r in Journal(db).db.conn.execute("SELECT day, text FROM journal ORDER BY day")],
     }
 
 

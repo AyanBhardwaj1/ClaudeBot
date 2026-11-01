@@ -41,6 +41,7 @@
 - Inbox alerts now also cover bills with a due date, renewals about to charge, travel changes and deliveries that need you. When an alert has a date, its ⏰ button reminds you the morning before ("⏰ Nov 14") instead of in 3 hours.
 
 **Habits**
+- `/journal on`: ClaudeBot asks how your day went at 21:30 and saves your answer (one entry per day, on your server). `/journal` shows the week; `/journal <text>` writes one now.
 - `/habit workout` and ClaudeBot asks each evening at 20:30, with a tap to mark it done and a running streak. `/habits` shows them all.
 
 **Spending**

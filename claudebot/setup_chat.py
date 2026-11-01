@@ -25,6 +25,7 @@ from .google_connect import (
     start,
 )
 from .heartbeat import CHECKINS_KEY
+from .journal import AWAIT as JOURNAL_AWAIT
 from .meeting_prep import SWITCH_KEY as PREP_SWITCH
 from .modes import MODES, current_mode
 from .review import FEEDBACK_AWAIT, REVIEW_KEY
@@ -67,6 +68,7 @@ HELP = (
     "/lists – shopping, packing and to-do lists (tap to check off)\n"
     "/spent – this month's spending (tell me \"spent $12 on lunch\")\n"
     "/habit – track a daily habit with an evening check-in and streaks\n"
+    "/journal – a private evening journal (/journal on)\n"
     "/dms – Telegram chats waiting on your reply (connect me in Telegram Business)\n"
     "/log – what I actually did today (/log week for 7 days)\n"
     "/briefings – scheduled news briefings\n"
@@ -191,6 +193,10 @@ class SetupHandlers:
                 if what == "set:role":
                     await self._role_set(profile)
                     return True
+            elif what == JOURNAL_AWAIT:
+                self.save_journal_answer(text)
+                await self.send_to_owner("📓 Saved. Good night.")
+                return True
             elif what == FEEDBACK_AWAIT:
                 fact = self.save_brief_feedback(text)
                 await self.send_to_owner(f"✏️ Got it. I'll remember: {fact.split(': ', 1)[1]}")

@@ -55,6 +55,8 @@ from .habits import CHECK_TIME as HABIT_TIME
 from .habits import HabitHandlers
 from .heartbeat import HEARTBEAT_HOURS
 from .inbox_watch import InboxWatcher
+from .journal import ASK_TIME as JOURNAL_TIME
+from .journal import JournalHandlers
 from .lists import ListHandlers
 from .meeting_prep import JOB_MINUTES, MeetingPrepHandlers
 from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
@@ -117,6 +119,7 @@ PRIVATE_COMMANDS = [
     BotCommand("lists", "Shopping, packing and to-do lists"),
     BotCommand("spent", "What you've spent this month"),
     BotCommand("habit", "Track a daily habit, with streaks"),
+    BotCommand("journal", "A private evening journal"),
     BotCommand("quiet", "Pause alerts and check-ins for a while"),
     BotCommand("rules", "Your rules for email alerts"),
     BotCommand("sweep", "Archive old promotions and updates in one tap"),
@@ -217,7 +220,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -329,6 +332,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("trips", self.on_trips, filters=owner))
         self.app.add_handler(CommandHandler("spent", self.on_spent, filters=owner))
         self.app.add_handler(CommandHandler(["habit", "habits"], self.on_habit, filters=owner))
+        self.app.add_handler(CommandHandler("journal", self.on_journal, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_habit_button, pattern=r"^hab:\d+:\d{8}$"))
         self.app.add_handler(CallbackQueryHandler(self.on_sweep_button, pattern=r"^sweep:(promo|social|updates)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_brief_button, pattern=r"^brief:(good|tune)$"))
@@ -399,6 +403,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             self.schedule_reminder(row["id"])  # overdue one-offs fire right away
         if (at := brief_time(self.config)) is not None:
             app.job_queue.run_daily(self._brief_job, time=at, name="daily-brief")
+        app.job_queue.run_daily(self._journal_job, time=JOURNAL_TIME.replace(tzinfo=self.config.timezone),
+                                name="journal")
         app.job_queue.run_daily(self._habit_job, time=HABIT_TIME.replace(tzinfo=self.config.timezone),
                                 name="habits")
         app.job_queue.run_daily(self._weekly_review_job, time=REVIEW_TIME.replace(tzinfo=self.config.timezone),
