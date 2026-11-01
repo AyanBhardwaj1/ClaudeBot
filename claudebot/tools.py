@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from googleapiclient.errors import HttpError
 
+from .actions import ActionLog, describe_tool_action
 from .charts import CHART_TYPES, ChartError, render_chart, validate_spec
 from .db import Database
 from .files import UnsupportedFile, to_content_block
@@ -377,6 +378,14 @@ CLIENT_TOOLS = [
         "input_schema": _schema({"reminder_id": {"type": "integer"}}, ["reminder_id"]),
     },
     {
+        "name": "action_log",
+        "description": (
+            "What you actually did for the owner (emails delivered, drafts, events, reminders, memories, "
+            "Telegram replies), recorded when it happened. Check it before saying something was sent or done."
+        ),
+        "input_schema": _schema({"days": {"type": "integer", "minimum": 1, "maximum": 60}}, []),
+    },
+    {
         "name": "list_telegram_dms",
         "description": (
             "The owner's Telegram private chats (when they connected ClaudeBot to their Telegram "
@@ -440,6 +449,8 @@ async def run_tool(name: str, args: dict, ctx: ToolContext) -> tuple[str | list[
     """Run a client tool. Returns (result text or content blocks, is_error)."""
     try:
         result = await _dispatch(name, args, ctx)
+        if (action := describe_tool_action(name, args, result)) is not None:
+            ActionLog(ctx.db).record(*action)  # from the result: it happened, not "the model says so"
         if isinstance(result, ContentBlocks):
             return result.blocks, False
         return json.dumps(result, ensure_ascii=False, default=str), False
@@ -655,6 +666,11 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
             }
             for r in ctx.db.active_reminders()
         ]
+    if name == "action_log":
+        days = min(max(int(a.get("days", 1)), 1), 60)
+        rows = ActionLog(ctx.db).since(datetime.now(ctx.tz) - timedelta(days=days))
+        return {"actions": [{**r, "at": datetime.fromisoformat(r["at"]).astimezone(ctx.tz).isoformat()} for r in rows],
+                "note": "Recorded when each action actually happened. Emails count as sent only once delivered."}
     if name in ("list_telegram_dms", "read_telegram_chat", "reply_telegram_dm"):
         return await _telegram_dms(name, a, ctx)
     if name == "cancel_reminder":

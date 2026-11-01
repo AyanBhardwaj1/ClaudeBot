@@ -16,6 +16,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from .actions import ActionLog
 from .db import Database
 from .heartbeat import Signal
 from .inbox_watch import clip
@@ -301,6 +302,7 @@ class BusinessHandlers:
                                           "(Settings → Business → Chatbots), then tap again.")
             return
         self.dms.set_reply_status(reply["id"], "sent")
+        ActionLog(self.db).record("telegram", f"Sent a Telegram reply to {reply['name']}: {reply['text']}")
         await query.edit_message_text(f"✅ Sent to {reply['name']}:\n\n{reply['text']}")
         self.db.add_notice(f"Telegram reply sent to {reply['name']} (chat {reply['chat_id']}).")
 

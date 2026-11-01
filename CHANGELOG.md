@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**What did you actually do?**
+- `/log` (and `/log week`) lists what ClaudeBot did: emails delivered, drafts saved, events added, reminders set, Telegram replies sent. Each entry is recorded when the thing happened, never from what the model said. Claude checks this log (`action_log`) before telling you something was sent.
+
 **Your Telegram DMs** (Telegram Business)
 - Connect ClaudeBot to your own Telegram account. `/dms` shows who's waiting on your reply.
 - ClaudeBot drafts replies. Each one goes out from your account only when you tap **✅ Send as me**. A double tap sends once, and replies outside Telegram's 24-hour window are handed back for you to send yourself.

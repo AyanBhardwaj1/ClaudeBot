@@ -31,6 +31,7 @@ from telegram.ext import (
     filters,
 )
 
+from .actions import ActionLog
 from .agent import Agent, ConversationReset
 from .business import BusinessHandlers, DMStore
 from .buttons import ButtonHandlers
@@ -94,6 +95,7 @@ PRIVATE_COMMANDS = [
     BotCommand("reminders", "Your reminders and scheduled tasks"),
     BotCommand("waiting", "Replies you owe, and replies you're waiting on"),
     BotCommand("dms", "Telegram chats waiting on your reply"),
+    BotCommand("log", "What I actually did today"),
     BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
@@ -300,6 +302,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, ButtonHandle
         self.app.add_handler(CommandHandler("reminders", self.on_reminders, filters=owner))
         self.app.add_handler(CommandHandler("waiting", self.on_waiting, filters=owner))
         self.app.add_handler(CommandHandler("dms", self.on_dms, filters=owner))
+        self.app.add_handler(CommandHandler("log", self.on_log, filters=owner))
         # Telegram Business: the owner's own chats. Stored as data, never handled as commands.
         self.app.add_handler(BusinessConnectionHandler(self.on_business_connection))
         self.app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGES, self.on_business_message))
@@ -889,6 +892,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, ButtonHandle
         self.db.prune_settings("followups:", keep=50)
         self.db.prune_settings("alert:", keep=200)
         self.dms.prune()
+        ActionLog(self.db).prune()
         if self.agent.busy:
             # A brief or task may still be replaying a conversation /new just retired; its files
             # aren't safe to delete yet. The next run picks them up.

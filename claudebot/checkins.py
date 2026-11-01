@@ -4,17 +4,19 @@ buttons), check-ins, and telling the owner when inbox alerts stop working. Mixed
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from google.auth.exceptions import RefreshError
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from .actions import ICONS, ActionLog
 from .business import dm_signals
 from .google_services import GoogleNotConnected
 from .heartbeat import record_sent, run_heartbeat
 from .inbox_watch import GMAIL_ID, in_quiet_hours
+from .modes import defang_urls
 from .replies import find_reply_gaps
 
 log = logging.getLogger(__name__)
@@ -76,6 +78,25 @@ class CheckinHandlers:
         self.db.deactivate_reminder(reminder_id)
         self.unschedule_reminder(reminder_id)
         await query.answer(f"Cancelled: {row['text'][:150]}")
+
+    # --- /log ---
+
+    async def on_log(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        week = bool(context.args) and context.args[0].lower() in ("week", "7")
+        now = datetime.now(self.config.timezone)
+        start = now - timedelta(days=7) if week else now.replace(hour=0, minute=0, second=0, microsecond=0)
+        rows = ActionLog(self.db).since(start)
+        if not rows:
+            await update.effective_message.reply_text(
+                "Nothing yet today. /log week shows the last 7 days." if not week else "Nothing in the last 7 days.")
+            return
+        lines = []
+        for r in rows[-40:]:
+            at = datetime.fromisoformat(r["at"]).astimezone(self.config.timezone)
+            stamp = f"{at:%a %H:%M}" if week else f"{at:%H:%M}"
+            lines.append(f"{ICONS.get(r['kind'], '•')} {stamp} {defang_urls(r['summary'])}")
+        title = "What I did this week:" if week else "What I did today:"
+        await update.effective_message.reply_text(title + "\n" + "\n".join(lines))
 
     # --- /waiting ---
 

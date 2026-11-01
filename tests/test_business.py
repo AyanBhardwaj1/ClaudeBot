@@ -255,9 +255,10 @@ def test_business_updates_only_reach_the_dm_store(tmp_path, monkeypatch):
 
 
 async def test_check_ins_include_waiting_dms_even_without_google(tmp_path):
+    from helpers import TZ, FakeClient, message
+
     from claudebot.heartbeat import run_heartbeat
     from claudebot.usage import UsageTracker
-    from helpers import TZ, FakeClient, message
 
     db = Database(tmp_path / "t.db")
     store = DMStore(db, OWNER)

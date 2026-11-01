@@ -11,6 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Protocol
 
+from .actions import ActionLog
 from .db import Database
 
 log = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ class Outbox:
             }
         if self.undo_seconds <= 0:
             result = await asyncio.to_thread(self.google.send_email, **email)
+            ActionLog(self.db).record("email", f"Sent email to {_describe(email)}")
             await self.ui.notify(f"📤 Sent email to {_describe(email)}")
             return result
         send_at = now + timedelta(seconds=self.undo_seconds)
@@ -127,6 +129,7 @@ class Outbox:
             await self.ui.notify(f"⚠️ Couldn't send the email to {_describe(email)}: {e}")
             return
         self.db.transition_outbox(outbox_id, "sending", "sent")
+        ActionLog(self.db).record("email", f"Sent email to {_describe(email)}")
         if row["telegram_message_id"]:
             await self.ui.edit(row["telegram_message_id"], f"📤 Sent to {_describe(email)}")
 

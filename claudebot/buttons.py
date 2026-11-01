@@ -11,6 +11,7 @@ from telegram import InlineKeyboardMarkup, Update
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
+from .actions import ActionLog
 from .ui import memory_view, take_followup, tapped_suggestion
 
 log = logging.getLogger(__name__)
@@ -74,6 +75,7 @@ class ButtonHandlers:
         if action == "arch":
             try:
                 await asyncio.to_thread(self.google.modify_email, message_id, "archive")
+                ActionLog(self.db).record("email", "Archived an email (from an inbox alert)")
                 await query.answer("🗄 Archived")
             except Exception:
                 log.exception("Archiving %s failed", message_id)
