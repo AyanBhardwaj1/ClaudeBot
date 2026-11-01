@@ -108,3 +108,43 @@ async def test_follow_up_if_no_reply(tmp_path, monkeypatch):
     assert len(tasks) == 1 and tasks[0]["run_as_task"] and "Extension?" in tasks[0]["text"]
     assert "don't send it" in tasks[0]["text"] and answers[-1] == "Already on it."
     assert _json  # the email itself stays in the outbox row
+
+
+
+async def test_added_events_get_a_remove_card(tmp_path, monkeypatch):
+    from claudebot.bot import TelegramBot
+    from claudebot.tools import run_tool
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    sent, deleted, edits = [], [], []
+
+    async def send_to_owner(text, reply_markup=None):
+        sent.append((text, reply_markup))
+
+    bot.send_to_owner = send_to_owner
+    bot.google.create_event = lambda *a, **k: {"status": "created", "id": "evt_abc", "link": ""}
+    bot.google.delete_event = lambda event_id: deleted.append(event_id) or {"status": "deleted"}
+    ctx = bot.agent.tool_context
+    ctx.owner_present = False  # even in an unattended turn, the owner sees it
+    await run_tool("create_calendar_event", {"summary": "Dentist http://x.co", "start": "2026-11-12T15:00:00",
+                                             "end": "2026-11-12T16:00:00"}, ctx)
+    text, markup = sent[-1]
+    assert text.startswith("📅 Added: Dentist") and "http://x.co" not in text and "Thu Nov 12 15:00" in text
+    data = markup.inline_keyboard[0][0].callback_data
+
+    async def answer(text=None):
+        pass
+
+    async def edit(text, reply_markup=None):
+        edits.append(text)
+
+    def tap(user_id=1):
+        return SimpleNamespace(callback_query=SimpleNamespace(from_user=SimpleNamespace(id=user_id), data=data,
+                                                              answer=answer, edit_message_text=edit))
+
+    await bot.on_event_undo(tap(user_id=999), None)
+    assert deleted == []
+    await bot.on_event_undo(tap(), None)
+    await bot.on_event_undo(tap(), None)
+    assert deleted == ["evt_abc"] and "Removed" in edits[-1]

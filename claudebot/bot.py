@@ -272,6 +272,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             workbench=self._workbench,
             propose_dm_reply=self.propose_dm_reply,
             dms=self.dms,
+            event_created=self.event_created,
         )
         self._register_handlers()
 
@@ -362,6 +363,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         )
         self.app.add_handler(CallbackQueryHandler(self.on_outbox_button, pattern=r"^(undo|send):\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_no_reply_button, pattern=r"^nr:\d+$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_event_undo, pattern=r"^cu:\d+$"))
         self.app.add_handler(MessageHandler(new_owner_message & filters.PHOTO, self.on_photo))
         self.app.add_handler(MessageHandler(new_owner_message & filters.Document.ALL, self.on_document))
         self.app.add_handler(MessageHandler(new_owner_message & (filters.VOICE | filters.AUDIO), self.on_voice))

@@ -2,6 +2,7 @@
 buttons), check-ins, and telling the owner when inbox alerts stop working. Mixed into TelegramBot.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, time, timedelta
@@ -16,7 +17,7 @@ from .actions import ICONS, ActionLog
 from .business import dm_signals
 from .google_services import GoogleNotConnected
 from .heartbeat import record_sent, run_heartbeat
-from .inbox_watch import GMAIL_ID, in_quiet_hours
+from .inbox_watch import GMAIL_ID, clip, in_quiet_hours
 from .modes import defang_urls
 from .quiet import dnd_active
 from .replies import find_reply_gaps
@@ -143,6 +144,42 @@ class CheckinHandlers:
         self.db.set_setting(f"noreply:{outbox_id}", "1")
         self.db.prune_settings("noreply:", 200)
         await query.answer(f"⏰ I'll check {when:%a} morning")
+
+    async def event_created(self, event_id: str, title: str, start: str) -> None:
+        """Every event ClaudeBot adds gets a card with a Remove button, like Undo on email."""
+        key = str(int(self.db.get_setting("calev_next") or 0) + 1)
+        self.db.set_setting("calev_next", key)
+        self.db.set_setting(f"calev:{key}", json.dumps({"id": event_id, "title": title[:100], "start": start}))
+        self.db.prune_settings("calev:", 100)
+        try:
+            when = datetime.fromisoformat(start)
+            shown = f"{when:%a %b %-d}" if len(start) == 10 else f"{when:%a %b %-d %H:%M}"
+        except ValueError:
+            shown = start
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Remove", callback_data=f"cu:{key}")]])
+        await self.send_to_owner(f"📅 Added: {defang_urls(clip(title, 100))} ({shown})", markup)
+
+    async def on_event_undo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if not self._from_owner(query):
+            await query.answer()
+            return
+        key = query.data.split(":")[1]
+        raw = self.db.get_setting(f"calev:{key}")
+        if raw is None:
+            await query.answer("Too old to undo here; delete it in Calendar.")
+            return
+        event = json.loads(raw)
+        try:
+            await asyncio.to_thread(self.google.delete_event, event["id"])
+        except Exception:
+            log.exception("Removing event %s failed", event["id"])
+            await query.answer("Couldn't remove it; it may already be gone.")
+            return
+        self.db.delete_setting(f"calev:{key}")
+        ActionLog(self.db).record("calendar", f"Removed \"{event['title']}\" (undo)")
+        await query.answer("Removed")
+        await query.edit_message_text(f"↩️ Removed: {defang_urls(clip(event['title'], 100))}")
 
     # --- /log ---
 

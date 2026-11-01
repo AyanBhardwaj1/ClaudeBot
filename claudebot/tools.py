@@ -49,6 +49,7 @@ class ToolContext:
     workbench_left: int = 1
     propose_dm_reply: Callable[[int, str, str], Awaitable[int]] | None = None  # (chat_id, name, text) -> id
     dms: object | None = None  # the bot's DMStore (it knows the owner's id)
+    event_created: Callable[[str, str, str], Awaitable[None]] | None = None  # (event id, title, start)
     briefings_left: int = 1
     # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
     # untrusted email with nobody watching, so anything that reaches other people or plants
@@ -610,7 +611,7 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "create_calendar_event":
         if a.get("attendees"):
             _require_owner(ctx, "send calendar invites")
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             g.create_event,
             a["summary"],
             a["start"],
@@ -619,6 +620,10 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
             a.get("location", ""),
             a.get("attendees"),
         )
+        if ctx.event_created is not None and result.get("id"):
+            # A card from the bot itself, with Remove: an event can't slip onto the calendar unseen.
+            await ctx.event_created(result["id"], a["summary"], a["start"])
+        return result
     if name == "update_calendar_event":
         _require_owner(ctx, "change calendar events")
         fields = {k: a.get(k) for k in ("summary", "start", "end", "description", "location")}
