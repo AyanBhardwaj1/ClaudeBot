@@ -19,6 +19,7 @@
 - `/sweep` counts old promotions, social and update emails and archives a whole category in one tap. Archived means out of the inbox but still in All Mail: nothing is deleted. No AI involved, so it's free.
 
 **Undo for your calendar too**
+- Repeating events: "gym every Monday and Wednesday 7-8am" or "block 9-11 every weekday until Dec 19" become real recurring events.
 - Every event ClaudeBot adds shows up as a card with ↩️ Remove, including events added by scheduled tasks or the 📅 alert button.
 
 **Never lose a thread**

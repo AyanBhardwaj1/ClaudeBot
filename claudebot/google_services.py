@@ -334,6 +334,7 @@ class Google:
         description: str = "",
         location: str = "",
         attendees: list[str] | None = None,
+        recurrence: str | None = None,
     ) -> dict:
         body = {
             "summary": summary,
@@ -348,6 +349,8 @@ class Google:
             body["attendees"] = [{"email": a} for a in attendees]
         if "date" in body["start"]:
             body["transparency"] = "transparent"  # all-day notes ("Mom visiting") don't block the day
+        if recurrence:
+            body["recurrence"] = [recurrence]
         event = (
             self._calendar()
             .events()

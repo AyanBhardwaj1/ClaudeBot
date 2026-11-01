@@ -29,6 +29,32 @@ def busy_from_events(events: list[dict], tz: ZoneInfo) -> list[tuple[datetime, d
     return busy
 
 
+WEEKDAYS = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")
+FREQUENCIES = {"daily": "DAILY", "weekdays": "WEEKLY", "weekly": "WEEKLY", "biweekly": "WEEKLY",
+               "monthly": "MONTHLY", "yearly": "YEARLY"}
+
+
+def rrule(repeat: str, days: list[str] | None = None, until: str | None = None, count: int | None = None) -> str:
+    """An RFC 5545 recurrence rule built only from known tokens (nothing passed through as text)."""
+    if repeat not in FREQUENCIES:
+        raise ValueError(f"repeat must be one of {', '.join(FREQUENCIES)}")
+    parts = [f"FREQ={FREQUENCIES[repeat]}"]
+    if repeat == "biweekly":
+        parts.append("INTERVAL=2")
+    picked = ["MO", "TU", "WE", "TH", "FR"] if repeat == "weekdays" else [d.upper()[:2] for d in days or []]
+    if picked:
+        if any(d not in WEEKDAYS for d in picked) or FREQUENCIES[repeat] != "WEEKLY":
+            raise ValueError("days are weekday codes like MO, WE, FR, for weekly repeats")
+        parts.append("BYDAY=" + ",".join(dict.fromkeys(picked)))
+    if until:
+        parts.append("UNTIL=" + date.fromisoformat(until).strftime("%Y%m%d") + "T235959Z")
+    elif count is not None:
+        if not 1 <= int(count) <= 500:
+            raise ValueError("count must be between 1 and 500")
+        parts.append(f"COUNT={int(count)}")
+    return "RRULE:" + ";".join(parts)
+
+
 def _merge(intervals: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
     merged: list[tuple[datetime, datetime]] = []
     for start, end in sorted(intervals):

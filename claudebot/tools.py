@@ -22,7 +22,7 @@ from .expenses import expense_tool
 from .files import UnsupportedFile, to_content_block
 from .google_services import MAX_EVENTS, Google, GoogleNotConnected
 from .lists import list_tool
-from .scheduling import busy_from_events, free_slots
+from .scheduling import busy_from_events, free_slots, rrule
 
 log = logging.getLogger(__name__)
 
@@ -212,6 +212,12 @@ CLIENT_TOOLS = [
                 "description": {"type": "string"},
                 "location": {"type": "string"},
                 "attendees": {"type": "array", "items": {"type": "string"}},
+                "repeat": {"type": "string", "enum": ["daily", "weekdays", "weekly", "biweekly", "monthly", "yearly"],
+                           "description": "make it a repeating event"},
+                "days": {"type": "array", "items": {"type": "string", "enum": ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]},
+                         "description": "for weekly/biweekly: which days"},
+                "until": {"type": "string", "description": "YYYY-MM-DD last day of the repeats"},
+                "count": {"type": "integer", "description": "or: how many times"},
             },
             ["summary", "start", "end"],
         ),
@@ -634,6 +640,7 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "create_calendar_event":
         if a.get("attendees"):
             _require_owner(ctx, "send calendar invites")
+        recurrence = rrule(a["repeat"], a.get("days"), a.get("until"), a.get("count")) if a.get("repeat") else None
         result = await asyncio.to_thread(
             g.create_event,
             a["summary"],
@@ -642,10 +649,12 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
             a.get("description", ""),
             a.get("location", ""),
             a.get("attendees"),
+            recurrence,
         )
         if ctx.event_created is not None and result.get("id"):
             # A card from the bot itself, with Remove: an event can't slip onto the calendar unseen.
-            await ctx.event_created(result["id"], a["summary"], a["start"])
+            title = a["summary"] + (f" (repeats {a['repeat']})" if a.get("repeat") else "")
+            await ctx.event_created(result["id"], title, a["start"])
         return result
     if name == "update_calendar_event":
         _require_owner(ctx, "change calendar events")

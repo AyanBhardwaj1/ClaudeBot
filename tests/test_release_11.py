@@ -765,3 +765,30 @@ def test_help_mentions_every_private_command():
     registered -= {"start", "enable", "disable", "habits"}
     missing = [c for c in sorted(registered | {c.command for c in PRIVATE_COMMANDS}) if f"/{c}" not in HELP]
     assert missing == [] and "/setup" in HELP and "/disable" in HELP
+
+
+
+def test_recurrence_rules_are_built_from_known_tokens():
+    import pytest
+
+    from claudebot.scheduling import rrule
+
+    assert rrule("weekly", ["MO", "we"]) == "RRULE:FREQ=WEEKLY;BYDAY=MO,WE"
+    assert rrule("weekdays", until="2026-12-19") == "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=20261219T235959Z"
+    assert rrule("biweekly", ["FR"], count=6) == "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;COUNT=6"
+    assert rrule("monthly") == "RRULE:FREQ=MONTHLY"
+    for bad in (lambda: rrule("hourly"), lambda: rrule("weekly", ["XX"]), lambda: rrule("daily", ["MO"]),
+                lambda: rrule("weekly", until="soon"), lambda: rrule("weekly", count=0)):
+        with pytest.raises(ValueError):
+            bad()
+
+
+async def test_repeating_events_reach_google(tmp_path):
+    db = Database(tmp_path / "t.db")
+    google = FakeGoogle()
+    calls = []
+    google.create_event = lambda *args: calls.append(args) or {"status": "created", "id": "e1"}
+    result, is_error = await run_tool("create_calendar_event", {
+        "summary": "Gym", "start": "2026-11-09T07:00:00", "end": "2026-11-09T08:00:00",
+        "repeat": "weekly", "days": ["MO", "WE"]}, make_context(db, google=google))
+    assert not is_error and calls[0][-1] == "RRULE:FREQ=WEEKLY;BYDAY=MO,WE"
