@@ -70,7 +70,7 @@ HELP = (
     "Email and messages\n"
     "/triage – go through unread email one at a time (archive, reply, later)\n"
     "/waiting – replies you owe, and replies you're waiting on\n"
-    "/dms – Telegram chats waiting on your reply (⚡ Quick sends a canned reply; /quickreplies to change them)\n"
+    "/dms – Telegram chats waiting on your reply (⚡ Quick sends a canned reply, ⏰ 3h reminds you; /quickreplies to change them)\n"
     "/who – everything about someone: memories, email, meetings, IOUs (/who Alex)\n"
     "/sweep – archive old promotions and updates in one tap\n"
     "/rules – what email pings you (/rules never alert me about LinkedIn)\n\n"

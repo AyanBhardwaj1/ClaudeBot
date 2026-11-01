@@ -378,7 +378,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGES, self.on_business_message))
         self.app.add_handler(BusinessMessagesDeletedHandler(self.on_business_deleted))
         self.app.add_handler(
-            CallbackQueryHandler(self.on_dm_button, pattern=r"^(dm:(draft|quick):\d+|dmsend:\d+|dmcancel:\d+|dmq:\d+:\d+:[0-2]:[0-9a-f]{8})$")
+            CallbackQueryHandler(self.on_dm_button, pattern=r"^(dm:(draft|quick|later):\d+|dmsend:\d+|dmcancel:\d+|dmq:\d+:\d+:[0-2]:[0-9a-f]{8})$")
         )
         self.app.add_handler(CommandHandler("memory", self.on_memory, filters=owner))
         self.app.add_handler(CommandHandler("followups", self.on_followups_toggle, filters=owner))

@@ -314,6 +314,7 @@ class BusinessHandlers:
             row = [InlineKeyboardButton(f"✍️ Reply to {c.name[:24]}", callback_data=f"dm:draft:{c.chat_id}")]
             if c.can_reply:  # past Telegram's 24-hour window a quick reply can't go out anyway
                 row.append(InlineKeyboardButton("⚡ Quick", callback_data=f"dm:quick:{c.chat_id}"))
+            row.append(InlineKeyboardButton("⏰ 3h", callback_data=f"dm:later:{c.chat_id}"))
             rows.append(row)
         await message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
 
@@ -332,6 +333,9 @@ class BusinessHandlers:
             await query.answer()
             return
         action, _, arg = query.data.partition(":")
+        if action == "dm" and arg.startswith("later:"):  # dm:later:<chat_id>
+            await self._dm_later(query, int(arg.split(":")[1]))
+            return
         if action == "dm" and arg.startswith("quick:"):  # dm:quick:<chat_id>
             await self._quick_card(query, int(arg.split(":")[1]))
             return
@@ -362,6 +366,24 @@ class BusinessHandlers:
 
     def _waiting_chat(self, chat_id: int) -> DMChat | None:
         return next((c for c in self.dms.unanswered(limit=None) if c.chat_id == chat_id), None)
+
+    async def _dm_later(self, query, chat_id: int) -> None:
+        """A plain reminder to answer them yourself in 3 hours: nothing is sent to anyone."""
+        chat = self._waiting_chat(chat_id)
+        if chat is None:
+            await query.answer("Nobody is waiting there now.")
+            return
+        key = f"dm_later:{chat_id}:{chat.last_message_id}"
+        if self.db.get_setting(key):  # one reminder per message, however many taps
+            await query.answer("Already set.")
+            return
+        self.db.set_setting(key, "1")
+        self.db.prune_settings("dm_later:", 50)
+        when = datetime.now(self.config.timezone) + timedelta(hours=3)
+        reminder_id = self.db.add_reminder(f"💬 Reply to {defang_urls(clip(chat.name, 40))} on Telegram (/dms)", when, "none", False)
+        self.schedule_reminder(reminder_id)
+        ActionLog(self.db).record("reminder", f"Reminder to reply to {chat.name} at {when:%H:%M}")
+        await query.answer(f"⏰ I'll remind you at {when:%H:%M}.")
 
     async def _quick_card(self, query, chat_id: int) -> None:
         chat = self._waiting_chat(chat_id)

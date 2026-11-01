@@ -197,7 +197,7 @@ async def test_dms_view_and_draft_button(tmp_path, monkeypatch):
     await bot.on_dms(update, None)
     text, markup = replies[-1]
     assert "Alex Kim" in text and "https://evil.example" not in text
-    assert buttons(markup) == ["dm:draft:500", "dm:quick:500"]
+    assert buttons(markup) == ["dm:draft:500", "dm:quick:500", "dm:later:500"]
     await bot.on_dm_button(tap("dm:draft:500")[0], None)
     prompt, owner_present = conversed[-1]
     assert "500" in prompt and "reply_telegram_dm" in prompt and "evil" not in prompt and owner_present is False
@@ -449,3 +449,18 @@ async def test_quick_reply_cards_defang_names_and_skip_closed_chats(tmp_path, mo
     assert "dm:quick:500" in buttons(markup) and "dm:quick:600" not in buttons(markup)
     await bot.on_dm_button(tap("dm:quick:500")[0], None)
     assert "https://evil.example" not in sent[-1][0]
+
+
+async def test_later_button_sets_one_reminder_and_sends_nothing(tmp_path, monkeypatch):
+    bot, sent, _, delivered = make_bot(tmp_path, monkeypatch)
+    scheduled = []
+    bot.schedule_reminder = scheduled.append
+    bot.dms.save_connection(connection())
+    bot.dms.record(dm("call me back?", at=datetime.now(timezone.utc)))
+    await bot.on_dm_button(tap("dm:later:500", user_id=999)[0], None)
+    assert scheduled == []
+    update, answers, _ = tap("dm:later:500")
+    await bot.on_dm_button(update, None)
+    await bot.on_dm_button(update, None)
+    assert len(scheduled) == 1 and answers[-1] == "Already set." and delivered == []
+    assert bot.db.active_reminders()[0]["text"] == "💬 Reply to Alex Kim on Telegram (/dms)"
