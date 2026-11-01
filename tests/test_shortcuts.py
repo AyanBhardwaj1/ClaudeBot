@@ -36,3 +36,21 @@ async def test_catchup_covers_the_time_since_last_time(tmp_path, monkeypatch):
     assert "last 5 hours" in asked[-1] and "newer_than:5h" in asked[-1]
     await bot.on_trips(SimpleNamespace(), None)
     assert "trips" in asked[-1]
+
+
+
+async def test_health_check_follows_the_alive_file(tmp_path, monkeypatch):
+    import os
+    import time
+
+    from claudebot.__main__ import healthy
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    assert not healthy(tmp_path)
+    await bot._alive_job(None)
+    assert healthy(tmp_path)
+    old = time.time() - 600
+    os.utime(tmp_path / "alive", (old, old))
+    assert not healthy(tmp_path)

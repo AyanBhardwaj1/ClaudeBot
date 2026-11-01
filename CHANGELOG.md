@@ -2,6 +2,9 @@
 
 ## 1.2.0
 
+**Runs itself**
+- Docker health check: the bot touches a file every minute and `python -m claudebot health` checks it, so Docker (and Fly/Railway) can see a stuck bot.
+
 **Today at a glance**
 - `/catchup`: what you missed since you last asked (important email, DMs, what ClaudeBot did). `/trips`: upcoming travel from your email and calendar, with anything that looks missing.
 - `/status` shows how many check-ins you got this week and how many you tapped, so you can tell whether they earn their place.

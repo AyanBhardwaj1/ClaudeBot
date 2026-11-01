@@ -3,6 +3,7 @@
     python -m claudebot          run the bot
     python -m claudebot setup    guided setup: checks your keys and writes .env
     python -m claudebot google   connect Google from a computer with a browser
+    python -m claudebot health   exit 0 if the running bot checked in recently (for Docker)
 """
 
 import logging
@@ -36,6 +37,18 @@ def run() -> None:
         config = load_config()
 
 
+HEALTH_FILE = "alive"
+HEALTH_MAX_AGE = 300  # seconds: the bot writes the file every minute
+
+
+def healthy(data_dir, now: float | None = None) -> bool:
+    """The bot's event loop wrote its heartbeat file recently (it isn't stuck or dead)."""
+    import time
+
+    path = data_dir / HEALTH_FILE
+    return path.exists() and (now or time.time()) - path.stat().st_mtime < HEALTH_MAX_AGE
+
+
 def main() -> None:
     command = sys.argv[1] if len(sys.argv) > 1 else "run"
     if command == "run":
@@ -47,6 +60,8 @@ def main() -> None:
             setup()
         except KeyboardInterrupt:
             sys.exit("\nSetup stopped. Run it again any time: python -m claudebot setup")
+    elif command == "health":
+        sys.exit(0 if healthy(load_config().data_dir) else 1)
     elif command == "google":
         from .google_auth import main as google
 

@@ -414,6 +414,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         app.job_queue.run_repeating(
             self._heartbeat_job, interval=HEARTBEAT_HOURS * 3600, first=15 * 60, name="check-ins"
         )
+        app.job_queue.run_repeating(self._alive_job, interval=60, first=1, name="alive")
         app.job_queue.run_repeating(
             self._cleanup_job, interval=UPLOAD_CLEANUP_HOURS * 3600, first=60, name="file-cleanup"
         )
@@ -930,6 +931,11 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
 
     async def _outbox_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self.outbox.deliver(context.job.data)
+
+    async def _alive_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Touch a file each minute so `python -m claudebot health` (Docker's health check) can tell
+        the event loop is still running."""
+        (self.config.data_dir / "alive").touch()
 
     async def _cleanup_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Button bookkeeping only matters for recent messages.

@@ -12,5 +12,8 @@ RUN useradd --create-home claudebot && mkdir /data && chown claudebot:claudebot 
 ENV CLAUDEBOT_DATA_DIR=/data PYTHONUNBUFFERED=1
 VOLUME /data
 
+# Healthy while the bot's event loop keeps touching /data/alive (once a minute).
+HEALTHCHECK --interval=2m --timeout=10s --start-period=2m CMD ["python", "-m", "claudebot", "health"]
+
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["python", "-m", "claudebot"]
