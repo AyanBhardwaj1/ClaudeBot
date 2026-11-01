@@ -318,6 +318,10 @@ class Google:
                 **({"transparency": e["transparency"]} if e.get("transparency") else {}),
                 **({"declined": True} if any(a.get("self") and a.get("responseStatus") == "declined"
                                              for a in e.get("attendees", [])) else {}),
+                # Organized by the owner, or an invite they said yes to: not just anything someone sent.
+                **({"accepted": True} if (e.get("organizer", {}).get("self") or any(
+                    a.get("self") and a.get("responseStatus") == "accepted" for a in e.get("attendees", [])))
+                   else {}),
             }
             for e in items[:limit]
         ]

@@ -32,7 +32,8 @@ class ButtonHandlers:
         if not self._from_owner(query):
             await query.answer()
             return
-        self.db.delete_memory(int(query.data.split(":")[2]))
+        if self.db.delete_memory(int(query.data.split(":")[2])):
+            ActionLog(self.db).record("memory", f"Forgot memory #{query.data.split(':')[2]} (/memory)")
         await query.answer("Forgotten.")
         text, buttons = memory_view(self.db.list_memories())
         try:
@@ -101,6 +102,7 @@ class ButtonHandlers:
                 when = max(datetime.combine(due, time(9), tzinfo=self.config.timezone), now + timedelta(hours=1))
             text = f"Due {due:%a %b %-d}: {info.get('subject', '')} (from {info.get('from', 'an email')})"
             self.schedule_reminder(self.db.add_reminder(text, when, "none", False))
+            ActionLog(self.db).record("reminder", f"Set a reminder: {text} ({when:%a %b %-d %H:%M})")
             self.db.set_setting(f"alert:{message_id}", json.dumps({**info, "reminded": True}))
             await query.answer(f"⏰ I'll remind you {when:%a %b %-d at %H:%M}")
         elif action == "later":
@@ -111,6 +113,7 @@ class ButtonHandlers:
             when = datetime.now(self.config.timezone) + timedelta(hours=3)
             text = f"Follow up on the email from {info.get('from', 'someone')}: {info.get('subject', '')}".strip()
             self.schedule_reminder(self.db.add_reminder(text, when, "none", False))
+            ActionLog(self.db).record("reminder", f"Set a reminder: {text} ({when:%a %H:%M})")
             self.db.set_setting(f"alert:{message_id}", json.dumps({**info, "reminded": True}))
             await query.answer(f"⏰ I'll remind you at {when:%H:%M}")
         else:  # draft

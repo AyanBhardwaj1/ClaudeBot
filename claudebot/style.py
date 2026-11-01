@@ -27,7 +27,12 @@ MAX_PER_EMAIL = 800
 MIN_SAMPLES = 2
 SENT_QUERY = "in:sent newer_than:180d -in:chats"
 _QUOTE_START = re.compile(
-    r"^(On .{0,200}wrote:|-{2,}\s*Original Message\s*-{2,}|-{2,}\s*Forwarded message\s*-{2,}|From: .+)$",
+    r"^[ \t]*(?:"
+    r"On\b[^\n]{0,300}(?:\n[^\n]{0,300})?(?:wrote|a écrit|schrieb|escribió|ha scritto|escreveu):[ \t]*$"
+    r"|-{2,}[ \t]*(?:Original Message|Forwarded message|Mensaje original|Message d'origine)[ \t]*-{2,}"
+    r"|From:[ \t]*\S*.*$"
+    r"|_{5,}[ \t]*$"  # Outlook's rule above the quoted message
+    r")",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -46,8 +51,13 @@ SCHEMA = {
 }
 
 
+class StyleUnavailable(RuntimeError):
+    """The model couldn't be asked (budget, API): different from "not enough email"."""
+
+
 def strip_quoted(body: str) -> str:
     """Only the part the owner wrote: no quoted reply, no forwarded message, no '>' lines."""
+    body = body.replace("\r\n", "\n").replace("\r", "\n").replace("\xa0", " ")  # Gmail sends CRLF
     match = _QUOTE_START.search(body)
     if match:
         body = body[: match.start()]
@@ -85,8 +95,7 @@ async def learn_style(google, client: anthropic.AsyncAnthropic, tracker: UsageTr
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
         )
     except (BudgetExceeded, anthropic.APIError) as e:
-        log.info("Couldn't learn a style: %s", e)
-        return None
+        raise StyleUnavailable(str(e)) from e
     tracker.record(response, "style")
     try:
         style = json.loads(next(b.text for b in response.content if b.type == "text"))["style"]

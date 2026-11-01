@@ -77,6 +77,7 @@ from .ui import (
     LivePreview,
     followup_keyboard,
     reply_context,
+    split_message,
 )
 from .usage import BudgetExceeded, UsageTracker
 from .web_agent import deep_research, run_briefing
@@ -173,22 +174,6 @@ def origin_name(origin) -> str:
     if chat is not None:
         return chat.title or "a chat"
     return getattr(origin, "sender_user_name", None) or "someone"
-
-
-def split_message(text: str, limit: int = 4000) -> list[str]:
-    """Split text into Telegram-sized chunks, preferring paragraph and line breaks."""
-    chunks = []
-    while len(text) > limit:
-        cut = text.rfind("\n\n", 0, limit)
-        if cut <= 0:
-            cut = text.rfind("\n", 0, limit)
-        if cut <= 0:
-            cut = limit
-        chunks.append(text[:cut].rstrip())
-        text = text[cut:].lstrip("\n")
-    if text.strip():
-        chunks.append(text)
-    return chunks
 
 
 class TelegramOutboxUI:
@@ -335,8 +320,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CallbackQueryHandler(self.on_brief_button, pattern=r"^brief:(good|tune)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_rule_button, pattern=r"^rule:del:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_quiet_button, pattern=r"^dnd:(\d{1,4}|morning|off)$"))
-        self.app.add_handler(CallbackQueryHandler(self.on_list_button, pattern=r"^(li|lc):\d+$"))
-        self.app.add_handler(CallbackQueryHandler(self.on_style_button, pattern=r"^style:(learn|use|discard)$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_list_button, pattern=r"^(li:\d+:\d+|lc:\d+|ld:\d+)$"))
+        self.app.add_handler(CallbackQueryHandler(self.on_style_button, pattern=r"^style:(learn|use:\d+|discard)$"))
         # Telegram Business: the owner's own chats. Stored as data, never handled as commands.
         self.app.add_handler(BusinessConnectionHandler(self.on_business_connection))
         self.app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGES, self.on_business_message))

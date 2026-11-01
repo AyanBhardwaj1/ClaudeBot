@@ -30,8 +30,13 @@ def test_list_limits(tmp_path):
     name = lists.names()[0]
     item = lists.items(name)[0]["text"]
     assert len(name) <= 40 and len(item) <= 200 and "<" not in item
-    lists.add("big", [f"item {i}" for i in range(150)])
-    assert len(lists.items("big")) == 100
+    import pytest
+
+    from claudebot.lists import ListFull
+
+    with pytest.raises(ListFull) as full:
+        lists.add("big", [f"item {i}" for i in range(150)])
+    assert len(full.value.added) == 100 and len(lists.items("big")) == 100
 
 
 async def test_list_tools(tmp_path):
@@ -77,11 +82,37 @@ async def test_lists_command_and_buttons(tmp_path, monkeypatch):
         edits.append(text)
 
     milk_id = Lists(bot.db).items("Shopping")[0]["id"]
-    tap = SimpleNamespace(callback_query=SimpleNamespace(from_user=SimpleNamespace(id=1), data=f"li:{milk_id}",
+    list_id = Lists(bot.db).id_of("Shopping")
+    assert f"li:{list_id}:{milk_id}" in datas and f"ld:{list_id}" in datas
+    tap = SimpleNamespace(callback_query=SimpleNamespace(from_user=SimpleNamespace(id=1), data=f"li:{list_id}:{milk_id}",
                                                          answer=answer, edit_message_text=edit))
     await bot.on_list_button(tap, None)
     assert Lists(bot.db).items("Shopping")[0]["done"] and "✅ milk" in edits[-1]
-    stranger = SimpleNamespace(callback_query=SimpleNamespace(from_user=SimpleNamespace(id=9), data=f"li:{milk_id}",
+    stranger = SimpleNamespace(callback_query=SimpleNamespace(from_user=SimpleNamespace(id=9), data=f"li:{list_id}:{milk_id}",
                                                               answer=answer, edit_message_text=edit))
     await bot.on_list_button(stranger, None)
     assert Lists(bot.db).items("Shopping")[0]["done"]  # unchanged
+
+
+
+def test_old_buttons_cant_touch_another_lists_items(tmp_path):
+    lists = Lists(Database(tmp_path / "t.db"))
+    lists.add("Shopping", ["milk", "eggs"])
+    eggs = lists.items("Shopping")[1]
+    shopping_id = lists.id_of("Shopping")
+    lists.delete_list("Shopping")
+    lists.add("Packing", ["passport", "charger"])  # SQLite may hand out the freed ids again
+    assert lists.toggle(eggs["id"], list_id=shopping_id) is None
+    assert not any(i["done"] for i in lists.items("Packing"))
+
+
+def test_list_count_is_capped(tmp_path):
+    import pytest
+
+    from claudebot.lists import MAX_LISTS
+
+    lists = Lists(Database(tmp_path / "t.db"))
+    for i in range(MAX_LISTS):
+        lists.add(f"list {i}", ["x"])
+    with pytest.raises(ValueError):
+        lists.add("one more", ["x"])

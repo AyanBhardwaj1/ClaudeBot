@@ -107,3 +107,19 @@ def reply_context(quoted: str, from_bot: bool, forwarded_from: str | None = None
         # The bot's own words may quote email or web text (an inbox alert, a summary): fenced as data.
         return "[Replying to your earlier message:]\n" + fence_external("quoted_message", "ClaudeBot", defang_urls(text))
     return f'[Replying to my earlier message: "{text}"]'
+
+
+def split_message(text: str, limit: int = 4000) -> list[str]:
+    """Split text into Telegram-sized chunks, preferring paragraph and line breaks."""
+    chunks = []
+    while len(text) > limit:
+        cut = text.rfind("\n\n", 0, limit)
+        if cut <= 0:
+            cut = text.rfind("\n", 0, limit)
+        if cut <= 0:
+            cut = limit
+        chunks.append(text[:cut].rstrip())
+        text = text[cut:].lstrip("\n")
+    if text.strip():
+        chunks.append(text)
+    return chunks

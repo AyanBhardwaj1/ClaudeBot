@@ -8,7 +8,7 @@ meeting is prepped once, at most a few a day, and it can be turned off in /setti
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from telegram.ext import ContextTypes
 
@@ -35,13 +35,15 @@ PREP_PROMPT = (
 
 
 def meetings_to_prep(events: list[dict], now: datetime, tz) -> list[dict]:
-    """Timed meetings with other people that start 30-75 minutes from now, soonest first."""
+    """Timed meetings with other people, which the owner organized or accepted (a stranger's invite
+    doesn't count), starting 30-75 real minutes from now, soonest first."""
     picked = []
+    now_utc = now.astimezone(timezone.utc)  # real minutes, also on the night the clocks change
     for e in events:
-        if len(e["start"]) == 10 or e.get("declined") or not e.get("attendees"):
+        if len(e["start"]) == 10 or e.get("declined") or not e.get("accepted") or not e.get("attendees"):
             continue
         start, _ = _parse(e["start"], tz)
-        if now + EARLIEST <= start <= now + LATEST:
+        if now_utc + EARLIEST <= start.astimezone(timezone.utc) <= now_utc + LATEST:
             picked.append((start, e))
     return [e for _, e in sorted(picked, key=lambda p: p[0])]
 
@@ -72,7 +74,8 @@ class MeetingPrepHandlers:
             minutes = max(int((start - now).total_seconds() // 60), 0)
             # Only the id: the invite's title and description are someone else's text, read via tools.
             prompt = PREP_PROMPT.format(event_id=e["id"], minutes=minutes)
-            reply = await self._ask_agent([{"type": "text", "text": prompt}], owner_present=False, effort="low")
-            await self.send_to_owner(reply)
+            reply, ok = await self._run_agent([{"type": "text", "text": prompt}], owner_present=False, effort="low")
+            if ok:  # an API or budget error isn't a brief
+                await self.send_to_owner(reply)
         self.db.prune_settings(PREP_KEY, 200)
         self.db.prune_settings(COUNT_PREFIX, 7)

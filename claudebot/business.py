@@ -355,6 +355,7 @@ class BusinessHandlers:
         except (TimedOut, NetworkError) as e:
             # It may have gone out anyway: no Send button, or a second tap could send it twice.
             self.dms.set_reply_status(reply["id"], "unknown")
+            ActionLog(self.db).record("telegram", f"MAY have sent a Telegram reply to {reply['name']} (connection dropped)")
             log.warning("Telegram reply may or may not have been sent: %s", e)
             await query.edit_message_text(
                 f"⚠️ The connection dropped while sending to {reply['name']}. It may have gone out: check the chat "

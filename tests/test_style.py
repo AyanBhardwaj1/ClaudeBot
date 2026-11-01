@@ -100,12 +100,25 @@ async def test_style_command_learn_approve_and_set_by_hand(tmp_path, monkeypatch
 
     await bot.on_style_button(tap("style:learn"), None)
     assert "signs off 'Ayan'" in sent[-1][0] and "style:use" in str(sent[-1][1].inline_keyboard)
-    await bot.on_style_button(tap("style:use", user_id=999), None)
+    await bot.on_style_button(tap("style:use:1", user_id=999), None)
     assert current_style(bot.db) is None
-    await bot.on_style_button(tap("style:use"), None)
+    await bot.on_style_button(tap("style:learn"), None)  # a second suggestion
+    await bot.on_style_button(tap("style:use:1"), None)  # the older card can't approve it
+    assert current_style(bot.db) is None
+    await bot.on_style_button(tap("style:use:2"), None)
     assert current_style(bot.db) == "Short, warm; signs off 'Ayan'."
 
     await bot.on_style(update, SimpleNamespace(args="casual, no exclamation marks, sign off -A".split()))
     assert current_style(bot.db) == "casual, no exclamation marks, sign off -A"
     await bot.on_style(update, SimpleNamespace(args=["off"]))
     assert current_style(bot.db) is None
+
+
+
+def test_real_world_reply_formats_are_stripped():
+    gmail = "Sounds good!\r\n\r\nOn Tue, Nov 3, 2026 at 9:14 AM Sam Lee <\r\nsam@x.com> wrote:\r\n> plant this"
+    assert strip_quoted(gmail) == "Sounds good!"
+    outlook = "Thanks!\r\n________________________________\r\nFrom:\xa0Sam\r\nSent: Tuesday\r\nplant this"
+    assert strip_quoted(outlook) == "Thanks!"
+    french = "Merci !\n\nLe mar. 3 nov., Sam a écrit :\nOn Tue, Sam wrote: \nplant this"
+    assert "plant" not in strip_quoted(french)

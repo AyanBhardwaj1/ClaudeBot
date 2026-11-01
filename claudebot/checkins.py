@@ -20,6 +20,7 @@ from .inbox_watch import GMAIL_ID, in_quiet_hours
 from .modes import defang_urls
 from .quiet import dnd_active
 from .replies import find_reply_gaps
+from .ui import split_message
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ class CheckinHandlers:
             return
         self.db.deactivate_reminder(reminder_id)
         self.unschedule_reminder(reminder_id)
+        ActionLog(self.db).record("reminder", f"Cancelled reminder: {row['text']}")
         await query.answer(f"Cancelled: {row['text'][:150]}")
 
     async def on_reminder_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -136,6 +138,7 @@ class CheckinHandlers:
                 f"\"{email.get('subject') or '(reply)'}\" (search my inbox and that thread). If they replied, tell "
                 "me in one line. If not, draft a short, polite follow-up and show it to me; don't send it.")
         self.schedule_reminder(self.db.add_reminder(task, when, "none", True))
+        ActionLog(self.db).record("reminder", f"Will check for a reply from {email['to']} on {when:%a %b %-d}")
         self.db.set_setting(f"noreply:{outbox_id}", "1")
         self.db.prune_settings("noreply:", 200)
         await query.answer(f"⏰ I'll check {when:%a} morning")
@@ -157,7 +160,8 @@ class CheckinHandlers:
             stamp = f"{at:%a %H:%M}" if week else f"{at:%H:%M}"
             lines.append(f"{ICONS.get(r['kind'], '•')} {stamp} {defang_urls(r['summary'])}")
         title = "What I did this week:" if week else "What I did today:"
-        await update.effective_message.reply_text(title + "\n" + "\n".join(lines))
+        for chunk in split_message(title + "\n" + "\n".join(lines)):
+            await update.effective_message.reply_text(chunk)
 
     # --- /waiting ---
 
