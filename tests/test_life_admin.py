@@ -109,3 +109,31 @@ async def test_trips_and_deadlines_get_an_add_to_calendar_button(tmp_path, monke
         from_user=SimpleNamespace(id=1), data="mail:cal:abc333", answer=answer)), None)
     prompt, owner_present = conversed[0]
     assert "abc333" in prompt and "without attendees" in prompt and owner_present is False
+
+
+async def test_hourly_digest_holds_alerts_and_sends_them_together(tmp_path):
+    db = Database(tmp_path / "t.db")
+    db.set_setting("alert_mode", "hourly")
+    google = FakeGoogle(inbox=[])
+    notes = []
+
+    async def notify(text, actions=None):
+        notes.append((text, actions))
+
+    def verdict(*ids):
+        body = {"emails": [{"id": i, "notify": True, "summary": f"about {i}", "due": "", "kind": "other"} for i in ids]}
+        return message("end_turn", [{"type": "text", "text": json.dumps(body)}], model="claude-haiku-5-5")
+
+    client = FakeClient([verdict("abc111"), verdict("abc222")])
+    watcher = InboxWatcher(db, google, client, UsageTracker(db, TZ, None), make_config(tmp_path, quiet_hours=None), notify)
+    await watcher.check()
+    google.inbox = [{"id": "abc111", "from": "a@b.c", "subject": "one", "snippet": "", "unread": True}]
+    await watcher.check()
+    google.inbox.append({"id": "abc222", "from": "d@e.f", "subject": "two", "snippet": "", "unread": True})
+    await watcher.check()
+    assert notes == []  # held for the digest
+    assert await watcher.flush_digest() == 2
+    text, actions = notes[-1]
+    assert text.startswith("📬 2 important emails this hour") and "about abc111" in text and "about abc222" in text
+    assert any(data == "mail:arch:abc111" for _, data in actions)
+    assert await watcher.flush_digest() == 0

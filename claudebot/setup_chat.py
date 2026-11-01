@@ -25,6 +25,7 @@ from .google_connect import (
     start,
 )
 from .heartbeat import CHECKINS_KEY
+from .inbox_watch import ALERT_MODE_KEY
 from .journal import AWAIT as JOURNAL_AWAIT
 from .meeting_prep import SWITCH_KEY as PREP_SWITCH
 from .modes import MODES, current_mode
@@ -348,7 +349,7 @@ class SetupHandlers:
             f"💼 Job: {profile.describe() if profile else 'not set'}\n"
             f"🎭 Mode: {MODES[current_mode(self.db)][0]}\n"
             f"☀️ Daily brief: {c.daily_brief_time or 'off'}\n"
-            f"📬 Inbox alerts: {alerts}\n"
+            f"📬 Inbox alerts: {alerts}{', hourly digest' if self.db.get_setting(ALERT_MODE_KEY) == 'hourly' else ''}\n"
             f"↩️ Undo window: {c.undo_send_seconds}s\n"
             f"💰 Budget: {budget}\n"
             f"💬 Suggestions: {'on' if self._followups_on() else 'off'}\n"
@@ -365,7 +366,8 @@ class SetupHandlers:
         return _keyboard([
             [("👤 Name", "set:name"), ("📍 Location", "set:place"), ("💼 Job", "set:role")],
             [("🎭 Mode", "set:mode"), ("☀️ Brief", "set:brief"), ("🌙 Quiet hours", "set:quiet")],
-            [("📬 Alerts on/off", "set:alerts"), ("↩️ Undo", "set:undo"), ("💰 Budget", "set:budget")],
+            [("📬 Alerts on/off", "set:alerts"), ("⏱ Instant / hourly", "set:alertmode")],
+            [("↩️ Undo", "set:undo"), ("💰 Budget", "set:budget")],
             [("💬 Suggestions on/off", "set:followups"), ("👋 Check-ins on/off", "set:checkins")],
             [("✉️ Send / drafts only", "set:drafts"), ("📋 Meeting prep on/off", "set:prep")],
             [("🗓 Sunday review on/off", "set:review"), ("📰 Newsletter digest on/off", "set:digest")],
@@ -426,6 +428,11 @@ class SetupHandlers:
             await self.send_to_owner(
                 "👋 Check-ins on: I'll message you when something needs you (at most 3 a day)." if on
                 else "Check-ins off. /waiting still shows what needs a reply.")
+        elif key == "alertmode":
+            hourly = self.db.get_setting(ALERT_MODE_KEY) != "hourly"
+            self.db.set_setting(ALERT_MODE_KEY, "hourly" if hourly else "instant")
+            await self.send_to_owner(
+                "⏱ Inbox alerts now come as one digest an hour." if hourly else "📬 Inbox alerts come right away again.")
         elif key == "digest":
             on = self.db.get_setting(DIGEST_KEY) != "on"
             self.db.set_setting(DIGEST_KEY, "on" if on else "off")

@@ -337,6 +337,15 @@ class CheckinHandlers:
         if failures:
             self.db.delete_setting(INBOX_FAILURES_KEY)
 
+    async def _alert_digest_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        now = datetime.now(self.config.timezone)
+        if in_quiet_hours(now, self.config.quiet_hours) or dnd_active(self.db, now):
+            return  # held alerts wait for the next hour outside quiet time
+        try:
+            await self.watcher.flush_digest()
+        except TelegramError:
+            log.warning("Couldn't send the alert digest; it'll go with the next one", exc_info=True)
+
     async def _tell_owner(self, text: str) -> None:
         try:
             await self.send_to_owner(text)

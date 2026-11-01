@@ -27,6 +27,9 @@ MAX_SUBJECT = 100
 MAX_NAME = 40
 BASELINE_KEY = "inbox_baseline"
 MAX_DUE_AHEAD = timedelta(days=120)
+ALERT_MODE_KEY = "alert_mode"  # "hourly" holds alerts for one digest an hour
+DIGEST_QUEUE_KEY = "alert_digest"
+MAX_DIGEST = 30
 MAX_ACTION_ALERTS = 3  # buttons for the first few alerted emails; more would swamp the chat
 GMAIL_ID = re.compile(r"[0-9a-f]{6,32}")  # also keeps callback data inside Telegram's 64 bytes
 
@@ -210,6 +213,15 @@ class InboxWatcher:
                 alerts.append({**email, "summary": summary, "due": due.isoformat() if due else "", "kind": kind})
         return alerts
 
+    async def flush_digest(self) -> int:
+        """Send the alerts held for the hourly digest, if any. Returns how many."""
+        held = json.loads(self.db.get_setting(DIGEST_QUEUE_KEY) or "[]")
+        if not held:
+            return 0
+        await self._send(held, title=f"📬 {len(held)} important email{'s' if len(held) != 1 else ''} this hour")
+        self.db.delete_setting(DIGEST_QUEUE_KEY)  # only after it went out
+        return len(held)
+
     def _actions(self, alerts: list[dict]) -> list[tuple[str, str]]:
         """Archive / Reply / Later buttons per email, remembering who it was from for later."""
         actions = []
@@ -233,7 +245,14 @@ class InboxWatcher:
             actions += [(f"🗄 {short}", f"mail:arch:{a['id']}"), middle, later]
         return actions
 
-    async def _send(self, alerts: list[dict]) -> None:
+    async def _send(self, alerts: list[dict], title: str = "📬 New email") -> None:
+        if self.db.get_setting(ALERT_MODE_KEY) == "hourly" and title == "📬 New email":
+            # Hourly digest: held here, sent together by flush_digest.
+            held = json.loads(self.db.get_setting(DIGEST_QUEUE_KEY) or "[]")
+            fields = ("id", "from", "subject", "summary", "due", "kind")
+            held += [{k: a.get(k, "") for k in fields} for a in alerts]
+            self.db.set_setting(DIGEST_QUEUE_KEY, json.dumps(held[-MAX_DIGEST:]))
+            return
         shown = alerts[:MAX_LISTED]
         lines = []
         for a in shown:
@@ -242,7 +261,7 @@ class InboxWatcher:
             lines.append(f"- {who}: {a['summary']}")
         if len(alerts) > len(shown):
             lines.append(f"- ...and {len(alerts) - len(shown)} more")
-        await self.notify("📬 New email\n" + "\n".join(lines), self._actions(shown))
+        await self.notify(f"{title}\n" + "\n".join(lines), self._actions(shown))
         # JSON keeps each quoted field inside its string; the agent sees it as data to look up,
         # and reads the email itself via read_email (a tool result) when it needs the content.
         for a in shown:  # one notice per email, so per-notice length caps never cut one in half

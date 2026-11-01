@@ -424,6 +424,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             self._heartbeat_job, interval=HEARTBEAT_HOURS * 3600, first=15 * 60, name="check-ins"
         )
         app.job_queue.run_repeating(self._alive_job, interval=60, first=1, name="alive")
+        app.job_queue.run_repeating(self._alert_digest_job, interval=3600, first=3600, name="alert-digest")
         app.job_queue.run_repeating(
             self._cleanup_job, interval=UPLOAD_CLEANUP_HOURS * 3600, first=60, name="file-cleanup"
         )
