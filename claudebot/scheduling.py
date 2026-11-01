@@ -89,7 +89,7 @@ def free_slots(
     every busy interval and start after now, spread out rather than back to back."""
     now = now or datetime.now(tz)
     blocked = _merge(busy)
-    slots = []
+    slots: list[tuple[datetime, datetime]] = []
     day = start.astimezone(tz).date()
     while day <= end.astimezone(tz).date() and len(slots) < limit:
         window_start = max(datetime.combine(day, day_start, tzinfo=tz), start, now)

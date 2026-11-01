@@ -165,7 +165,8 @@ async def run_heartbeat(
     if replies_sent_today and all(s.kind == "replies" for s in chosen):  # they wait for tomorrow, unseen
         _mark_seen(db, [s for s in signals if s.kind == "calendar"], local)
         return None
-    shown, length = [], 0
+    shown: list[tuple[Signal, str]] = []
+    length = 0
     for s in chosen:  # whole lines only; what doesn't fit stays unseen for the next check-in
         line = defang_urls(f"- {s.text}")
         if shown and length + len(line) + 1 > MAX_MESSAGE:

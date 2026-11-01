@@ -55,7 +55,7 @@ def describe_tool_action(name: str, args: dict, result) -> tuple[str, str] | Non
     if name == "create_draft" or (name == "send_email" and "draft" in str(result.get("status", ""))):
         return "email", f"Saved a draft to {args.get('to', '')}: {args.get('subject', '')}"
     if name == "modify_email" and result.get("status"):
-        return "email", f"{MODIFY_WORDS.get(args.get('action'), 'Changed')} an email"
+        return "email", f"{MODIFY_WORDS.get(str(args.get('action')), 'Changed')} an email"
     if name == "create_calendar_event" and result.get("status") == "created":
         invited = f", invited {', '.join(args['attendees'])}" if args.get("attendees") else ""
         return "calendar", f"Added \"{args.get('summary', '')}\" ({args.get('start', '')}){invited}"

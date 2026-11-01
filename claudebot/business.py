@@ -188,7 +188,7 @@ class DMStore:
         for (chat_id,) in self.db.conn.execute("SELECT DISTINCT chat_id FROM dm_messages").fetchall():
             rows = self.db.conn.execute(
                 "SELECT * FROM dm_messages WHERE chat_id = ? ORDER BY at, message_id", (chat_id,)).fetchall()
-            pending = []
+            pending: list = []
             for r in rows:
                 pending = [] if r["from_owner"] else pending + [r]
             if not pending:
@@ -207,7 +207,7 @@ class DMStore:
             "INSERT INTO dm_replies (chat_id, name, text, created_at) VALUES (?, ?, ?, ?)",
             (chat_id, name, text, datetime.now(timezone.utc).isoformat()))
         self.db.conn.commit()
-        return cur.lastrowid
+        return int(cur.lastrowid or 0)
 
     def take_reply(self, reply_id: int, status: str) -> dict | None:
         """Move a pending reply to `status`, once: a double tap gets None the second time."""
