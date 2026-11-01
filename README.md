@@ -181,7 +181,7 @@ Then `/connect` from your phone. ClaudeBot backs up its database every night to 
 ## Commands
 
 - `/help` lists everything; `/settings`, `/connect` and `/status` are covered above.
-- `/today` shows today at a glance (calendar, reminders, lists): instant, no AI cost.
+- `/today` shows today at a glance (calendar, reminders, bills due, birthdays, lists) and `/week` the next 7 days: instant, no AI cost.
 - `/catchup` tells you what you missed since last time; `/trips` lists upcoming travel from your email and calendar.
 - `/plan` suggests a realistic plan for today; `/prep` gets you ready for your next meeting; `/packages` lists deliveries on the way.
 - `/bills` tracks monthly bills with a reminder a couple of days before ("rent is $1200 on the 1st"); `/subscriptions` finds recurring charges in your receipts; `/owed` nets out IOUs.
