@@ -9,6 +9,7 @@ text, never an instruction: it is stored and shown, never obeyed.
 
 import json
 import logging
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -37,6 +38,29 @@ REPLY_WINDOW = timedelta(hours=24)  # Telegram lets a business bot answer chats 
 NUDGE_AFTER = timedelta(hours=2)  # check-ins mention a DM once someone has waited this long
 MAX_TEXT = 1000
 MAX_CHATS = 8
+QUICK_KEY = "dm_quick_replies"
+DEFAULT_QUICK = ["On it 👍", "Can I get back to you later today?", "Thanks!"]
+MAX_QUICK, MAX_QUICK_LEN = 3, 100
+
+
+def quick_replies(db: Database) -> list[str]:
+    saved = json.loads(db.get_setting(QUICK_KEY) or "null")
+    return saved or DEFAULT_QUICK
+
+
+def set_quick_replies(db: Database, text: str) -> list[str]:
+    """'/quickreplies On it | Running late | Call you soon': up to 3, each short."""
+    items = [" ".join(t.split())[:MAX_QUICK_LEN] for t in text.split("|")]
+    items = [t for t in items if t][:MAX_QUICK]
+    if not items:
+        raise ValueError("Give up to 3 replies separated by |, e.g. /quickreplies On it 👍 | Running late | Thanks!")
+    db.set_setting(QUICK_KEY, json.dumps(items))
+    return items
+
+
+def quick_tag(text: str) -> str:
+    """Ties a button to the exact text it showed: editing the list later can't change what a tap sends."""
+    return f"{zlib.crc32(text.encode()):08x}"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS dm_messages (
     id INTEGER PRIMARY KEY,
@@ -287,7 +311,8 @@ class BusinessHandlers:
             hours = int((datetime.now(timezone.utc) - c.waiting_since).total_seconds() // 3600)
             when = f"{hours}h" if hours else "just now"
             lines.append(f"- {c.name} ({when}): {defang_urls(clip(' / '.join(c.messages), 200))}")
-            rows.append([InlineKeyboardButton(f"✍️ Reply to {c.name[:24]}", callback_data=f"dm:draft:{c.chat_id}")])
+            rows.append([InlineKeyboardButton(f"✍️ Reply to {c.name[:24]}", callback_data=f"dm:draft:{c.chat_id}"),
+                         InlineKeyboardButton("⚡ Quick", callback_data=f"dm:quick:{c.chat_id}")])
         await message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
 
     async def propose_dm_reply(self, chat_id: int, name: str, text: str) -> int:
@@ -305,6 +330,12 @@ class BusinessHandlers:
             await query.answer()
             return
         action, _, arg = query.data.partition(":")
+        if action == "dm" and arg.startswith("quick:"):  # dm:quick:<chat_id>
+            await self._quick_card(query, int(arg.split(":")[1]))
+            return
+        if action == "dmq":  # dmq:<chat_id>:<i>:<tag>
+            await self._quick_send(query, *arg.split(":"))
+            return
         if action == "dm":  # dm:draft:<chat_id>
             await query.answer("✍️ Drafting...")
             chat_id = int(arg.split(":")[1])
@@ -326,6 +357,51 @@ class BusinessHandlers:
             return
         await query.answer()
         await self._deliver_dm(query, reply)
+
+    def _waiting_chat(self, chat_id: int) -> DMChat | None:
+        return next((c for c in self.dms.unanswered() if c.chat_id == chat_id), None)
+
+    async def _quick_card(self, query, chat_id: int) -> None:
+        chat = self._waiting_chat(chat_id)
+        if chat is None:
+            await query.answer("Nobody is waiting there now.")
+            return
+        await query.answer()
+        rows = [[InlineKeyboardButton(text[:60], callback_data=f"dmq:{chat_id}:{i}:{quick_tag(text)}")]
+                for i, text in enumerate(quick_replies(self.db))]
+        await self.send_to_owner(f"⚡ Quick reply to {chat.name}: one tap sends it from your account.\n"
+                                 "Change these with /quickreplies.", InlineKeyboardMarkup(rows))
+
+    async def _quick_send(self, query, chat_id: str, index: str, tag: str) -> None:
+        options = quick_replies(self.db)
+        text = options[int(index)] if int(index) < len(options) else None
+        chat = self._waiting_chat(int(chat_id))
+        if text is None or quick_tag(text) != tag:
+            await query.answer("Those replies changed; tap ⚡ Quick again.")
+            return
+        claim = f"dmq_sent:{chat.chat_id}:{chat.last_message_id}" if chat else ""
+        if chat is None or self.db.get_setting(claim):
+            await query.answer("Nobody is waiting there now.")
+            return
+        self.db.set_setting(claim, "1")  # claimed before any await: a fast double tap sends once
+        self.db.prune_settings("dmq_sent:", 50)
+        reply = self.dms.take_reply(self.dms.propose(chat.chat_id, chat.name, text), "sending")
+        await query.answer()
+        await self._deliver_dm(query, reply)
+
+    async def on_quick_replies(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        message = update.effective_message
+        if context.args:
+            try:
+                items = set_quick_replies(self.db, " ".join(context.args))
+            except ValueError as e:
+                await message.reply_text(str(e))
+                return
+            await message.reply_text("⚡ Quick replies saved:\n" + "\n".join(f"- {t}" for t in items))
+            return
+        await message.reply_text("⚡ Your quick replies (tap ⚡ Quick in /dms):\n" +
+                                 "\n".join(f"- {t}" for t in quick_replies(self.db)) +
+                                 "\n\nChange them: /quickreplies On it 👍 | Running late | Thanks!")
 
     async def _deliver_dm(self, query, reply: dict) -> None:
         connection_id = self.dms.active_connection_id()

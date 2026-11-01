@@ -333,6 +333,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("reminders", self.on_reminders, filters=owner))
         self.app.add_handler(CommandHandler("waiting", self.on_waiting, filters=owner))
         self.app.add_handler(CommandHandler("dms", self.on_dms, filters=owner))
+        self.app.add_handler(CommandHandler("quickreplies", self.on_quick_replies, filters=owner))
         self.app.add_handler(CommandHandler("log", self.on_log, filters=owner))
         self.app.add_handler(CommandHandler("style", self.on_style, filters=owner))
         self.app.add_handler(CommandHandler("lists", self.on_lists, filters=owner))
@@ -377,7 +378,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(MessageHandler(filters.UpdateType.BUSINESS_MESSAGES, self.on_business_message))
         self.app.add_handler(BusinessMessagesDeletedHandler(self.on_business_deleted))
         self.app.add_handler(
-            CallbackQueryHandler(self.on_dm_button, pattern=r"^(dm:draft:\d+|dmsend:\d+|dmcancel:\d+)$")
+            CallbackQueryHandler(self.on_dm_button, pattern=r"^(dm:(draft|quick):\d+|dmsend:\d+|dmcancel:\d+|dmq:\d+:[0-2]:[0-9a-f]{8})$")
         )
         self.app.add_handler(CommandHandler("memory", self.on_memory, filters=owner))
         self.app.add_handler(CommandHandler("followups", self.on_followups_toggle, filters=owner))

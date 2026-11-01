@@ -197,7 +197,7 @@ async def test_dms_view_and_draft_button(tmp_path, monkeypatch):
     await bot.on_dms(update, None)
     text, markup = replies[-1]
     assert "Alex Kim" in text and "https://evil.example" not in text
-    assert buttons(markup) == ["dm:draft:500"]
+    assert buttons(markup) == ["dm:draft:500", "dm:quick:500"]
     await bot.on_dm_button(tap("dm:draft:500")[0], None)
     prompt, owner_present = conversed[-1]
     assert "500" in prompt and "reply_telegram_dm" in prompt and "evil" not in prompt and owner_present is False
@@ -371,3 +371,57 @@ async def test_no_reply_permission_means_no_attempt(tmp_path, monkeypatch):
     update, answers, edits = tap(f"dmsend:{pending}")
     await bot.on_dm_button(update, None)
     assert delivered == [] and "Reply to messages" in edits[-1]
+
+
+async def test_quick_replies_send_the_text_shown_once(tmp_path, monkeypatch):
+    from claudebot.business import quick_tag, set_quick_replies
+
+    bot, sent, _, delivered = make_bot(tmp_path, monkeypatch)
+    bot.dms.save_connection(connection())
+    bot.dms.record(dm("running late?", at=datetime.now(timezone.utc)))
+    await bot.on_dm_button(tap("dm:quick:500")[0], None)
+    card, markup = sent[-1]
+    assert "Alex Kim" in card and len(buttons(markup)) == 3
+    first = buttons(markup)[0]
+    assert first == f"dmq:500:0:{quick_tag('On it 👍')}" and len(first.encode()) <= 64
+
+    await bot.on_dm_button(tap(first, user_id=999)[0], None)
+    assert delivered == []  # strangers can't
+    update, answers, edits = tap(first)
+    await bot.on_dm_button(update, None)
+    assert delivered == [(500, "On it 👍", "bc1")] and "Sent" in edits[-1]
+    await bot.on_dm_button(update, None)  # answered now: a second tap sends nothing
+    assert len(delivered) == 1 and answers[-1] == "Nobody is waiting there now."
+
+    bot.dms.record(dm("and tomorrow?", message_id=9, at=datetime.now(timezone.utc)))
+    set_quick_replies(bot.db, "Sure | No")  # the list changed after the card went out
+    update, answers, _ = tap(first)
+    await bot.on_dm_button(update, None)
+    assert len(delivered) == 1 and "changed" in answers[-1]
+    await bot.on_dm_button(tap("dm:quick:999")[0], None)  # no such waiting chat: no card
+    assert sent[-1][1] is markup or "Alex" in sent[-1][0]
+
+
+def test_quick_reply_settings_are_capped(tmp_path):
+    import pytest
+
+    from claudebot.business import quick_replies, set_quick_replies
+
+    db = Database(tmp_path / "t.db")
+    assert quick_replies(db)[0] == "On it 👍"
+    assert set_quick_replies(db, "a | b | c | d | " + "x" * 300) == ["a", "b", "c"]
+    with pytest.raises(ValueError):
+        set_quick_replies(db, " | ")
+
+
+async def test_a_fast_double_tap_on_a_quick_reply_sends_once(tmp_path, monkeypatch):
+    import asyncio
+
+    from claudebot.business import quick_tag
+
+    bot, sent, _, delivered = make_bot(tmp_path, monkeypatch)
+    bot.dms.save_connection(connection())
+    bot.dms.record(dm("running late?", at=datetime.now(timezone.utc)))
+    update = tap(f"dmq:500:0:{quick_tag('On it 👍')}")[0]
+    await asyncio.gather(bot.on_dm_button(update, None), bot.on_dm_button(update, None))
+    assert len(delivered) == 1
