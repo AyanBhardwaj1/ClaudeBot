@@ -63,7 +63,7 @@ async def test_lists_command_and_buttons(tmp_path, monkeypatch):
     bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
     replies, edits = [], []
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append((text, reply_markup))
 
     update = SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text))
@@ -78,7 +78,7 @@ async def test_lists_command_and_buttons(tmp_path, monkeypatch):
     async def answer(text=None):
         pass
 
-    async def edit(text, reply_markup=None):
+    async def edit(text, *, reply_markup=None):
         edits.append(text)
 
     milk_id = Lists(bot.db).items("Shopping")[0]["id"]

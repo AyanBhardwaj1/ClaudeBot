@@ -69,7 +69,7 @@ async def test_log_command_and_tool(tmp_path, monkeypatch):
     bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
     replies = []
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append(text)
 
     update = SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text))

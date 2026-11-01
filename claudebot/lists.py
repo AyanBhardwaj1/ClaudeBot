@@ -159,7 +159,8 @@ class ListHandlers:
                 "No lists yet. Just ask: \"add milk and eggs to my shopping list\" or \"start a packing list for Austin\".")
             return
         for name in names[:6]:
-            await update.effective_message.reply_text(*list_view(lists, name))
+            text, markup = list_view(lists, name)
+            await update.effective_message.reply_text(text, reply_markup=markup)
 
     async def on_list_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -183,7 +184,8 @@ class ListHandlers:
             await query.edit_message_text(f"🗑 Deleted {name}.")
             return
         try:
-            await query.edit_message_text(*list_view(lists, name))
+            text, markup = list_view(lists, name)
+            await query.edit_message_text(text, reply_markup=markup)
         except TelegramError:
             pass
 

@@ -69,7 +69,8 @@ class RuleHandlers:
                 return
             await update.effective_message.reply_text(f"📏 Rule added: {rule['text']}\nIt applies to new email from now on.")
             return
-        await update.effective_message.reply_text(*rules_view(rules))
+        text, markup = rules_view(rules)
+        await update.effective_message.reply_text(text, reply_markup=markup)
 
     async def on_rule_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query

@@ -34,7 +34,7 @@ async def test_paused_bot_stays_quiet(tmp_path, monkeypatch):
     bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc", quiet_hours=None))
     replies, checked = [], []
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append(text)
 
     async def check(now=None):

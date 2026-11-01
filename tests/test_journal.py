@@ -28,7 +28,7 @@ async def test_evening_prompt_and_answer(tmp_path, monkeypatch):
     async def send_to_owner(text, reply_markup=None):
         sent.append(text)
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append(text)
 
     bot.send_to_owner = send_to_owner

@@ -214,7 +214,8 @@ class CheckinHandlers:
             log.exception("Reply tracking failed")
             await message.reply_text("I couldn't check your email just now. Try again in a minute.")
             return
-        await message.reply_text(*self._waiting_view(gaps))
+        text, markup = self._waiting_view(gaps)
+        await message.reply_text(text, reply_markup=markup)
 
     def _waiting_view(self, gaps) -> tuple[str, InlineKeyboardMarkup | None]:
         owed, waiting = gaps["owed"][:MAX_LISTED], gaps["waiting"][:MAX_LISTED]

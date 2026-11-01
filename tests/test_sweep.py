@@ -42,7 +42,7 @@ async def test_sweep_counts_then_archives_on_tap(tmp_path, monkeypatch):
     bot.google.message_ids = lambda query, limit: ["a", "b"] if "promotions" in query else []
     bot.google.archive_many = archived.extend
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append((text, reply_markup))
 
     async def send_to_owner(text, reply_markup=None):

@@ -167,7 +167,7 @@ async def test_role_command_and_buttons(tmp_path, monkeypatch):
     async def send_to_owner(text, reply_markup=None):
         sent.append((text, reply_markup))
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append((text, reply_markup))
 
     async def answer(text=None):

@@ -78,7 +78,7 @@ async def test_style_command_learn_approve_and_set_by_hand(tmp_path, monkeypatch
     async def send_to_owner(text, reply_markup=None):
         sent.append((text, reply_markup))
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append((text, reply_markup))
 
     bot.send_to_owner = send_to_owner

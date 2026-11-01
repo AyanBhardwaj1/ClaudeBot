@@ -111,7 +111,8 @@ class HabitHandlers:
                 f"🔥 Tracking {habit['name']}. I'll ask each evening at {CHECK_TIME:%H:%M}; tap to mark it done. "
                 f"/habit stop {habit['name']} to drop it.")
             return
-        await update.effective_message.reply_text(*habit_view(habits, today))
+        text, markup = habit_view(habits, today)
+        await update.effective_message.reply_text(text, reply_markup=markup)
 
     async def on_habit_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query

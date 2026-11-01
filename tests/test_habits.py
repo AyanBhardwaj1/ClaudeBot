@@ -28,7 +28,7 @@ async def test_habit_command_buttons_and_evening_job(tmp_path, monkeypatch):
     bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
     replies, sent, edits = [], [], []
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append((text, reply_markup))
 
     async def send_to_owner(text, reply_markup=None):
@@ -47,7 +47,7 @@ async def test_habit_command_buttons_and_evening_job(tmp_path, monkeypatch):
     async def answer(text=None):
         pass
 
-    async def edit(text, reply_markup=None):
+    async def edit(text, *, reply_markup=None):
         edits.append((text, reply_markup))
 
     await bot.on_habit_button(SimpleNamespace(callback_query=SimpleNamespace(

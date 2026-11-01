@@ -26,7 +26,7 @@ async def test_today_shows_calendar_reminders_and_lists_without_a_model_call(tmp
     Lists(bot.db).add("Shopping", ["milk", "eggs"])
     replies = []
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append(text)
 
     await bot.on_today(SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text)), None)

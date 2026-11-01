@@ -55,7 +55,7 @@ async def test_rules_command_and_delete_button(tmp_path, monkeypatch):
     bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
     replies, edits = [], []
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append((text, reply_markup))
 
     update = SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text))
@@ -67,7 +67,7 @@ async def test_rules_command_and_delete_button(tmp_path, monkeypatch):
     async def answer(text=None):
         pass
 
-    async def edit(text, reply_markup=None):
+    async def edit(text, *, reply_markup=None):
         edits.append(text)
 
     await bot.on_rule_button(SimpleNamespace(callback_query=SimpleNamespace(

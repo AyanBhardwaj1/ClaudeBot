@@ -414,7 +414,7 @@ def make_bot(tmp_path, monkeypatch, **config):
 def reply_update():
     replies = []
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append((text, reply_markup))
 
     return SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text)), replies

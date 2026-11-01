@@ -104,7 +104,7 @@ def make_bot(tmp_path, monkeypatch, **config):
 def text_message(text, user_id=1):
     replies = []
 
-    async def reply_text(body, reply_markup=None):
+    async def reply_text(body, *, reply_markup=None):
         replies.append(body)
 
     async def delete():

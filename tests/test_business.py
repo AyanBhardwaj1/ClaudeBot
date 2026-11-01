@@ -152,7 +152,7 @@ def tap(data, user_id=OWNER):
     async def answer(text=None):
         answers.append(text)
 
-    async def edit(text, reply_markup=None):
+    async def edit(text, *, reply_markup=None):
         edits.append(text)
 
     return SimpleNamespace(callback_query=SimpleNamespace(
@@ -186,7 +186,7 @@ async def test_dms_view_and_draft_button(tmp_path, monkeypatch):
     bot, sent, conversed, _ = make_bot(tmp_path, monkeypatch)
     replies = []
 
-    async def reply_text(text, reply_markup=None):
+    async def reply_text(text, *, reply_markup=None):
         replies.append((text, reply_markup))
 
     update = SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text))
@@ -345,7 +345,7 @@ async def test_failed_sends_offer_a_retry_but_unclear_ones_dont(tmp_path, monkey
     pending = await bot.propose_dm_reply(500, "Alex Kim", "hi")
     update, answers, edits = tap(f"dmsend:{pending}")
 
-    async def edit(text, reply_markup=None):
+    async def edit(text, *, reply_markup=None):
         edits.append(text)
         edits_markup.append(reply_markup)
 

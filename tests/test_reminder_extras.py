@@ -44,7 +44,7 @@ async def test_fired_reminders_have_done_and_snooze(tmp_path, monkeypatch):
     async def answer(text=None):
         pass
 
-    async def edit(text, reply_markup=None):
+    async def edit(text, *, reply_markup=None):
         edits.append(text)
 
     def tap(data, user_id=1):
@@ -137,7 +137,7 @@ async def test_added_events_get_a_remove_card(tmp_path, monkeypatch):
     async def answer(text=None):
         pass
 
-    async def edit(text, reply_markup=None):
+    async def edit(text, *, reply_markup=None):
         edits.append(text)
 
     def tap(user_id=1):
