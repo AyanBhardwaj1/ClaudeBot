@@ -62,6 +62,8 @@ HELP = (
     "Your day\n"
     "/today – today at a glance (instant)\n"
     "/catchup – what you missed since last time\n"
+    "/plan – a realistic plan for today\n"
+    "/prep – get ready for your next meeting\n"
     "/brief – your daily brief now\n"
     "/trips – your upcoming travel\n\n"
     "Email and messages\n"

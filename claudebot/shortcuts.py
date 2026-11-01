@@ -22,6 +22,17 @@ SUBSCRIPTIONS_PROMPT = (
     "free trial that converted) and duplicates. Give the monthly total. Then ask if I'd like any added as bills "
     "(add_bill) so I'm reminded before they charge. Don't cancel or email anyone."
 )
+PLAN_PROMPT = (
+    "Plan my day. Look at today's calendar, reminders due today (list_reminders), my lists (show_lists) and "
+    "important email I still owe a reply. Suggest a realistic time-blocked plan around my fixed events, "
+    "with the 3 things that matter most first, and say what can wait. Use find_free_time for the gaps. "
+    "Offer to put the blocks on my calendar; don't add anything until I say so."
+)
+PREP_PROMPT = (
+    "Prepare me for my next meeting with other people today or tomorrow (list_calendar_events). Look up "
+    "recent email threads with the attendees and what you remember about them. Brief: who they are to me, "
+    "where we left things, open questions or promises, what to bring. Five lines or so."
+)
 TRIPS_PROMPT = (
     "List my upcoming trips in the next 60 days. Search my email for flight, train, hotel and car rental "
     "confirmations and check my calendar. For each trip: dates, times, confirmation numbers, and anything that "
@@ -56,6 +67,14 @@ class ShortcutHandlers:
     async def on_subscriptions(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:
             await self._converse([{"type": "text", "text": SUBSCRIPTIONS_PROMPT}], "/subscriptions")
+
+    async def on_plan(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        async with self._message_order:
+            await self._converse([{"type": "text", "text": PLAN_PROMPT}], "/plan")
+
+    async def on_prep(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        async with self._message_order:
+            await self._converse([{"type": "text", "text": PREP_PROMPT}], "/prep")
 
     async def on_trips(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:
