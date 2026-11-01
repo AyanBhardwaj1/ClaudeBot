@@ -62,6 +62,7 @@ from .lists import ListHandlers
 from .meeting_prep import JOB_MINUTES, MeetingPrepHandlers
 from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
+from .privacy import PrivacyHandlers
 from .quiet import QuietHandlers
 from .reminders import next_occurrence, previous_window
 from .review import (
@@ -218,7 +219,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -323,6 +324,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("lists", self.on_lists, filters=owner))
         self.app.add_handler(CommandHandler("quiet", self.on_quiet, filters=owner))
         self.app.add_handler(CommandHandler("focus", self.on_focus, filters=owner))
+        self.app.add_handler(CommandHandler("privacy", self.on_privacy, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_privacy_button, pattern=r"^priv:(ask|do|no):(chat|dms|journal|log)$"))
         self.app.add_handler(CommandHandler("note", self.on_note, filters=owner))
         self.app.add_handler(CommandHandler("rules", self.on_rules, filters=owner))
         self.app.add_handler(CommandHandler("export", self.on_export, filters=owner))

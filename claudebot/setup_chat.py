@@ -97,6 +97,7 @@ HELP = (
     "/status – what's connected and working\n"
     "/usage – what I've cost you\n"
     "/export – download everything I keep about you\n"
+    "/privacy – see what I keep, and clear it\n"
     "/help – this list\n\n"
     "Send a photo of a flyer or a ticket and I'll add it to your calendar.\n\n"
     "Groups: add me to a group and send /enable there (/disable to stop); people can tag me to ask or fact-check."
