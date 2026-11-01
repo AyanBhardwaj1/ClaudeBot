@@ -33,6 +33,7 @@
 - Every sent email's confirmation has a ⏰ Follow up if no reply button. Three days later ClaudeBot checks whether they answered. If they did, you get one line; if not, it drafts a polite nudge for you to send.
 
 **Your data, yours**
+- Restore: send an export file back (on a new server, say) and tap ✅ Restore. Memories, lists, upcoming reminders, rules, style, habits and journal come back; nothing you have is deleted.
 - `/privacy` shows what ClaudeBot keeps (conversation history, DMs, journal, action log, memories) and clears any of them after a confirmation.
 - `/export` sends you one JSON file with your memories, reminders, lists, alert rules, writing style, settings and the last 60 days of `/log`. Sign-in details are left out.
 

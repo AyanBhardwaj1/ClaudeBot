@@ -98,7 +98,7 @@ HELP = (
     "/log – what I actually did (/log week)\n"
     "/status – what's connected and working\n"
     "/usage – what I've cost you\n"
-    "/export – download everything I keep about you\n"
+    "/export – download everything I keep about you (send the file back to restore it)\n"
     "/privacy – see what I keep, and clear it\n"
     "/help – this list\n\n"
     "Send a photo of a flyer or a ticket and I'll add it to your calendar.\n\n"

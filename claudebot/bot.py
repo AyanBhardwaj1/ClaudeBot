@@ -66,6 +66,7 @@ from .outbox import Outbox
 from .privacy import PrivacyHandlers
 from .quiet import QuietHandlers
 from .reminders import next_occurrence, previous_window
+from .restore import RestoreHandlers
 from .review import (
     BRIEF_BUTTONS,
     DIGEST_DAYS,
@@ -224,7 +225,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, RestoreHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -332,6 +333,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("privacy", self.on_privacy, filters=owner))
         self.app.add_handler(CommandHandler("triage", self.on_triage, filters=owner))
         self.app.add_handler(CommandHandler("owed", self.on_owed, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_restore_button, pattern=r"^restore:(yes|no)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_iou_button, pattern=r"^iou:\d{1,3}$"))
         self.app.add_handler(CallbackQueryHandler(self.on_triage_button, pattern=r"^tri:(arch|draft|later|next|snooze):[0-9a-f]{6,32}$"))
         self.app.add_handler(CallbackQueryHandler(self.on_privacy_button, pattern=r"^priv:(ask|do|no):(chat|dms|journal|log)$"))
@@ -806,6 +808,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
                 await message.reply_text(f"{document.file_name} is too big for me (10 MB max).")
                 return
             data = bytes(await (await document.get_file()).download_as_bytearray())
+            if await self.handle_export_file(message, data):
+                return  # a ClaudeBot export: restore it (after a tap) instead of reading it
             name = " ".join((document.file_name or "file").split())[:80]
             try:
                 if is_workbench_file(document.mime_type or ""):
