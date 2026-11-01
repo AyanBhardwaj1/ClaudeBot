@@ -65,6 +65,7 @@ HELP = (
     "/brief – your daily brief now\n"
     "/trips – your upcoming travel\n\n"
     "Email and messages\n"
+    "/triage – go through unread email one at a time (archive, reply, later)\n"
     "/waiting – replies you owe, and replies you're waiting on\n"
     "/dms – Telegram chats waiting on your reply\n"
     "/sweep – archive old promotions and updates in one tap\n"

@@ -88,6 +88,7 @@ from .style_handlers import StyleHandlers
 from .sweep import SweepHandlers
 from .today import TodayHandlers
 from .tools import ToolContext
+from .triage import TriageHandlers
 from .ui import (
     LivePreview,
     followup_keyboard,
@@ -114,6 +115,7 @@ ROLE_HINT = "Or describe it: /role nurse in the ER, /role student CS at UT Austi
 PRIVATE_COMMANDS = [
     BotCommand("today", "Today at a glance (instant)"),
     BotCommand("catchup", "What you missed since last time"),
+    BotCommand("triage", "Go through unread email, one at a time"),
     BotCommand("waiting", "Replies you owe, and replies you're waiting on"),
     BotCommand("dms", "Telegram chats waiting on your reply"),
     BotCommand("reminders", "Your reminders and scheduled tasks"),
@@ -219,7 +221,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -325,6 +327,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("quiet", self.on_quiet, filters=owner))
         self.app.add_handler(CommandHandler("focus", self.on_focus, filters=owner))
         self.app.add_handler(CommandHandler("privacy", self.on_privacy, filters=owner))
+        self.app.add_handler(CommandHandler("triage", self.on_triage, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_triage_button, pattern=r"^tri:(arch|draft|later|next):[0-9a-f]{6,32}$"))
         self.app.add_handler(CallbackQueryHandler(self.on_privacy_button, pattern=r"^priv:(ask|do|no):(chat|dms|journal|log)$"))
         self.app.add_handler(CommandHandler("note", self.on_note, filters=owner))
         self.app.add_handler(CommandHandler("rules", self.on_rules, filters=owner))

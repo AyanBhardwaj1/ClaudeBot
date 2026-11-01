@@ -186,6 +186,7 @@ Then `/connect` from your phone. ClaudeBot backs up its database every night to 
 - `/note <text>` jots something into your Notes list; `/focus 25` starts a focus session (alerts held, a ping when time's up).
 - `/privacy` shows what ClaudeBot keeps and clears any of it after a confirmation.
 - `/dms` shows Telegram chats waiting on your reply; `/style` makes drafts sound like you; `/rules` sets your alert rules; `/quiet 2h` pauses alerts and check-ins.
+- `/triage` goes through unread important email one card at a time (Archive / Reply / Later / Next).
 - `/sweep` archives old promotions, social and update emails in one tap (nothing is deleted); `/export` sends you everything ClaudeBot keeps about you as a JSON file.
 - `/lists` shows your lists (shopping, packing, to-dos) with tap-to-check-off buttons; add to them by asking.
 - `/log` shows what ClaudeBot actually did today (`/log week` for 7 days), recorded when it happened.
