@@ -30,6 +30,7 @@ def make_config(tmp_path: Path, **overrides) -> Config:
         daily_brief_time=None,
         new_thread_after_hours=8,
         owner_name="Ayan",
+        quiet_hours=None,  # tests pass their own; the default would make results depend on the wall clock
     )
     values.update(overrides)
     return Config(**values)

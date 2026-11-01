@@ -14,7 +14,7 @@
 - Docker health check: the bot touches a file every minute and `python -m claudebot health` checks it, so Docker can see a stuck bot (Fly and Railway use their own checks).
 
 **Today at a glance**
-- `/birthday Mom Mar 14` saves a birthday with a yearly heads-up the day before; `/birthdays` lists them by how soon they are.
+- `/birthday Mom Mar 14` saves a birthday with a yearly heads-up the day before; `/birthdays` lists them by how soon they are. Birthdays in the next week show in `/today`, the morning brief mentions today's and tomorrow's, and you can ask "when is Mom's birthday?".
 - `/who Alex`: what ClaudeBot knows about someone, pulled from memories, recent email, upcoming meetings, IOUs and your Telegram chat.
 - `/packages`: deliveries on the way, from your shipping emails (store, carrier, tracking number, expected date).
 - `/plan`: a realistic, time-blocked plan for today around your fixed events (added to your calendar only if you say so). `/prep`: get ready for your next meeting, on demand.

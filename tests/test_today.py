@@ -24,6 +24,11 @@ async def test_today_shows_calendar_reminders_and_lists_without_a_model_call(tmp
     bot.db.add_reminder("call the dentist", now.replace(hour=23, minute=0), "none", False)
     bot.db.add_reminder("next week thing", now + timedelta(days=7), "none", False)
     Lists(bot.db).add("Shopping", ["milk", "eggs"])
+    from claudebot.birthdays import Birthdays
+    soon = now.date() + timedelta(days=2)
+    Birthdays(bot.db).add("Mom", soon.month, min(soon.day, 28) if soon.month == 2 else soon.day)
+    later = now.date() + timedelta(days=30)
+    Birthdays(bot.db).add("Far", later.month, min(later.day, 28))
     replies = []
 
     async def reply_text(text, *, reply_markup=None):
@@ -34,6 +39,7 @@ async def test_today_shows_calendar_reminders_and_lists_without_a_model_call(tmp
     assert "09:00–09:15  Standup" in text and "http://evil" not in text and "all day  Mom visiting" in text
     assert "call the dentist" in text and "next week thing" not in text
     assert "Shopping: 2" in text
+    assert "🎂 Mom" in text and "Far" not in text
 
 
 

@@ -456,6 +456,12 @@ CLIENT_TOOLS = [
         "input_schema": _schema({}, []),
     },
     {
+        "name": "list_birthdays",
+        "description": ("Birthdays the owner saved with /birthday, soonest first, with each next date. "
+                        "The owner adds or removes them with /birthday Name Mon D and /birthdays."),
+        "input_schema": _schema({}, []),
+    },
+    {
         "name": "add_alert_rule",
         "description": (
             "Save one of the owner's own rules for inbox alerts, in plain English, when they ask for it "
@@ -783,6 +789,12 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         if name != "spending_summary":
             _require_owner(ctx, "change expenses")
         return expense_tool(name, a, ctx.db, ctx.tz)
+    if name == "list_birthdays":
+        from .birthdays import Birthdays
+
+        today = datetime.now(ctx.tz).date()
+        return {"birthdays": [{"name": b["name"], "next": when.isoformat(), "days_away": (when - today).days}
+                              for b, when in Birthdays(ctx.db).upcoming(today, 366)]}
     if name == "list_bills":
         from .bills import Bills, next_due
 

@@ -8,6 +8,7 @@ from datetime import datetime, time, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from .birthdays import Birthdays
 from .inbox_watch import clip
 from .lists import Lists
 from .modes import defang_urls
@@ -59,6 +60,11 @@ class TodayHandlers:
             parts.append("⏰ Reminders\n" + "\n".join(
                 f"  {datetime.fromisoformat(r['due_at']).astimezone(self.config.timezone):%H:%M}  "
                 f"{defang_urls(clip(r['text'], 70))}" for r in due[:8]))
+        soon = Birthdays(self.db).upcoming(now.date(), 7)
+        if soon:
+            parts.append("🎂 " + ", ".join(
+                f"{defang_urls(b['name'])} {'today!' if when == now.date() else f'{when:%a %b %-d}'}"
+                for b, when in soon[:6]))
         if self.dms.active_connection_id() and (waiting := self.dms.unanswered()):
             parts.append(f"💬 {len(waiting)} Telegram chat{'s' if len(waiting) != 1 else ''} waiting on you (/dms)")
         lists = Lists(self.db)

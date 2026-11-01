@@ -76,3 +76,22 @@ async def test_birthday_command_reminder_replace_and_remove(tmp_path, monkeypatc
     await bot.on_birthday_button(tap(f"bday:del:{item['id']}"), None)
     assert Birthdays(bot.db).all() == [] and "No birthdays yet" in edits[-1]
     assert [r["id"] for r in bot.db.active_reminders()] == [other]  # only its own reminder was removed
+
+
+async def test_list_birthdays_tool_is_read_only_and_sorted(tmp_path):
+    import json
+
+    from helpers import make_context
+
+    from claudebot.db import Database
+    from claudebot.tools import run_tool
+
+    db = Database(tmp_path / "t.db")
+    Birthdays(db).add("Late", 12, 31)
+    Birthdays(db).add("Early", 1, 1)
+    ctx = make_context(db)
+    ctx.owner_present = False  # reading is fine in a brief
+    result, is_error = await run_tool("list_birthdays", {}, ctx)
+    listed = json.loads(result)["birthdays"]
+    assert not is_error and {b["name"] for b in listed} == {"Late", "Early"}
+    assert [b["days_away"] for b in listed] == sorted(b["days_away"] for b in listed)
