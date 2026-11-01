@@ -101,3 +101,27 @@ async def test_newsletter_digest_is_opt_in(tmp_path, monkeypatch):
         from_user=SimpleNamespace(id=1), data="set:digest", answer=noop)), None)
     await bot._digest_job(None)
     assert ran[0][1] is False and "newsletters" in ran[0][0] and sent[-1][0].startswith("📰")
+
+
+
+async def test_weekend_brief_can_be_turned_off(tmp_path, monkeypatch):
+    from datetime import datetime as real_datetime
+
+    bot, sent, asked = make_bot(tmp_path, monkeypatch)
+    briefs = []
+
+    async def send_brief():
+        briefs.append(1)
+
+    bot._send_brief = send_brief
+
+    class Saturday(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 11, 7, 8, 0, tzinfo=tz)
+
+    monkeypatch.setattr("claudebot.bot.datetime", Saturday)
+    await bot._brief_job(None)
+    bot.db.set_setting("brief_weekends", "off")
+    await bot._brief_job(None)
+    assert briefs == [1]

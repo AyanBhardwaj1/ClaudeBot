@@ -45,6 +45,7 @@
 - Reminders and briefings can repeat monthly (rent, bills) and yearly (birthdays). Jan 31 becomes Feb 28, then Mar 31.
 
 **Your week, and a brief that learns**
+- The daily brief can skip weekends (`/settings` → Brief on weekends).
 - Every Sunday at 18:00, a weekly review: what ClaudeBot did for you (from `/log`), what's still open, and the week ahead. Off in `/settings`.
 - The daily brief has 👍 / ✏️ buttons. Tell it what to change ("skip the headlines") and it remembers.
 

@@ -108,6 +108,7 @@ from .workbench import run_workbench
 log = logging.getLogger(__name__)
 
 UPLOAD_CLEANUP_HOURS = 6
+WEEKEND_BRIEF_KEY = "brief_weekends"  # "off": no daily brief on Saturday and Sunday
 
 BRIEF_PROMPT = (
     "Give me my daily brief: today's calendar, anything in my inbox from the last day that "
@@ -960,6 +961,9 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         await query.answer(f"Cancelled: {row['text']}")
 
     async def _brief_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        now = datetime.now(self.config.timezone)
+        if self.db.get_setting(WEEKEND_BRIEF_KEY) == "off" and now.weekday() >= 5:
+            return  # the owner asked for weekdays only
         await self._send_brief()
 
     async def _send_brief(self) -> None:

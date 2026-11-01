@@ -377,7 +377,8 @@ class SetupHandlers:
             f"📍 Location: {where} · {c.timezone.key}\n"
             f"💼 Job: {profile.describe() if profile else 'not set'}\n"
             f"🎭 Mode: {MODES[current_mode(self.db)][0]}\n"
-            f"☀️ Daily brief: {c.daily_brief_time or 'off'}\n"
+            f"☀️ Daily brief: {c.daily_brief_time or 'off'}"
+            f"{' (weekdays only)' if self.db.get_setting('brief_weekends') == 'off' else ''}\n"
             f"📬 Inbox alerts: {alerts}{', hourly digest' if self.db.get_setting(ALERT_MODE_KEY) == 'hourly' else ''}\n"
             f"↩️ Undo window: {c.undo_send_seconds}s\n"
             f"💰 Budget: {budget}\n"
@@ -395,6 +396,7 @@ class SetupHandlers:
         return _keyboard([
             [("👤 Name", "set:name"), ("📍 Location", "set:place"), ("💼 Job", "set:role")],
             [("🎭 Mode", "set:mode"), ("☀️ Brief", "set:brief"), ("🌙 Quiet hours", "set:quiet")],
+            [("☀️ Brief on weekends on/off", "set:weekends")],
             [("📬 Alerts on/off", "set:alerts"), ("⏱ Instant / hourly", "set:alertmode")],
             [("↩️ Undo", "set:undo"), ("💰 Budget", "set:budget")],
             [("💬 Suggestions on/off", "set:followups"), ("👋 Check-ins on/off", "set:checkins")],
@@ -462,6 +464,10 @@ class SetupHandlers:
             self.db.set_setting(ALERT_MODE_KEY, "hourly" if hourly else "instant")
             await self.send_to_owner(
                 "⏱ Inbox alerts now come as one digest an hour." if hourly else "📬 Inbox alerts come right away again.")
+        elif key == "weekends":
+            off = self.db.get_setting("brief_weekends") != "off"
+            self.db.set_setting("brief_weekends", "off" if off else "on")
+            await self.send_to_owner("☀️ Daily brief on weekdays only." if off else "☀️ Daily brief every day again.")
         elif key == "digest":
             on = self.db.get_setting(DIGEST_KEY) != "on"
             self.db.set_setting(DIGEST_KEY, "on" if on else "off")
