@@ -101,36 +101,22 @@ BRIEF_PROMPT = (
 )
 FORWARD_PROMPT = "(I forwarded this.)"
 ROLE_HINT = "Or describe it: /role nurse in the ER, /role student CS at UT Austin, /role product manager"
+# The menu shows the everyday ones; /help lists everything (every command works either way).
 PRIVATE_COMMANDS = [
-    BotCommand("help", "Everything I can do"),
     BotCommand("today", "Today at a glance (instant)"),
     BotCommand("catchup", "What you missed since last time"),
-    BotCommand("trips", "Your upcoming travel"),
-    BotCommand("brief", "Daily brief now"),
-    BotCommand("think", "Think as hard as possible about one question"),
-    BotCommand("research", "Deep research on a question"),
-    BotCommand("mode", "Switch personality (fun, brief, deep...)"),
-    BotCommand("role", "Tell me your job so I can tailor everything to it"),
-    BotCommand("reminders", "Your reminders and scheduled tasks"),
     BotCommand("waiting", "Replies you owe, and replies you're waiting on"),
     BotCommand("dms", "Telegram chats waiting on your reply"),
-    BotCommand("log", "What I actually did today"),
-    BotCommand("style", "Make my drafts sound like you"),
+    BotCommand("reminders", "Your reminders and scheduled tasks"),
     BotCommand("lists", "Shopping, packing and to-do lists"),
-    BotCommand("spent", "What you've spent this month"),
-    BotCommand("habit", "Track a daily habit, with streaks"),
-    BotCommand("journal", "A private evening journal"),
+    BotCommand("think", "Think as hard as possible about one question"),
+    BotCommand("research", "Deep research on a question"),
     BotCommand("quiet", "Pause alerts and check-ins for a while"),
-    BotCommand("rules", "Your rules for email alerts"),
-    BotCommand("sweep", "Archive old promotions and updates in one tap"),
-    BotCommand("export", "Download everything I keep about you"),
-    BotCommand("briefings", "Your scheduled briefings"),
+    BotCommand("log", "What I actually did today"),
     BotCommand("memory", "What I remember about you"),
     BotCommand("new", "Start a fresh conversation"),
     BotCommand("settings", "Name, location, brief time, alerts, budget"),
-    BotCommand("connect", "Connect Gmail and Calendar"),
-    BotCommand("status", "What's connected and working"),
-    BotCommand("usage", "What I've cost you"),
+    BotCommand("help", "Everything I can do"),
 ]
 MAX_PAIRING_TRIES = 5  # per Telegram account; the code is in the server log
 MAX_PAIRING_FAILURES = 50

@@ -753,8 +753,15 @@ async def test_background_jobs_run_on_the_advertised_schedule(tmp_path, monkeypa
 
 
 def test_help_mentions_every_private_command():
+    import re
+
     from claudebot.bot import PRIVATE_COMMANDS
     from claudebot.setup_chat import HELP
 
-    missing = [c.command for c in PRIVATE_COMMANDS if f"/{c.command}" not in HELP]
+    source = open("claudebot/bot.py").read()
+    registered = set(re.findall(r'CommandHandler\("(\w+)"', source))
+    for names in re.findall(r'CommandHandler\(\[([^\]]+)\]', source):
+        registered |= set(re.findall(r'"(\w+)"', names))
+    registered -= {"start", "enable", "disable", "habits"}
+    missing = [c for c in sorted(registered | {c.command for c in PRIVATE_COMMANDS}) if f"/{c}" not in HELP]
     assert missing == [] and "/setup" in HELP and "/disable" in HELP
