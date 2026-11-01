@@ -50,6 +50,7 @@ from .google_services import Google
 from .groups import GroupResponder
 from .heartbeat import HEARTBEAT_HOURS
 from .inbox_watch import InboxWatcher
+from .meeting_prep import JOB_MINUTES, MeetingPrepHandlers
 from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
 from .reminders import next_occurrence, previous_window
@@ -206,7 +207,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -371,6 +372,9 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             app.job_queue.run_repeating(
                 self._inbox_job, interval=self.config.inbox_check_minutes * 60, first=30, name="inbox-watch"
             )
+        app.job_queue.run_repeating(
+            self._meeting_prep_job, interval=JOB_MINUTES * 60, first=5 * 60, name="meeting-prep"
+        )
         app.job_queue.run_repeating(
             self._heartbeat_job, interval=HEARTBEAT_HOURS * 3600, first=15 * 60, name="check-ins"
         )

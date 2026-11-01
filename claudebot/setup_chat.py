@@ -25,6 +25,7 @@ from .google_connect import (
     start,
 )
 from .heartbeat import CHECKINS_KEY
+from .meeting_prep import SWITCH_KEY as PREP_SWITCH
 from .modes import MODES, current_mode
 from .roles import ROLES, current_profile, pick_role, set_role
 from .settings import FIELDS, ONBOARDED_KEY, InvalidSetting, resolve_place, save
@@ -316,6 +317,7 @@ class SetupHandlers:
             f"💰 Budget: {budget}\n"
             f"💬 Suggestions: {'on' if self._followups_on() else 'off'}\n"
             f"👋 Check-ins: {'off' if self.db.get_setting(CHECKINS_KEY) == 'off' else 'on'}\n"
+            f"📋 Meeting prep: {'off' if self.db.get_setting(PREP_SWITCH) == 'off' else 'on'}\n"
             f"✉️ Email: {'drafts only' if self.db.get_setting(DRAFTS_ONLY_KEY) == 'on' else 'send with Undo'}\n"
             f"🔗 Google: {'connected' if self.google.is_connected() else 'not connected'}\n\n"
             "Tap to change:"
@@ -327,7 +329,8 @@ class SetupHandlers:
             [("🎭 Mode", "set:mode"), ("☀️ Brief", "set:brief"), ("🌙 Quiet hours", "set:quiet")],
             [("📬 Alerts on/off", "set:alerts"), ("↩️ Undo", "set:undo"), ("💰 Budget", "set:budget")],
             [("💬 Suggestions on/off", "set:followups"), ("👋 Check-ins on/off", "set:checkins")],
-            [("✉️ Send / drafts only", "set:drafts"), ("🔗 Google", "set:google")],
+            [("✉️ Send / drafts only", "set:drafts"), ("📋 Meeting prep on/off", "set:prep")],
+            [("🔗 Google", "set:google")],
         ])
 
     async def on_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -384,6 +387,12 @@ class SetupHandlers:
             await self.send_to_owner(
                 "👋 Check-ins on: I'll message you when something needs you (at most 3 a day)." if on
                 else "Check-ins off. /waiting still shows what needs a reply.")
+        elif key == "prep":
+            on = self.db.get_setting(PREP_SWITCH) == "off"
+            self.db.set_setting(PREP_SWITCH, "on" if on else "off")
+            await self.send_to_owner(
+                "📋 Meeting prep on: about an hour before meetings with other people, I'll send a short brief." if on
+                else "Meeting prep off.")
         elif key == "drafts":
             drafts = self.db.get_setting(DRAFTS_ONLY_KEY) != "on"
             self.db.set_setting(DRAFTS_ONLY_KEY, "on" if drafts else "off")

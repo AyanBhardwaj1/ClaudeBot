@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**Ready for every meeting**
+- About an hour before a meeting with other people, ClaudeBot sends a short brief: who's coming, where you left things over email, open promises, anything to bring. Once per meeting, at most 4 a day, not in quiet hours, off in `/settings`. Claude gets only the event's id and reads the invite through its tools, so text in an invite can't steer it.
+
 **Sounds like you**
 - `/style` learns how you write from your recent sent emails (only the parts you wrote; quoted replies are stripped), shows it to you, and uses it in drafts only after you tap ✅ Use this. Or describe it yourself: `/style short, warm, sign off -A`.
 

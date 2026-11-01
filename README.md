@@ -27,6 +27,7 @@ Text it like a person:
 ClaudeBot also comes to you:
 
 - **Check-ins**: every few hours it looks for what needs you (a calendar clash, an early start tomorrow, a reply you've owed for days, someone who hasn't answered you) and messages you only when something is new. Never in quiet hours, at most 3 a day, off in `/settings`.
+- **Meeting prep**: about an hour before a meeting with other people, a short brief on who's coming and where you left things. Off in `/settings`.
 - **`/waiting`**: replies you owe and replies you're waiting on, each with a one-tap **Nudge** or **Reply** draft. Drafting never sends: if Claude tries, the email waits for your ✅ Send tap.
 
 - **Inbox alerts**: when important email lands (a professor, a recruiter, a real person writing to you), you get a ping like "📬 Prof Lee: moved Thursday's exam to Friday". Newsletters and promos are skipped, and it stays quiet overnight. Reply "tell her that works" and it knows which email you mean.
