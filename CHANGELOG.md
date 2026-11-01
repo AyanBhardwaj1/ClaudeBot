@@ -40,6 +40,9 @@
 - Alerts about a trip or a deadline get a 📅 button: ClaudeBot reads the email and puts it on your calendar (no invites go out).
 - Inbox alerts now also cover bills with a due date, renewals about to charge, travel changes and deliveries that need you. When an alert has a date, its ⏰ button reminds you the morning before ("⏰ Nov 14") instead of in 3 hours.
 
+**Habits**
+- `/habit workout` and ClaudeBot asks each evening at 20:30, with a tap to mark it done and a running streak. `/habits` shows them all.
+
 **Spending**
 - "Spent $12 on lunch" logs it. "How much did I spend on food this month?" is summed exactly from what you logged, never estimated, and can be charted. `/spent` shows the month by category. Reminders can also repeat every 2 weeks.
 
