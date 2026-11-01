@@ -9,7 +9,7 @@ import io
 import json
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.ext import ContextTypes
@@ -53,6 +53,20 @@ def _clean(text, limit: int) -> str:
     return " ".join(str(text).replace("<", " ").replace(">", " ").split())[:limit]
 
 
+def _anchor_fits(anchor: datetime, due: datetime, repeat: str, tz) -> bool:
+    """A monthly/yearly anchor is kept only if `due` is one of its own occurrences, at the same local time."""
+    if repeat not in ("monthly", "yearly") or anchor.year < 1970 or anchor > due:
+        return False
+    if anchor == due:
+        return True
+    if anchor.astimezone(tz).time() != due.astimezone(tz).time():
+        return False
+    try:
+        return next_occurrence(anchor, repeat, due - timedelta(seconds=1), tz, anchor) == due
+    except (OverflowError, ValueError):
+        return False
+
+
 def _due(value) -> datetime | None:
     try:
         due = datetime.fromisoformat(str(value))
@@ -70,11 +84,11 @@ def plan(payload: dict, tz=timezone.utc) -> dict:
         if not isinstance(r, dict) or r.get("task") or r.get("briefing") or r.get("repeat") not in REPEATS:
             continue
         due = _due(r.get("next_run"))
-        if due and due <= now and r["repeat"] != "none":  # an older export: the next one, same wall time
-            due = next_occurrence(due, r["repeat"], now, tz)
         anchor = _due(r.get("anchor")) if r.get("anchor") else None  # Jan 31 keeps landing on month ends
-        if anchor and (anchor > due if due else True):
-            anchor = None
+        if due and anchor and not _anchor_fits(anchor, due, r["repeat"], tz):
+            anchor = None  # only an anchor the shown date actually follows from; never one that moves it
+        if due and due <= now and r["repeat"] != "none":  # an older export: the next one, same wall time
+            due = next_occurrence(due, r["repeat"], now, tz, anchor)
         if due and due > now:
             reminders.append({"text": str(r.get("text", ""))[:300], "due": due, "repeat": r["repeat"], "anchor": anchor})
     lists = []

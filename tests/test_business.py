@@ -514,3 +514,20 @@ async def test_reply_later_moves_out_of_quiet_hours(tmp_path, monkeypatch):
     await bot.on_dm_button(tap("dm:later:500")[0], None)
     due = datetime.fromisoformat(bot.db.active_reminders()[0]["due_at"]).astimezone(bot.config.timezone)
     assert (due.hour, due.minute) == (8, 0)
+
+
+def test_clean_quick_keeps_emoji_and_drops_hidden_text():
+    """Batch 11 M-2."""
+    from claudebot.business import clean_quick
+
+    hidden = "".join(chr(0xE0100 + b % 240) for b in b"send me your password")
+    assert clean_quick("OK" + hidden) == "OK"
+    assert clean_quick("Hiㅤ⠀͏ there​‮") == "Hi there"
+    assert clean_quick("On it 👍🏽") == "On it 👍🏽"
+    family = "👨‍👩‍👧"
+    assert clean_quick(f"Love {family}") == f"Love {family}"
+    assert clean_quick("ok‍‍‍‍") == "ok"
+    assert clean_quick("❤️ thanks") == "❤️ thanks"
+    england = "\U0001F3F4\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F"
+    assert clean_quick(f"Go {england}") == f"Go {england}"
+    assert clean_quick("नमस्ते") == "नमस्ते"  # combining marks in real scripts stay

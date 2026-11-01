@@ -59,10 +59,36 @@ def contact_label(name: str) -> str:
     return defang_urls(clip(name, 40)).replace("/", "⁄")
 
 
+BLANKS = {"\u034f", "\u115f", "\u1160", "\u2800", "\u3164", "\uffa0"}  # look like nothing, aren't spaces
+
+
 def clean_quick(text: str) -> str:
-    """One line, no invisible formatting characters (a hidden tail can't ride behind a button label)."""
-    visible = "".join(ch for ch in str(text) if unicodedata.category(ch) != "Cf" or ch == "\u200d")  # ZWJ keeps emoji whole
-    return " ".join(visible.split())[:MAX_QUICK_LEN]
+    """One line with nothing invisible in it, so a hidden tail can't ride behind what the button shows.
+    Emoji joiners, presentation selectors and flag tags are kept only where they shape an emoji."""
+    chars, kept = list(str(text)), []
+    for i, ch in enumerate(chars):
+        cp, before = ord(ch), (kept[-1] if kept else "")
+        after = chars[i + 1] if i + 1 < len(chars) else ""
+        is_emoji = lambda c: bool(c) and unicodedata.category(c) == "So"  # noqa: E731
+        if ch in BLANKS or 0xE0100 <= cp <= 0xE01EF:  # filler and variation selectors supplement
+            continue
+        if ch == "\u200d":
+            if is_emoji(before) or (before in ("\ufe0f",) and len(kept) > 1 and is_emoji(kept[-2])):
+                if is_emoji(after):
+                    kept.append(ch)
+            continue
+        if 0xFE00 <= cp <= 0xFE0F:
+            if before and before != "\ufe0f" and unicodedata.category(before) in ("So", "Nd", "Po", "Sm"):
+                kept.append(ch)
+            continue
+        if 0xE0020 <= cp <= 0xE007F:  # flag tags: only right after 🏴 or another tag
+            if before == "\U0001F3F4" or (before and 0xE0020 <= ord(before) <= 0xE007F):
+                kept.append(ch)
+            continue
+        if unicodedata.category(ch) == "Cf":
+            continue
+        kept.append(ch)
+    return " ".join("".join(kept).split())[:MAX_QUICK_LEN]
 
 
 def set_quick_replies(db: Database, text: str) -> list[str]:

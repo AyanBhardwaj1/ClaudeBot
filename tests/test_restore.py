@@ -263,3 +263,25 @@ def test_month_end_reminders_keep_their_anchor_and_restore_once(tmp_path):
     assert datetime.fromisoformat(row["anchor"]).astimezone(TZ).day == 31
     later = dict(payload, reminders=[dict(payload["reminders"][0], next_run="2099-12-31T09:00:00-06:00")])
     assert restore(new, later, TZ)["reminders"] == 0  # Dec 31 is the same reminder
+
+
+def test_a_crafted_anchor_cant_move_a_reminder(tmp_path):
+    """Batch 11 M-1/L-1/L-2."""
+    from helpers import TZ
+
+    from claudebot.restore import plan
+
+    def anchor_for(next_run, anchor, repeat="monthly"):
+        return plan({"claudebot_version": "1", "reminders": [
+            {"text": "x", "next_run": next_run, "anchor": anchor, "repeat": repeat}]}, TZ)["reminders"][0]
+
+    assert anchor_for("2099-11-03T23:25:00-06:00", "2020-03-03T03:00:00-06:00")["anchor"] is None  # other time
+    assert anchor_for("2099-11-03T23:25:00-06:00", "0001-01-01T00:00:00+00:00")["anchor"] is None
+    assert anchor_for("2099-11-03T09:00:00-06:00", "2099-03-03T09:00:00-06:00", "yearly")["anchor"] is None
+    kept = anchor_for("2099-11-30T09:00:00-06:00", "2099-10-31T09:00:00-05:00")
+    assert kept["anchor"] is not None
+    rolled = anchor_for("2020-02-29T09:00:00-06:00", "2020-01-31T09:00:00-06:00")  # older export, Jan 31 bill
+    assert rolled["anchor"] is not None and rolled["due"].astimezone(TZ).day in (28, 29, 30, 31)
+    from calendar import monthrange
+    d = rolled["due"].astimezone(TZ)
+    assert d.day == monthrange(d.year, d.month)[1]  # still the month's last day, not the 28th/29th
