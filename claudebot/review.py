@@ -24,7 +24,7 @@ REVIEW_PROMPT = (
     "2. What's still open: reminders and tasks coming up (list_reminders), people waiting on a reply "
     "(list_telegram_dms if connected; search my inbox for important unanswered email from this week).\n"
     "3. The week ahead: list_calendar_events for the next 7 days, flagging busy days and anything to "
-    "prepare.\n"
+    "prepare, plus bills due (list_bills) and birthdays (list_birthdays) in those 7 days.\n"
     "4. If I logged any expenses, this week's spending by category (spending_summary), in one line.\n"
     "End with one suggestion for next week."
 )

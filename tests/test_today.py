@@ -29,6 +29,11 @@ async def test_today_shows_calendar_reminders_and_lists_without_a_model_call(tmp
     Birthdays(bot.db).add("Mom", soon.month, min(soon.day, 28) if soon.month == 2 else soon.day)
     later = now.date() + timedelta(days=30)
     Birthdays(bot.db).add("Far", later.month, min(later.day, 28))
+    from claudebot.bills import Bills
+    tomorrow = now.date() + timedelta(days=1)
+    Bills(bot.db).add("Phone", 45, tomorrow.day if tomorrow.day <= 28 else 28)
+    paid, _ = Bills(bot.db).add("Rent", 1200, now.date().day if now.date().day <= 28 else 28)
+    Bills(bot.db).mark_paid(paid["id"], now.date())
     replies = []
 
     async def reply_text(text, *, reply_markup=None):
@@ -40,6 +45,9 @@ async def test_today_shows_calendar_reminders_and_lists_without_a_model_call(tmp
     assert "call the dentist" in text and "next week thing" not in text
     assert "Shopping: 2" in text
     assert "🎂 Mom" in text and "Far" not in text
+    if tomorrow.day <= 28:  # month-end days clamp; the line itself is still covered most days
+        assert "🧾 Phone 45.00 USD tomorrow" in text
+    assert "Rent" not in text  # already paid
 
 
 

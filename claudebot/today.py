@@ -8,6 +8,7 @@ from datetime import datetime, time, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from .bills import Bills, next_due, paid_dates
 from .birthdays import Birthdays
 from .inbox_watch import clip
 from .lists import Lists
@@ -60,6 +61,12 @@ class TodayHandlers:
             parts.append("⏰ Reminders\n" + "\n".join(
                 f"  {datetime.fromisoformat(r['due_at']).astimezone(self.config.timezone):%H:%M}  "
                 f"{defang_urls(clip(r['text'], 70))}" for r in due[:8]))
+        due_bills = sorted(((b, next_due(b["day"], now.date())) for b in Bills(self.db).all()), key=lambda x: x[1])
+        due_bills = [(b, d) for b, d in due_bills if (d - now.date()).days <= 1 and d.isoformat() not in paid_dates(b)]
+        if due_bills:
+            parts.append("🧾 " + ", ".join(
+                f"{defang_urls(b['name'])} {b['amount']:,.2f} {b['currency']} {'today' if d == now.date() else 'tomorrow'}"
+                for b, d in due_bills[:6]) + " (/bills)")
         soon = Birthdays(self.db).upcoming(now.date(), 7)
         if soon:
             parts.append("🎂 " + ", ".join(
