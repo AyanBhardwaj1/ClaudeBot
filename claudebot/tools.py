@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from googleapiclient.errors import HttpError
 
 from .actions import ActionLog, describe_tool_action
+from .alert_rules import AlertRules
 from .charts import CHART_TYPES, ChartError, render_chart, validate_spec
 from .db import Database
 from .files import UnsupportedFile, to_content_block
@@ -397,6 +398,14 @@ CLIENT_TOOLS = [
         "input_schema": _schema({"item_ids": {"type": "array", "items": {"type": "integer"}}}, ["item_ids"]),
     },
     {
+        "name": "add_alert_rule",
+        "description": (
+            "Save one of the owner's own rules for inbox alerts, in plain English, when they ask for it "
+            "(\"stop alerting me about LinkedIn\", \"always tell me when my landlord writes\")."
+        ),
+        "input_schema": _schema({"rule": {"type": "string", "maxLength": 150}}, ["rule"]),
+    },
+    {
         "name": "action_log",
         "description": (
             "What you actually did for the owner (emails delivered, drafts, events, reminders, memories, "
@@ -694,6 +703,10 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         if name != "show_lists":
             _require_owner(ctx, "change lists")
         return list_tool(name, a, ctx.db)
+    if name == "add_alert_rule":
+        _require_owner(ctx, "change alert rules")
+        rule = AlertRules(ctx.db).add(a["rule"])
+        return {"saved": rule["text"], "note": "Applies to new email. The owner can see and remove rules with /rules."}
     if name == "action_log":
         days = min(max(int(a.get("days", 1)), 1), 60)
         rows = ActionLog(ctx.db).since(datetime.now(ctx.tz) - timedelta(days=days))

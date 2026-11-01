@@ -10,6 +10,7 @@ from typing import Awaitable, Callable
 
 import anthropic
 
+from .alert_rules import AlertRules
 from .config import Config
 from .db import Database
 from .roles import current_profile
@@ -179,7 +180,7 @@ class InboxWatcher:
             system=CLASSIFIER_PROMPT.format(owner=self.config.owner_name),
             messages=[{
                 "role": "user",
-                "content": f"{job}What I know about {owner}:\n{memories}\n\n"
+                "content": f"{job}{AlertRules(self.db).for_classifier(owner)}What I know about {owner}:\n{memories}\n\n"
                            f"<emails>{json.dumps(payload, ensure_ascii=False)}</emails>",
             }],
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": CLASSIFIER_SCHEMA}},

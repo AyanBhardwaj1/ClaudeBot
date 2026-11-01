@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**Your rules for alerts**
+- `/rules never alert me about LinkedIn` or `/rules always alert for my landlord`, or just tell ClaudeBot. The inbox classifier follows your rules ahead of its defaults. `/rules` lists them with remove buttons. Only you can add rules: an email can't hide the next one.
+
 **Quiet when you need it**
 - `/quiet 2h` (or 30m, or `morning`) pauses inbox alerts, check-ins and meeting prep. Reminders you set still fire, and held email alerts catch up afterwards. `/quiet off` resumes.
 

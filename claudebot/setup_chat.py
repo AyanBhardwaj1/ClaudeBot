@@ -73,6 +73,7 @@ HELP = (
     "/style – make my drafts sound like you\n"
     "/mode – personality (fun, brief, deep)\n"
     "/quiet – pause alerts, check-ins and meeting prep (/quiet 2h)\n"
+    "/rules – your email alert rules (/rules never alert me about LinkedIn)\n"
     "/connect – connect Gmail and Calendar\n"
     "/setup – the first-time questions again\n"
     "/help – this list\n"
