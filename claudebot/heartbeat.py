@@ -21,6 +21,7 @@ from .db import Database
 from .google_services import MAX_EVENTS
 from .inbox_watch import clip, in_quiet_hours
 from .modes import defang_urls
+from .quiet import dnd_active
 from .replies import Gap, find_reply_gaps
 from .scheduling import busy_from_events
 from .usage import BudgetExceeded, UsageTracker
@@ -147,7 +148,7 @@ async def run_heartbeat(
     marked seen here; the ones in the message are marked by record_sent, once it was delivered."""
     now = now or datetime.now(config.timezone)
     local = now.astimezone(config.timezone)
-    if (db.get_setting(CHECKINS_KEY) == "off" or in_quiet_hours(local, config.quiet_hours)
+    if (db.get_setting(CHECKINS_KEY) == "off" or in_quiet_hours(local, config.quiet_hours) or dnd_active(db, now)
             or int(db.get_setting(_day_key(COUNT_PREFIX, local)) or 0) >= MAX_PER_DAY):
         return None
     found = list(extra or [])  # e.g. Telegram DMs waiting on a reply

@@ -18,6 +18,7 @@ from .google_services import GoogleNotConnected
 from .heartbeat import record_sent, run_heartbeat
 from .inbox_watch import GMAIL_ID, in_quiet_hours
 from .modes import defang_urls
+from .quiet import dnd_active
 from .replies import find_reply_gaps
 
 log = logging.getLogger(__name__)
@@ -204,7 +205,8 @@ class CheckinHandlers:
 
     async def _inbox_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         now = datetime.now(self.config.timezone)
-        if in_quiet_hours(now, self.config.quiet_hours) or not self.google.is_connected():
+        if (in_quiet_hours(now, self.config.quiet_hours) or dnd_active(self.db, now)
+                or not self.google.is_connected()):
             return  # Gmail wasn't asked, so this says nothing about whether alerts work
         # Kept in the database: /settings changes restart the bot, and a count that reset on every
         # restart would never reach the notice.

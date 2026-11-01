@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**Quiet when you need it**
+- `/quiet 2h` (or 30m, or `morning`) pauses inbox alerts, check-ins and meeting prep. Reminders you set still fire, and held email alerts catch up afterwards. `/quiet off` resumes.
+
 **Life-admin radar**
 - Inbox alerts now also cover bills with a due date, renewals about to charge, travel changes and deliveries that need you. When an alert has a date, its ⏰ button reminds you the morning before ("⏰ Nov 14") instead of in 3 hours.
 

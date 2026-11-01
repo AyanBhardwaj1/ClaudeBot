@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from telegram.ext import ContextTypes
 
 from .inbox_watch import in_quiet_hours
+from .quiet import dnd_active
 from .scheduling import _parse
 
 log = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class MeetingPrepHandlers:
         now = datetime.now(self.config.timezone)
         count_key = f"{COUNT_PREFIX}{now.date().isoformat()}"
         if (self.db.get_setting(SWITCH_KEY) == "off" or not self.google.is_connected()
-                or in_quiet_hours(now, self.config.quiet_hours)):
+                or in_quiet_hours(now, self.config.quiet_hours) or dnd_active(self.db, now)):
             return
         try:
             events = await asyncio.to_thread(
