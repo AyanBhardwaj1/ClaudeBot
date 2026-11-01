@@ -34,6 +34,7 @@ from .roles import ROLES, current_profile, pick_role, set_role
 from .settings import FIELDS, ONBOARDED_KEY, InvalidSetting, resolve_place, save
 from .shortcuts import last_days
 from .tools import DRAFTS_ONLY_KEY
+from .ui import followup_keyboard
 
 log = logging.getLogger(__name__)
 
@@ -293,7 +294,8 @@ class SetupHandlers:
         self._stop_expecting()
         self.db.set_setting(ONBOARDED_KEY, datetime.now().isoformat())
         name = self.db.get_setting("cfg:owner_name") or self.config.owner_name
-        await self.send_to_owner(f"✅ All set, {name}.\n\n{WELCOME}")
+        await self.send_to_owner(f"✅ All set, {name}.\n\n{WELCOME}",
+                                 followup_keyboard(self.db, ["What's on today?", "Catch me up", "What can you do?"]))
         if not self.google.is_connected():
             await self.send_to_owner(
                 "Last thing: connect Gmail and Google Calendar so I can handle your email and "

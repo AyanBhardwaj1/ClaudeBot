@@ -352,7 +352,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CallbackQueryHandler(self.on_memory_delete, pattern=r"^mem:del:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_followup, pattern=r"^fu:[0-9a-f]{8}:\d$"))
         self.app.add_handler(
-            CallbackQueryHandler(self.on_mail_action, pattern=r"^mail:(arch|draft|later|due|cal):[0-9a-f]{6,32}$")
+            CallbackQueryHandler(self.on_mail_action, pattern=r"^mail:(arch|draft|later|due|cal|times):[0-9a-f]{6,32}$")
         )
         self.app.add_handler(CallbackQueryHandler(self.on_briefing_cancel, pattern=r"^unbrief:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_reminder_cancel, pattern=r"^unrem:\d+$"))

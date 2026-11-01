@@ -137,3 +137,40 @@ async def test_hourly_digest_holds_alerts_and_sends_them_together(tmp_path):
     assert text.startswith("📬 2 important emails this hour") and "about abc111" in text and "about abc222" in text
     assert any(data == "mail:arch:abc111" for _, data in actions)
     assert await watcher.flush_digest() == 0
+
+
+
+async def test_meeting_requests_get_a_propose_times_button(tmp_path, monkeypatch):
+    db = Database(tmp_path / "t.db")
+    google = FakeGoogle(inbox=[])
+    notes = []
+
+    async def notify(text, actions=None):
+        notes.append(actions)
+
+    verdicts = {"emails": [{"id": "abc444", "notify": True, "summary": "Dana wants to meet next week", "due": "",
+                            "kind": "meeting"}]}
+    client = FakeClient([message("end_turn", [{"type": "text", "text": json.dumps(verdicts)}], model="claude-haiku-5-5")])
+    watcher = InboxWatcher(db, google, client, UsageTracker(db, TZ, None), make_config(tmp_path, quiet_hours=None), notify)
+    await watcher.check()
+    google.inbox = [{"id": "abc444", "from": "Dana <dana@acme.com>", "subject": "Coffee?", "snippet": "", "unread": True}]
+    await watcher.check()
+    assert "mail:times:abc444" in [data for _, data in notes[-1]]
+
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    conversed = []
+
+    async def converse(content, question, effort=None, owner_present=True):
+        conversed.append((content[0]["text"], owner_present))
+
+    async def answer(text=None):
+        pass
+
+    bot._converse = converse
+    await bot.on_mail_action(SimpleNamespace(callback_query=SimpleNamespace(
+        from_user=SimpleNamespace(id=1), data="mail:times:abc444", answer=answer)), None)
+    prompt, owner_present = conversed[0]
+    assert "find_free_time" in prompt and "abc444" in prompt and owner_present is False

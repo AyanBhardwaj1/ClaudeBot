@@ -50,6 +50,7 @@
 - `/quiet 2h` (or 30m, or `morning`) pauses inbox alerts, check-ins and meeting prep. Reminders you set still fire, and held email alerts catch up afterwards. `/quiet off` resumes.
 
 **Life-admin radar**
+- When an email asks to meet, its alert gets a 📅 Times button. ClaudeBot finds real free slots on your calendar and drafts a reply proposing three, shown to you and never sent on its own.
 - Alerts about a trip or a deadline get a 📅 button: ClaudeBot reads the email and puts it on your calendar (no invites go out).
 - Inbox alerts now also cover bills with a due date, renewals about to charge, travel changes and deliveries that need you. When an alert has a date, its ⏰ button reminds you the morning before ("⏰ Nov 14") instead of in 3 hours.
 
