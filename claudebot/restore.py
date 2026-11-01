@@ -23,6 +23,7 @@ from .habits import Habits
 from .journal import Journal
 from .lists import Lists
 from .modes import defang_urls
+from .reminders import next_occurrence
 from .style import STYLE_KEY, clean_style
 from .ui import split_message
 
@@ -60,7 +61,7 @@ def _due(value) -> datetime | None:
     return due if due.tzinfo else due.replace(tzinfo=timezone.utc)
 
 
-def plan(payload: dict) -> dict:
+def plan(payload: dict, tz=timezone.utc) -> dict:
     """What a restore would add, capped and cleaned: the same thing the card shows and restore adds."""
     memories = [str(m.get("text", ""))[:500] for m in payload.get("memories", []) if isinstance(m, dict)]
     now = datetime.now(timezone.utc)
@@ -69,6 +70,8 @@ def plan(payload: dict) -> dict:
         if not isinstance(r, dict) or r.get("task") or r.get("briefing") or r.get("repeat") not in REPEATS:
             continue
         due = _due(r.get("next_run"))
+        if due and due <= now and r["repeat"] != "none":  # an older export: the next one, same wall time
+            due = next_occurrence(due, r["repeat"], now, tz)
         if due and due > now:
             reminders.append({"text": str(r.get("text", ""))[:300], "due": due, "repeat": r["repeat"]})
     lists = []
@@ -147,7 +150,7 @@ def preview(p: dict) -> str:
 
 def restore(db, payload: dict, tz=timezone.utc) -> dict:
     """Add what's in the export, skipping what's already here. Returns counts."""
-    p = plan(payload)
+    p = plan(payload, tz)
     counts = {"memories": 0, "list items": 0, "reminders": 0, "rules": 0, "habit days": 0, "journal days": 0}
     known = {m["text"] for m in db.list_memories()}
     for text in p["memories"]:
@@ -224,7 +227,7 @@ class RestoreHandlers:
         if payload is None:
             return False
         try:
-            text = preview(plan(payload))
+            text = preview(plan(payload, self.config.timezone))
         except Exception:
             log.exception("Couldn't read an export file")
             await message.reply_text("That export file is damaged; nothing was restored.")
@@ -234,7 +237,7 @@ class RestoreHandlers:
         self.db.prune_settings(PENDING_PREFIX, 3)
         chunks = split_message(text)
         if len(chunks) > MAX_CARD_MESSAGES:  # a big export: the full list as a file, not dozens of messages
-            p = plan(payload)
+            p = plan(payload, self.config.timezone)
             await message.reply_document(document=io.BytesIO(text.encode()), filename="restore-preview.txt")
             chunks = [f"This export would add {len(p['memories'])} memories, {len(p['rules'])} alert rules, "
                       f"{len(p['reminders'])} reminders{', a writing style' if p['style'] else ''} and "
@@ -265,7 +268,7 @@ class RestoreHandlers:
             log.exception("Restore failed")
             await query.edit_message_text("That restore failed partway; check /memory and /reminders.")
             return
-        p = plan(json.loads(raw))
+        p = plan(json.loads(raw), self.config.timezone)
         have = {b["name"].lower() for b in Birthdays(self.db).all()}
         for name, month, day in p["birthdays"]:  # through the normal path, so each gets its own reminder
             if name.lower() not in have:

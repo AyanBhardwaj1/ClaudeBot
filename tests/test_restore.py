@@ -204,3 +204,17 @@ async def test_birthdays_bills_and_quick_replies_round_trip(tmp_path, monkeypatc
             from_user=SimpleNamespace(id=1), data="restore:yes:abcd1234", answer=answer, edit_message_text=edit)), None)
     assert [b["name"] for b in Birthdays(new.db).all()] == ["Mom"] and [b["name"] for b in Bills(new.db).all()] == ["Rent"]
     assert len(new.db.active_reminders()) == 2 and quick_replies(new.db) == ["On my way", "Busy, call you later"]
+
+
+def test_an_older_exports_repeating_reminders_roll_forward(tmp_path):
+    from helpers import TZ
+
+    from claudebot.restore import plan
+
+    payload = {"claudebot_version": "1.2.0", "reminders": [
+        {"text": "standup", "next_run": "2020-01-06T09:30:00-06:00", "repeat": "weekdays"},
+        {"text": "one-off long gone", "next_run": "2020-01-06T09:30:00-06:00", "repeat": "none"}]}
+    p = plan(payload, TZ)
+    assert [r["text"] for r in p["reminders"]] == ["standup"]
+    due = p["reminders"][0]["due"].astimezone(TZ)
+    assert (due.hour, due.minute) == (9, 30) and due > datetime.now(timezone.utc) and due.weekday() < 5

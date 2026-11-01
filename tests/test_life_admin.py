@@ -134,7 +134,7 @@ async def test_hourly_digest_holds_alerts_and_sends_them_together(tmp_path):
     assert notes == []  # held for the digest
     assert await watcher.flush_digest() == 2
     text, actions = notes[-1]
-    assert text.startswith("📬 2 important emails this hour") and "about abc111" in text and "about abc222" in text
+    assert text.startswith("📬 2 important emails you haven't seen yet") and "about abc111" in text and "about abc222" in text
     assert any(data == "mail:arch:abc111" for _, data in actions)
     assert await watcher.flush_digest() == 0
 

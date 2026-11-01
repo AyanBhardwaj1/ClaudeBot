@@ -230,7 +230,7 @@ class InboxWatcher:
         total = len(held)
         for start in range(0, total, MAX_LISTED):  # pages: nothing hides behind "...and 20 more"
             page = held[start : start + MAX_LISTED]
-            title = f"📬 {total} important email{'s' if total != 1 else ''} this hour"
+            title = f"📬 {total} important email{'s' if total != 1 else ''} you haven't seen yet"
             await self._send(page, title=title if start == 0 else "📬 ...continued")
             sent = {a["id"] for a in page}
             # Remove only what went out: an alert added meanwhile stays for the next digest.
