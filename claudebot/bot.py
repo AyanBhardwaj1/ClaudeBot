@@ -36,6 +36,7 @@ from .agent import Agent, ConversationReset
 from .alert_rules import RuleHandlers
 from .backup import BACKUP_TIME, BackupHandlers
 from .bills import BillHandlers
+from .birthdays import BirthdayHandlers
 from .business import BusinessHandlers, DMStore
 from .buttons import ButtonHandlers
 from .checkins import CheckinHandlers, snooze_keyboard
@@ -230,7 +231,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, RestoreHandlers, MenuHandlers, BillHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, RestoreHandlers, MenuHandlers, BillHandlers, BirthdayHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -341,6 +342,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("owed", self.on_owed, filters=owner))
         self.app.add_handler(CommandHandler("menu", self.on_menu, filters=owner))
         self.app.add_handler(CommandHandler("bills", self.on_bills, filters=owner))
+        self.app.add_handler(CommandHandler(["birthday", "birthdays"], self.on_birthdays, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_birthday_button, pattern=r"^bday:del:\d+$"))
         self.app.add_handler(CommandHandler("subscriptions", self.on_subscriptions, filters=owner))
         self.app.add_handler(CommandHandler("plan", self.on_plan, filters=owner))
         self.app.add_handler(CommandHandler("packages", self.on_packages, filters=owner))

@@ -3,6 +3,8 @@
 ## 1.2.0
 
 **Safer**
+- Restoring an export shows every memory, reminder, rule, list item and the writing style in full on the card, exactly as it would be stored. Reminders with the same text at different times both come back.
+- Bills: replacing or deleting a bill removes only its own reminder, a double tap on ✅ Paid logs it once, and a bill Claude adds always gets a "🧾 New bill" message from the bot itself.
 - Turns you didn't start (the daily brief, weekly review, scheduled tasks, meeting prep, draft buttons) can no longer set reminders or archive, trash or mark email. An email read while you're away can't plant a reminder that later speaks in ClaudeBot's voice.
 - Brief feedback and journal entries only count when you reply to the question, so your next normal message isn't swallowed.
 - `/sweep` never touches starred or important mail.
@@ -12,6 +14,7 @@
 - Docker health check: the bot touches a file every minute and `python -m claudebot health` checks it, so Docker can see a stuck bot (Fly and Railway use their own checks).
 
 **Today at a glance**
+- `/birthday Mom Mar 14` saves a birthday with a yearly heads-up the day before; `/birthdays` lists them by how soon they are.
 - `/who Alex`: what ClaudeBot knows about someone, pulled from memories, recent email, upcoming meetings, IOUs and your Telegram chat.
 - `/packages`: deliveries on the way, from your shipping emails (store, carrier, tracking number, expected date).
 - `/plan`: a realistic, time-blocked plan for today around your fixed events (added to your calendar only if you say so). `/prep`: get ready for your next meeting, on demand.
