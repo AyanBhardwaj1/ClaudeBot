@@ -58,3 +58,15 @@ async def test_habit_command_buttons_and_evening_job(tmp_path, monkeypatch):
     assert len(sent) == count
     await bot.on_habit(update, SimpleNamespace(args=["stop", "read", "20", "pages"]))
     assert Habits(bot.db).active() == []
+
+
+
+def test_habit_lines_for_the_weekly_review(tmp_path):
+    from claudebot.habits import habit_lines
+
+    db = Database(tmp_path / "t.db")
+    habits = Habits(db)
+    h = habits.add("Workout")
+    for d in (4, 6, 8, 9, 10):
+        habits.mark(h["id"], date(2026, 11, d))
+    assert habit_lines(db, date(2026, 11, 10)) == "- Workout: 5 of the last 7 days (streak 3)"

@@ -8,6 +8,7 @@ from datetime import datetime, time
 from telegram import ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from .habits import habit_lines
 from .inbox_watch import in_quiet_hours
 from .quiet import dnd_active
 
@@ -23,6 +24,7 @@ REVIEW_PROMPT = (
     "(list_telegram_dms if connected; search my inbox for important unanswered email from this week).\n"
     "3. The week ahead: list_calendar_events for the next 7 days, flagging busy days and anything to "
     "prepare.\n"
+    "4. If I logged any expenses, this week's spending by category (spending_summary), in one line.\n"
     "End with one suggestion for next week."
 )
 DIGEST_KEY = "newsletter_digest"  # "on" to get it (off by default: it reads a lot of email)
@@ -49,7 +51,8 @@ class ReviewHandlers:
         reply, ok = await self._run_agent([{"type": "text", "text": REVIEW_PROMPT}], owner_present=False,
                                           source="review")
         if ok:  # an API or budget error isn't a review
-            await self.send_to_owner(f"🗓 Your week\n\n{reply}")
+            streaks = habit_lines(self.db, now.date())  # counted by code, not by the model
+            await self.send_to_owner(f"🗓 Your week\n\n{reply}" + (f"\n\n🔥 Habits\n{streaks}" if streaks else ""))
 
     async def _digest_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         now = datetime.now(self.config.timezone)

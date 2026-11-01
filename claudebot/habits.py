@@ -73,6 +73,16 @@ class Habits:
             "SELECT day FROM habit_days WHERE habit_id = ? ORDER BY day", (h["id"],))]} for h in self.active()]
 
 
+def habit_lines(db: Database, today: date) -> str:
+    """'- workout: 5 of the last 7 days (streak 3)' per habit, for the weekly review."""
+    habits = Habits(db)
+    lines = []
+    for h in habits.active():
+        week = sum(habits.done(h["id"], today - timedelta(days=i)) for i in range(7))
+        lines.append(f"- {h['name']}: {week} of the last 7 days (streak {habits.streak(h['id'], today)})")
+    return "\n".join(lines)
+
+
 def habit_view(habits: Habits, today: date) -> tuple[str, InlineKeyboardMarkup | None]:
     items = habits.active()
     if not items:
