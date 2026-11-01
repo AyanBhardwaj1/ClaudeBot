@@ -153,11 +153,12 @@ class CheckinHandlers:
         self.db.prune_settings("noreply:", 200)
         await query.answer(f"⏰ I'll check {when:%a} morning")
 
-    async def event_created(self, event_id: str, title: str, start: str) -> None:
+    async def event_created(self, event_id: str, title: str, start: str, has_attendees: bool = False) -> None:
         """Every event ClaudeBot adds gets a card with a Remove button, like Undo on email."""
         key = str(int(self.db.get_setting("calev_next") or 0) + 1)
         self.db.set_setting("calev_next", key)
-        self.db.set_setting(f"calev:{key}", json.dumps({"id": event_id, "title": title[:100], "start": start}))
+        self.db.set_setting(f"calev:{key}", json.dumps({"id": event_id, "title": title[:100], "start": start,
+                                                         "guests": has_attendees}))
         self.db.prune_settings("calev:", 100)
         try:
             when = datetime.fromisoformat(start)
@@ -165,7 +166,8 @@ class CheckinHandlers:
         except ValueError:
             shown = start
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Remove", callback_data=f"cu:{key}")]])
-        await self.send_to_owner(f"📅 Added: {defang_urls(clip(title, 100))} ({shown})", markup)
+        invited = "\nInvites went out to the guests." if has_attendees else ""
+        await self.send_to_owner(f"📅 Added: {defang_urls(clip(title, 120))} ({shown}){invited}", markup)
 
     async def on_event_undo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -179,7 +181,7 @@ class CheckinHandlers:
             return
         event = json.loads(raw)
         try:
-            await asyncio.to_thread(self.google.delete_event, event["id"])
+            await asyncio.to_thread(self.google.delete_event, event["id"], bool(event.get("guests")))
         except Exception:
             log.exception("Removing event %s failed", event["id"])
             await query.answer("Couldn't remove it; it may already be gone.")

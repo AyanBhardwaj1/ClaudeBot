@@ -778,6 +778,7 @@ def test_recurrence_rules_are_built_from_known_tokens():
 
     assert rrule("weekly", ["MO", "we"]) == "RRULE:FREQ=WEEKLY;BYDAY=MO,WE"
     assert rrule("weekdays", until="2026-12-19") == "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=20261219T235959Z"
+    assert rrule("weekly", ["MO"], until="2026-12-19", tz=TZ) == "RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20261220T055959Z"
     assert rrule("biweekly", ["FR"], count=6) == "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;COUNT=6"
     assert rrule("monthly") == "RRULE:FREQ=MONTHLY"
     for bad in (lambda: rrule("hourly"), lambda: rrule("weekly", ["XX"]), lambda: rrule("daily", ["MO"]),
@@ -795,3 +796,32 @@ async def test_repeating_events_reach_google(tmp_path):
         "summary": "Gym", "start": "2026-11-09T07:00:00", "end": "2026-11-09T08:00:00",
         "repeat": "weekly", "days": ["MO", "WE"]}, make_context(db, google=google))
     assert not is_error and calls[0][-1] == "RRULE:FREQ=WEEKLY;BYDAY=MO,WE"
+
+
+
+async def test_unattended_turns_cant_fill_the_calendar(tmp_path):
+    db = Database(tmp_path / "t.db")
+    google = FakeGoogle()
+    google.create_event = lambda *args: {"status": "created", "id": "e1"}
+    ctx = make_context(db, google=google)
+    ctx.owner_present = False
+    event = {"summary": "Call 1-800", "start": "2026-11-09T07:00:00", "end": "2026-11-09T08:00:00"}
+    result, is_error = await run_tool("create_calendar_event", {**event, "repeat": "daily"}, ctx)
+    assert is_error
+    assert not (await run_tool("create_calendar_event", event, ctx))[1]
+    assert (await run_tool("create_calendar_event", event, ctx))[1]  # one per turn
+
+
+async def test_a_failed_card_doesnt_turn_a_created_event_into_an_error(tmp_path):
+    db = Database(tmp_path / "t.db")
+    google = FakeGoogle()
+    google.create_event = lambda *args: {"status": "created", "id": "e1"}
+    ctx = make_context(db, google=google)
+
+    async def broken_card(*a):
+        raise RuntimeError("telegram down")
+
+    ctx.event_created = broken_card
+    result, is_error = await run_tool("create_calendar_event", {
+        "summary": "Dentist", "start": "2026-11-09T07:00:00", "end": "2026-11-09T08:00:00"}, ctx)
+    assert not is_error and json.loads(result)["status"] == "created"

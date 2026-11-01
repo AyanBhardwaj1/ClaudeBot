@@ -72,7 +72,8 @@ class JournalHandlers:
             return
         asked = await self.send_to_owner("📓 How was your day? Reply to this message with a few lines (or ignore it).",
                                          ForceReply(input_field_placeholder="How was your day?"))
-        self._expect(AWAIT, reply_to=getattr(asked, "message_id", None))
+        self.ask_by_reply(AWAIT, getattr(asked, "message_id", None), day=now.date().isoformat())
 
-    def save_journal_answer(self, text: str) -> None:
-        Journal(self.db).write(datetime.now(self.config.timezone).date().isoformat(), text)
+    def save_journal_answer(self, text: str, day: str | None = None) -> None:
+        """Saved under the day the question was asked (a reply after midnight still belongs to it)."""
+        Journal(self.db).write(day or datetime.now(self.config.timezone).date().isoformat(), text)

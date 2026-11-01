@@ -162,6 +162,30 @@ class SetupHandlers:
         (for open-ended questions like the journal: "remind me at 6pm" mustn't become an entry)."""
         self.db.set_setting(AWAIT_KEY, json.dumps({"what": what, "at": time.time(), "reply_to": reply_to}))
 
+    def ask_by_reply(self, what: str, message_id: int | None, **extra) -> None:
+        """An open question answered by replying to it (journal, brief feedback): matched by the
+        reply itself, with no time limit and no shared slot, so other questions can't displace it."""
+        if message_id is None:
+            return  # couldn't send it: nothing to match a reply against (fail closed)
+        self.db.set_setting(f"asked:{message_id}", json.dumps({"what": what, **extra}))
+        self.db.prune_settings("asked:", 50)
+
+    async def _handle_reply_answer(self, message: Message) -> bool:
+        replied = getattr(message, "reply_to_message", None)
+        raw = self.db.get_setting(f"asked:{replied.message_id}") if replied is not None else None
+        if raw is None:
+            return False
+        asked = json.loads(raw)
+        self.db.delete_setting(f"asked:{replied.message_id}")
+        text = message.text or ""
+        if asked["what"] == JOURNAL_AWAIT:
+            self.save_journal_answer(text, asked.get("day"))
+            await self.send_to_owner("📓 Saved. Good night.")
+        elif asked["what"] == FEEDBACK_AWAIT:
+            fact = self.save_brief_feedback(text)
+            await self.send_to_owner(f"✏️ Got it. I'll remember: {fact.split(': ', 1)[1]}")
+        return True
+
     def _answers_question(self, message: Message) -> bool:
         raw = self.db.get_setting(AWAIT_KEY)
         reply_to = json.loads(raw).get("reply_to") if raw else None
@@ -187,6 +211,8 @@ class SetupHandlers:
         """If this text answers a question ClaudeBot asked (or is a Google sign-in address),
         handle it and return True. Otherwise it's a normal message for Claude."""
         text = message.text or ""
+        if await self._handle_reply_answer(message):
+            return True
         what = self._awaiting()
         # Never let a sign-in code reach Claude or the history.
         if is_sign_in_reply(self.db, text, expecting_code=what == "google:code"):
@@ -213,14 +239,6 @@ class SetupHandlers:
                 if what == "set:role":
                     await self._role_set(profile)
                     return True
-            elif what == JOURNAL_AWAIT:
-                self.save_journal_answer(text)
-                await self.send_to_owner("📓 Saved. Good night.")
-                return True
-            elif what == FEEDBACK_AWAIT:
-                fact = self.save_brief_feedback(text)
-                await self.send_to_owner(f"✏️ Got it. I'll remember: {fact.split(': ', 1)[1]}")
-                return True
             elif what == "ob:brief":
                 save(self.db, "daily_brief_time", text)
             elif what.startswith("set:") and what[4:] in FIELDS:

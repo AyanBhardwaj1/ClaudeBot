@@ -49,9 +49,10 @@ class ToolContext:
     charts_left: int = 2  # per turn, like research_left
     workbench: Callable[[str, bool], Awaitable[dict]] | None = None  # (task, attach_recent_files)
     workbench_left: int = 1
+    events_left: int = 1  # events an unattended turn may create (owner turns aren't limited)
     propose_dm_reply: Callable[[int, str, str], Awaitable[int]] | None = None  # (chat_id, name, text) -> id
     dms: object | None = None  # the bot's DMStore (it knows the owner's id)
-    event_created: Callable[[str, str, str], Awaitable[None]] | None = None  # (event id, title, start)
+    event_created: Callable[..., Awaitable[None]] | None = None  # (event id, title, start, has_attendees)
     briefings_left: int = 1
     # False in turns the owner didn't start (daily brief, scheduled tasks). Those turns read
     # untrusted email with nobody watching, so anything that reaches other people or plants
@@ -653,7 +654,14 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
     if name == "create_calendar_event":
         if a.get("attendees"):
             _require_owner(ctx, "send calendar invites")
-        recurrence = rrule(a["repeat"], a.get("days"), a.get("until"), a.get("count")) if a.get("repeat") else None
+        if not ctx.owner_present:
+            # An email read while the owner is away mustn't fill their calendar.
+            if a.get("repeat"):
+                _require_owner(ctx, "create repeating events")
+            if ctx.events_left <= 0:
+                raise NeedsOwner("One new event per turn when the owner isn't here; suggest the rest.")
+            ctx.events_left -= 1
+        recurrence = rrule(a["repeat"], a.get("days"), a.get("until"), a.get("count"), ctx.tz) if a.get("repeat") else None
         result = await asyncio.to_thread(
             g.create_event,
             a["summary"],
@@ -666,8 +674,12 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         )
         if ctx.event_created is not None and result.get("id"):
             # A card from the bot itself, with Remove: an event can't slip onto the calendar unseen.
-            title = a["summary"] + (f" (repeats {a['repeat']})" if a.get("repeat") else "")
-            await ctx.event_created(result["id"], title, a["start"])
+            ends = f" until {a['until']}" if a.get("until") else (f", {a['count']} times" if a.get("count") else ", no end date")
+            title = a["summary"] + (f" (repeats {a['repeat']}{ends})" if a.get("repeat") else "")
+            try:
+                await ctx.event_created(result["id"], title, a["start"], bool(a.get("attendees")))
+            except Exception:  # the event exists: never report it as failed (the model would retry)
+                log.warning("Couldn't show the card for event %s", result["id"], exc_info=True)
         return result
     if name == "update_calendar_event":
         _require_owner(ctx, "change calendar events")

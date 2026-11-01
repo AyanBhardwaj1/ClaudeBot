@@ -134,7 +134,7 @@ async def test_added_events_get_a_remove_card(tmp_path, monkeypatch):
 
     bot.send_to_owner = send_to_owner
     bot.google.create_event = lambda *a, **k: {"status": "created", "id": "evt_abc", "link": ""}
-    bot.google.delete_event = lambda event_id: deleted.append(event_id) or {"status": "deleted"}
+    bot.google.delete_event = lambda event_id, notify=False: deleted.append(event_id) or {"status": "deleted"}
     ctx = bot.agent.tool_context
     ctx.owner_present = False  # even in an unattended turn, the owner sees it
     await run_tool("create_calendar_event", {"summary": "Dentist http://x.co", "start": "2026-11-12T15:00:00",

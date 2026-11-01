@@ -133,9 +133,12 @@ class HabitHandlers:
         habits = Habits(self.db)
         if int(habit_id) not in {h["id"] for h in habits.active()}:
             return
-        habits.mark(int(habit_id), datetime.strptime(day, "%Y%m%d").date())
+        marked = datetime.strptime(day, "%Y%m%d").date()
         today = datetime.now(self.config.timezone).date()
-        text, markup = habit_view(habits, today)
+        if not today - timedelta(days=2) <= marked <= today:
+            return  # an old card: only the last couple of days can be ticked
+        habits.mark(int(habit_id), marked)
+        text, markup = habit_view(habits, marked)  # the card stays on its own day, even after midnight
         await query.edit_message_text(text, reply_markup=markup)
 
     async def _habit_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:

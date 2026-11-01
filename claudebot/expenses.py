@@ -1,6 +1,7 @@
 """Expenses: "spent $12 on lunch" goes in a small ledger; "how much on food this month?" is
 answered by adding up the ledger, not by the model's arithmetic. /spent shows the month."""
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from telegram import Update
@@ -19,7 +20,21 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 CREATE INDEX IF NOT EXISTS expenses_at ON expenses(at);
 """
-MAX_AMOUNT = 1_000_000  # in whole currency units: a typo guard
+MAX_AMOUNT = 1_000_000_000  # whole units: a typo guard that still fits currencies like VND
+SYMBOLS = {"$": "USD", "US$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", "₹": "INR", "₩": "KRW", "C$": "CAD", "A$": "AUD"}
+
+
+def currency_code(text: str | None) -> str:
+    """'$', 'usd', 'US dollars'... -> 'USD'. Unknown text is refused, not turned into a new bucket."""
+    raw = (text or "USD").strip()
+    if raw in SYMBOLS:
+        return SYMBOLS[raw]
+    word = raw.upper().replace("DOLLARS", "").replace("DOLLAR", "").strip()
+    if word in ("US", ""):
+        return "USD"
+    if re.fullmatch(r"[A-Z]{3}", word):
+        return word
+    raise ValueError(f"Use a 3-letter currency code like USD or EUR, not {raw!r}.")
 
 
 def _clean(text: str, limit: int) -> str:
@@ -35,7 +50,7 @@ class Expenses:
             at: datetime | None = None) -> dict:
         if not 0 < amount <= MAX_AMOUNT:
             raise ValueError(f"Amount must be between 0 and {MAX_AMOUNT:,}.")
-        currency = (currency or "USD").strip().upper()[:3]
+        currency = currency_code(currency)
         category = _clean(category or "other", 30).lower() or "other"
         when = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
         cur = self.db.conn.execute(
@@ -82,6 +97,8 @@ def expense_tool(name: str, a: dict, db: Database, tz) -> dict:
     if name == "spending_summary":
         start = datetime.fromisoformat(a["start"])
         end = datetime.fromisoformat(a["end"])
+        if len(a["end"]) == 10:  # a date: "to Oct 31" includes Oct 31
+            end += timedelta(days=1)
         start, end = (d if d.tzinfo else d.replace(tzinfo=tz) for d in (start, end))
         return {**expenses.summary(start, end, a.get("category")),
                 "note": "Totals are summed from the owner's logged expenses; quote them as given."}

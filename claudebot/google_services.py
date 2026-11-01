@@ -373,8 +373,10 @@ class Google:
         )
         return {"status": "updated", "id": event["id"]}
 
-    def delete_event(self, event_id: str) -> dict:
-        self._calendar().events().delete(calendarId="primary", eventId=event_id).execute()
+    def delete_event(self, event_id: str, notify: bool = False) -> dict:
+        """notify=True tells invited guests it's cancelled (as creating it invited them)."""
+        self._calendar().events().delete(calendarId="primary", eventId=event_id,
+                                         sendUpdates="all" if notify else "none").execute()
         return {"status": "deleted"}
 
     # --- helpers ---

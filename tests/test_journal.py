@@ -49,3 +49,31 @@ async def test_evening_prompt_and_answer(tmp_path, monkeypatch):
     await bot.on_journal(update, SimpleNamespace(args=[]))
     assert "Shipped the release" in replies[-1]
     assert not await bot.handle_answer(SimpleNamespace(text="what's on tomorrow?", forward_origin=None))
+
+
+async def test_late_journal_replies_still_count_and_land_on_the_right_day(tmp_path, monkeypatch):
+    import json as _json
+    import time as _time
+
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    sent = []
+
+    async def send_to_owner(text, reply_markup=None):
+        sent.append(text)
+        return SimpleNamespace(message_id=900 + len(sent))
+
+    bot.send_to_owner = send_to_owner
+    bot.db.set_setting("journal", "on")
+    await bot._journal_job(None)
+    prompt_id = 900 + len(sent)
+    asked = _json.loads(bot.db.get_setting(f"asked:{prompt_id}"))
+    # An hour later, and another question asked in between: the reply still lands in the journal.
+    bot._expect("set:owner_name")
+    bot.db.set_setting("await", _json.dumps({"what": "set:owner_name", "at": _time.time() - 3600}))
+    assert await bot.handle_answer(SimpleNamespace(text="Long day, good dinner.", forward_origin=None,
+                                                   reply_to_message=SimpleNamespace(message_id=prompt_id)))
+    entries = Journal(bot.db).recent(1, asked["day"])
+    assert entries[0]["text"] == "Long day, good dinner." and entries[0]["day"] == asked["day"]

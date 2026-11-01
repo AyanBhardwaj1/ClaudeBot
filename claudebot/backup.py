@@ -1,6 +1,7 @@
 """Nightly database backups: SQLite's online backup API copies a consistent snapshot while the
 bot keeps running. The last 7 are kept next to the database (in the Docker volume)."""
 
+import os
 import sqlite3
 from datetime import datetime, time
 from pathlib import Path
@@ -13,12 +14,17 @@ KEEP = 7
 
 def backup(db_conn: sqlite3.Connection, data_dir: Path, today: str, keep: int = KEEP) -> Path:
     folder = data_dir / "backups"
-    folder.mkdir(parents=True, exist_ok=True)
+    folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    folder.chmod(0o700)
     target = folder / f"claudebot-{today}.db"
-    with sqlite3.connect(target) as out:
+    os.close(os.open(target, os.O_WRONLY | os.O_CREAT, 0o600))  # private from the first byte
+    target.chmod(0o600)
+    out = sqlite3.connect(target)
+    try:
         db_conn.backup(out)
-    target.chmod(0o600)  # it holds your conversations and memories
-    for old in sorted(folder.glob("claudebot-*.db"))[:-keep]:
+    finally:
+        out.close()
+    for old in sorted(folder.glob("claudebot-????-??-??.db"))[:-keep]:  # only the nightly ones rotate
         old.unlink()
     return target
 

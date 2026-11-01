@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 
 from .habits import habit_lines
 from .inbox_watch import in_quiet_hours
+from .modes import defang_urls
 from .quiet import dnd_active
 
 REVIEW_KEY = "weekly_review"  # "off" turns it off
@@ -56,12 +57,13 @@ class ReviewHandlers:
 
     async def _digest_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         now = datetime.now(self.config.timezone)
-        if self.db.get_setting(DIGEST_KEY) != "on" or dnd_active(self.db, now) or not self.google.is_connected():
+        if (self.db.get_setting(DIGEST_KEY) != "on" or dnd_active(self.db, now)
+                or in_quiet_hours(now, self.config.quiet_hours) or not self.google.is_connected()):
             return
         reply, ok = await self._run_agent([{"type": "text", "text": DIGEST_PROMPT}], owner_present=False, effort="low",
                                           source="digest")
-        if ok:
-            await self.send_to_owner(f"📰 Your newsletters this week\n\n{reply}")
+        if ok:  # newsletters are other people's text: their links arrive unclickable
+            await self.send_to_owner(f"📰 Your newsletters this week\n\n{defang_urls(reply)}")
 
     async def on_brief_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -77,7 +79,7 @@ class ReviewHandlers:
         asked = await self.send_to_owner(
             "Reply to this message with what to change in your daily brief, e.g. \"skip the headlines\" or "
             "\"more on the Longhorns\".", ForceReply(input_field_placeholder="What should I change?"))
-        self._expect(FEEDBACK_AWAIT, reply_to=getattr(asked, "message_id", None))
+        self.ask_by_reply(FEEDBACK_AWAIT, getattr(asked, "message_id", None))
 
     def save_brief_feedback(self, text: str) -> str:
         fact = "Daily brief preference: " + " ".join(text.replace("<", " ").replace(">", " ").split())[:300]

@@ -34,7 +34,8 @@ FREQUENCIES = {"daily": "DAILY", "weekdays": "WEEKLY", "weekly": "WEEKLY", "biwe
                "monthly": "MONTHLY", "yearly": "YEARLY"}
 
 
-def rrule(repeat: str, days: list[str] | None = None, until: str | None = None, count: int | None = None) -> str:
+def rrule(repeat: str, days: list[str] | None = None, until: str | None = None, count: int | None = None,
+          tz: ZoneInfo | None = None) -> str:
     """An RFC 5545 recurrence rule built only from known tokens (nothing passed through as text)."""
     if repeat not in FREQUENCIES:
         raise ValueError(f"repeat must be one of {', '.join(FREQUENCIES)}")
@@ -47,7 +48,9 @@ def rrule(repeat: str, days: list[str] | None = None, until: str | None = None, 
             raise ValueError("days are weekday codes like MO, WE, FR, for weekly repeats")
         parts.append("BYDAY=" + ",".join(dict.fromkeys(picked)))
     if until:
-        parts.append("UNTIL=" + date.fromisoformat(until).strftime("%Y%m%d") + "T235959Z")
+        # The end of that day where the owner lives, in UTC (RFC 5545 wants UTC for timed events).
+        last = datetime.combine(date.fromisoformat(until), time(23, 59, 59), tzinfo=tz or ZoneInfo("UTC"))
+        parts.append("UNTIL=" + last.astimezone(ZoneInfo("UTC")).strftime("%Y%m%dT%H%M%SZ"))
     elif count is not None:
         if not 1 <= int(count) <= 500:
             raise ValueError("count must be between 1 and 500")

@@ -8,6 +8,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from .db import Database
+from .expenses import currency_code
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ious (
@@ -37,7 +38,7 @@ class Ious:
             raise ValueError("Say who and how much, e.g. Alex owes me $20.")
         cents = round(amount * 100) * (1 if they_owe_me else -1)
         self.db.conn.execute("INSERT INTO ious (person, cents, currency, note, at) VALUES (?, ?, ?, ?, ?)",
-                             (person, cents, (currency or "USD").upper()[:3], _clean(note, 100),
+                             (person, cents, currency_code(currency), _clean(note, 100),
                               datetime.now(timezone.utc).isoformat()))
         self.db.conn.commit()
         return {"person": person, "amount": amount, "they_owe_you": they_owe_me}

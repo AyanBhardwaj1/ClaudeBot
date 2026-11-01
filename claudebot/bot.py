@@ -403,6 +403,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         # Everyone else is ignored silently.
 
     async def _post_init(self, app: Application) -> None:
+        app.job_queue.run_repeating(self._alive_job, interval=60, first=1, name="alive")  # also while unpaired
         if self.config.owner_id is None:
             me = await app.bot.get_me()
             log.warning(
@@ -440,7 +441,6 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         app.job_queue.run_repeating(
             self._heartbeat_job, interval=HEARTBEAT_HOURS * 3600, first=15 * 60, name="check-ins"
         )
-        app.job_queue.run_repeating(self._alive_job, interval=60, first=1, name="alive")
         app.job_queue.run_repeating(self._snooze_job, interval=300, first=60, name="email-snooze")
         app.job_queue.run_repeating(self._alert_digest_job, interval=3600, first=3600, name="alert-digest")
         app.job_queue.run_repeating(

@@ -122,6 +122,6 @@ class UsageTracker:
         by_source = self.db.usage_by_source(self._month_start(now))
         if by_source:
             lines.append("This month by feature:")
-            lines += [f"- {SOURCE_LABELS.get(source, source)}: ${cost:.2f} ({n})" for source, n, cost in by_source[:8]]
+            lines += [f"- {SOURCE_LABELS.get(source, source)}: ${cost:.2f} ({n})" for source, n, cost in by_source]
         lines.append("Exact billing: console.anthropic.com")
         return "\n".join(lines)

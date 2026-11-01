@@ -58,3 +58,18 @@ async def test_spent_command(tmp_path, monkeypatch):
     Expenses(bot.db).log(12.5, "food")
     await bot.on_spent(update, None)
     assert "food: 12.50 USD" in replies[-1] and "Total: 12.50 USD" in replies[-1]
+
+
+def test_end_dates_are_inclusive_and_currencies_validated(tmp_path):
+    from claudebot.expenses import currency_code, expense_tool
+
+    db = Database(tmp_path / "t.db")
+    ledger = Expenses(db)
+    ledger.log(40, "food", at=datetime(2026, 10, 31, 18, tzinfo=TZ))
+    ledger.log(12.1, "food", at=datetime(2026, 10, 5, 12, tzinfo=TZ))
+    total = expense_tool("spending_summary", {"start": "2026-10-01", "end": "2026-10-31"}, db, TZ)["total"]
+    assert total == {"USD": 52.1}  # Oct 31 counts
+    assert currency_code("$") == "USD" and currency_code("eur") == "EUR" and currency_code("US dollars") == "USD"
+    with pytest.raises(ValueError):
+        currency_code("monopoly money")
+    assert ledger.log(1_500_000, "rent", currency="VND")["amount"] == 1_500_000
