@@ -33,6 +33,12 @@ PREP_PROMPT = (
     "recent email threads with the attendees and what you remember about them. Brief: who they are to me, "
     "where we left things, open questions or promises, what to bring. Five lines or so."
 )
+PACKAGES_PROMPT = (
+    "What deliveries are on the way? Search my email from the last 14 days for order and shipping "
+    "confirmations (\"shipped\", \"out for delivery\", \"tracking\", \"your order\"). For each package not yet "
+    "delivered: what it is, the store, the carrier and tracking number, and the expected date. Skip delivered ones. "
+    "Don't open links from the emails."
+)
 TRIPS_PROMPT = (
     "List my upcoming trips in the next 60 days. Search my email for flight, train, hotel and car rental "
     "confirmations and check my calendar. For each trip: dates, times, confirmation numbers, and anything that "
@@ -75,6 +81,10 @@ class ShortcutHandlers:
     async def on_prep(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:
             await self._converse([{"type": "text", "text": PREP_PROMPT}], "/prep")
+
+    async def on_packages(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        async with self._message_order:
+            await self._converse([{"type": "text", "text": PACKAGES_PROMPT}], "/packages")
 
     async def on_trips(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with self._message_order:
