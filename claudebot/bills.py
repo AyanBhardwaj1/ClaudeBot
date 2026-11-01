@@ -29,6 +29,21 @@ def next_due(day: int, today: date) -> date:
     raise AssertionError("unreachable")
 
 
+def paying_for(day: int, today: date) -> date:
+    """The due date a Paid tap today settles: whichever of the last and next due dates is nearer
+    (paying a Nov 1 bill on Oct 30 settles Nov 1; a late Oct 3 payment still settles Oct 1)."""
+    upcoming = next_due(day, today)
+    if upcoming == today:
+        return today
+    this_month = date(today.year, today.month, min(day, calendar.monthrange(today.year, today.month)[1]))
+    if this_month < today:
+        previous = this_month
+    else:
+        last = today.replace(day=1) - timedelta(days=1)
+        previous = date(last.year, last.month, min(day, calendar.monthrange(last.year, last.month)[1]))
+    return previous if (today - previous) < (upcoming - today) else upcoming
+
+
 class Bills:
     def __init__(self, db: Database):
         self.db = db
@@ -64,13 +79,16 @@ class Bills:
         self._save([b for b in bills if b["id"] != bill_id])
         return gone
 
-    def mark_paid(self, bill_id: int, month: str) -> bool:
-        """Once per calendar month: a second tap doesn't log the expense twice."""
+    def mark_paid(self, bill_id: int, today: date) -> bool:
+        """Once per due date: a second tap doesn't log the expense twice."""
         bills = self.all()
         bill = next((b for b in bills if b["id"] == bill_id), None)
-        if bill is None or bill.get("paid") == month:
+        if bill is None:
             return False
-        bill["paid"] = month
+        cycle = paying_for(bill["day"], today).isoformat()
+        if bill.get("paid") == cycle:
+            return False
+        bill["paid"] = cycle
         self._save(bills)
         return True
 
@@ -101,7 +119,7 @@ def bills_view(bills: Bills, today: date) -> tuple[str, InlineKeyboardMarkup | N
         due = next_due(b["day"], today)
         totals[b["currency"]] = totals.get(b["currency"], 0) + b["amount"]
         soon = " ⚠️" if (due - today).days <= REMIND_DAYS_BEFORE else ""
-        paid = " ✅ paid" if b.get("paid") == f"{today:%Y-%m}" else ""
+        paid = " ✅ paid" if b.get("paid") == paying_for(b["day"], today).isoformat() else ""
         lines.append(f"- {b['name']}: {b['amount']:,.2f} {b['currency']}, due {due:%b %-d}{soon}{paid}")
         rows.append([InlineKeyboardButton(f"✅ Paid {b['name'][:20]}", callback_data=f"bill:paid:{b['id']}"),
                      InlineKeyboardButton("🗑", callback_data=f"bill:del:{b['id']}")])
@@ -160,8 +178,9 @@ class BillHandlers:
             return
         today = datetime.now(self.config.timezone).date()
         if action == "paid":
-            if not bills.mark_paid(bill["id"], f"{today:%Y-%m}"):
-                await query.answer(f"{bill['name']} is already logged as paid this month.")
+            if not bills.mark_paid(bill["id"], today):
+                await query.answer(f"{bill['name']} is already logged as paid for "
+                                   f"{paying_for(bill['day'], today):%b %-d}.")
                 return
             Expenses(self.db).log(bill["amount"], "bills", bill["name"], bill["currency"])
             ActionLog(self.db).record("money", f"Paid {bill['name']}: {bill['amount']:,.2f} {bill['currency']}")

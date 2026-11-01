@@ -169,3 +169,19 @@ async def test_old_bills_without_a_reminder_id_still_clean_up(tmp_path, monkeypa
     other = bot.db.add_reminder("Gas (60.00 USD) is due in 2 days, check", when, "monthly", False)
     bot._cancel_bill_reminder({"id": 1, "name": "Gas", "amount": 60.0, "currency": "USD", "day": 3})
     assert [r["id"] for r in bot.db.active_reminders()] == [other] and old != other
+
+
+def test_paid_settles_the_nearest_due_date(tmp_path):
+    """Batch 7 N-11: paying early or late settles that bill's due date, not the month of the tap."""
+    from claudebot.bills import paying_for
+
+    assert paying_for(1, date(2026, 10, 30)) == date(2026, 11, 1)
+    assert paying_for(1, date(2026, 11, 2)) == date(2026, 11, 1)
+    assert paying_for(1, date(2026, 10, 3)) == date(2026, 10, 1)
+    assert paying_for(15, date(2026, 10, 15)) == date(2026, 10, 15)
+    assert paying_for(31, date(2026, 3, 2)) == date(2026, 2, 28)
+    bills = Bills(Database(tmp_path / "t.db"))
+    bill, _ = bills.add("Rent", 1200, 1)
+    assert bills.mark_paid(bill["id"], date(2026, 10, 30))
+    assert not bills.mark_paid(bill["id"], date(2026, 11, 2))  # same Nov 1 bill
+    assert bills.mark_paid(bill["id"], date(2026, 11, 29))  # Dec 1 is next

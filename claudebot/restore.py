@@ -4,6 +4,7 @@ rule, reminder and the writing style before anything is added, because those ste
 and a file can come from anyone. What is added is capped and de-duplicated, and everything goes
 through the same validation as normal use."""
 
+import io
 import json
 import logging
 import secrets
@@ -28,6 +29,7 @@ MAX_MEMORIES = 100
 MAX_REMINDERS = 50
 MAX_RULES = 20
 MAX_LIST_ITEMS = 300
+MAX_CARD_MESSAGES = 3
 REPEATS = ("none", "daily", "weekdays", "weekly", "biweekly", "monthly", "yearly")
 
 
@@ -109,7 +111,7 @@ def preview(p: dict) -> str:
     return "\n\n".join(parts)
 
 
-def restore(db, payload: dict) -> dict:
+def restore(db, payload: dict, tz=timezone.utc) -> dict:
     """Add what's in the export, skipping what's already here. Returns counts."""
     p = plan(payload)
     counts = {"memories": 0, "list items": 0, "reminders": 0, "rules": 0, "habit days": 0, "journal days": 0}
@@ -125,8 +127,14 @@ def restore(db, payload: dict) -> dict:
             counts["list items"] += len(lists.add(lst["name"], lst["items"]))
         except ValueError:
             continue
-    def key(text, repeat, due: datetime):  # "Take meds" at 8:00 and at 20:00 are two reminders
-        return text, repeat, due.astimezone(timezone.utc).strftime("%H:%M") if repeat != "none" else due.isoformat()
+    def key(text, repeat, due: datetime):
+        """Same reminder only if it fires at the same local time on the same pattern: "Take meds" at 8:00 and
+        20:00, gym on Mondays and Thursdays, rent on the 1st and the 15th all stay separate (DST-proof)."""
+        local = due.astimezone(tz)
+        pattern = {"none": local.date().isoformat(), "weekly": local.weekday(),
+                   "biweekly": (local.weekday(), local.date().toordinal() // 7 % 2), "monthly": local.day,
+                   "yearly": (local.month, local.day)}.get(repeat, "")
+        return text, repeat, local.strftime("%H:%M"), pattern
 
     existing = {key(r["text"], r["repeat"], datetime.fromisoformat(r["due_at"])) for r in db.active_reminders()}
     for r in p["reminders"]:
@@ -189,6 +197,14 @@ class RestoreHandlers:
         self.db.set_setting(PENDING_PREFIX + card, json.dumps(payload))
         self.db.prune_settings(PENDING_PREFIX, 3)
         chunks = split_message(text)
+        if len(chunks) > MAX_CARD_MESSAGES:  # a big export: the full list as a file, not dozens of messages
+            p = plan(payload)
+            await message.reply_document(document=io.BytesIO(text.encode()), filename="restore-preview.txt")
+            chunks = [f"This export would add {len(p['memories'])} memories, {len(p['rules'])} alert rules, "
+                      f"{len(p['reminders'])} reminders{', a writing style' if p['style'] else ''} and "
+                      f"{sum(len(lst['items']) for lst in p['lists'])} list items. Every one is in "
+                      "restore-preview.txt above, exactly as it would be stored: memories, rules and reminders "
+                      "steer what I do, so read it before restoring, and only restore a file you made yourself."]
         for chunk in chunks[:-1]:
             await message.reply_text(chunk)
         await message.reply_text(chunks[-1], reply_markup=InlineKeyboardMarkup([[
@@ -208,7 +224,7 @@ class RestoreHandlers:
             await query.edit_message_text("Not restored.")
             return
         try:
-            counts = restore(self.db, json.loads(raw))
+            counts = restore(self.db, json.loads(raw), self.config.timezone)
         except Exception:
             log.exception("Restore failed")
             await query.edit_message_text("That restore failed partway; check /memory and /reminders.")

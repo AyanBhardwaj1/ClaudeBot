@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from email.utils import parseaddr
 from typing import Awaitable, Callable
 
@@ -31,6 +31,8 @@ KINDS = ("bill", "deadline", "delivery", "travel", "meeting")
 ALERT_MODE_KEY = "alert_mode"  # "hourly" holds alerts for one digest an hour
 DIGEST_QUEUE_KEY = "alert_digest"
 MAX_DIGEST = 100
+WAKES_KEY = "urgent_wakes_sent"
+MAX_WAKES = 3
 MAX_ACTION_ALERTS = 3  # buttons for the first few alerted emails; more would swamp the chat
 GMAIL_ID = re.compile(r"[0-9a-f]{6,32}")  # also keeps callback data inside Telegram's 64 bytes
 
@@ -263,14 +265,28 @@ class InboxWatcher:
             actions += [(f"🗄 {short}", f"mail:arch:{a['id']}"), middle, later]
         return actions
 
+    def _may_wake(self) -> bool:
+        """At most MAX_WAKES urgent pings in any 12 hours of quiet time: an email can call itself urgent."""
+        now = datetime.now(timezone.utc)
+        recent = [t for t in json.loads(self.db.get_setting(WAKES_KEY) or "[]")
+                  if now - datetime.fromisoformat(t) < timedelta(hours=12)]
+        if len(recent) >= MAX_WAKES:
+            return False
+        self.db.set_setting(WAKES_KEY, json.dumps(recent + [now.isoformat()]))
+        return True
+
     async def _send(self, alerts: list[dict], title: str = "📬 New email") -> None:
         if (self.db.get_setting(ALERT_MODE_KEY) == "hourly" or getattr(self, "_urgent_only", False)) \
                 and title == "📬 New email":
             # Hourly digest: held here, sent together by flush_digest; anything urgent goes now.
             urgent = [a for a in alerts if a.get("urgent")]
+            if urgent and getattr(self, "_urgent_only", False) and not self._may_wake():
+                urgent = []  # enough wake-ups for one night: the rest wait like everything else
             held = json.loads(self.db.get_setting(DIGEST_QUEUE_KEY) or "[]")
+            already = {h["id"] for h in held}  # a failed send retried next check isn't listed twice
             fields = ("id", "from", "subject", "summary", "due", "kind")
-            held += [{k: a.get(k, "") for k in fields} for a in alerts if not a.get("urgent")]
+            held += [{k: a.get(k, "") for k in fields} for a in alerts
+                     if a not in urgent and a.get("id") not in already]
             self.db.set_setting(DIGEST_QUEUE_KEY, json.dumps(held[-MAX_DIGEST:]))
             if not urgent:
                 return

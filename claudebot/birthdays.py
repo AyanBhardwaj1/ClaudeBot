@@ -9,10 +9,13 @@ import re
 from datetime import date, datetime, time, timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from .actions import ActionLog
 from .db import Database
+from .modes import defang_urls
+from .ui import split_message
 
 BIRTHDAYS_KEY = "birthdays"
 MAX_BIRTHDAYS = 200
@@ -92,15 +95,19 @@ def birthdays_view(birthdays: Birthdays, today: date) -> tuple[str, InlineKeyboa
     items = sorted(birthdays.all(), key=lambda b: next_birthday(b["month"], b["day"], today))
     if not items:
         return "No birthdays yet. Add one: /birthday Mom Mar 14", None
+    if len(items) > MAX_BUTTONS:
+        rows_note = f"\n(🗑 buttons for the {MAX_BUTTONS} soonest; /birthday remove Name for the rest)"
+    else:
+        rows_note = ""
     lines, rows = ["🎂 Birthdays"], []
     for b in items:
         when = next_birthday(b["month"], b["day"], today)
         away = (when - today).days
         soon = "today! 🎉" if away == 0 else "tomorrow" if away == 1 else f"in {away} days"
-        lines.append(f"- {b['name']}: {when:%b %-d} ({soon})")
+        lines.append(f"- {defang_urls(b['name'])}: {when:%b %-d} ({soon})")
         if len(rows) < MAX_BUTTONS:
             rows.append([InlineKeyboardButton(f"🗑 {b['name'][:24]}", callback_data=f"bday:del:{b['id']}")])
-    return "\n".join(lines), InlineKeyboardMarkup(rows)
+    return "\n".join(lines) + rows_note, InlineKeyboardMarkup(rows)
 
 
 class BirthdayHandlers:
@@ -134,6 +141,18 @@ class BirthdayHandlers:
         message = update.effective_message
         args = " ".join(context.args or []) if context else ""
         today = datetime.now(self.config.timezone).date()
+        if args.lower().startswith(("remove ", "delete ")) and parse_birthday(args) is None:
+            name = args.split(None, 1)[1].strip().lower()
+            birthdays = Birthdays(self.db)
+            match = next((b for b in birthdays.all() if b["name"].lower() == name), None)
+            if match is None:
+                await message.reply_text("No birthday saved under that name. See /birthdays.")
+                return
+            birthdays.remove(match["id"])
+            self._cancel_birthday_reminder(match)
+            ActionLog(self.db).record("reminder", f"Birthday removed: {match['name']}")
+            await message.reply_text(f"Removed {match['name']}'s birthday.")
+            return
         if args:
             parsed = parse_birthday(args)
             if parsed is None:
@@ -145,10 +164,20 @@ class BirthdayHandlers:
                 await message.reply_text(str(error))
                 return
             when = next_birthday(item["month"], item["day"], today)
-            await message.reply_text(f"🎂 Saved {item['name']}: {when:%b %-d}. I'll remind you the day before.")
+            row = self.db.get_reminder(item["reminder_id"])
+            first = datetime.fromisoformat(row["due_at"]).astimezone(self.config.timezone).date() if row else None
+            heads_up = "I'll remind you the day before."
+            if when == today:
+                heads_up = "That's today! 🎉 " + heads_up
+            elif first is not None and first > when:  # the 9:00 heads-up for this one has passed
+                heads_up = f"That's {'tomorrow' if (when - today).days == 1 else 'soon'}, so no heads-up this year. " + heads_up
+            await message.reply_text(f"🎂 Saved {item['name']}: {when:%b %-d}. {heads_up}")
             return
         text, markup = birthdays_view(Birthdays(self.db), today)
-        await message.reply_text(text, reply_markup=markup)
+        chunks = split_message(text)  # a long list goes in parts; the buttons ride on the last one
+        for chunk in chunks[:-1]:
+            await message.reply_text(chunk)
+        await message.reply_text(chunks[-1], reply_markup=markup)
 
     async def on_birthday_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -164,4 +193,7 @@ class BirthdayHandlers:
             ActionLog(self.db).record("reminder", f"Birthday removed: {gone['name']}")
             await query.answer("Removed")
         text, markup = birthdays_view(birthdays, datetime.now(self.config.timezone).date())
-        await query.edit_message_text(text, reply_markup=markup)
+        try:
+            await query.edit_message_text(split_message(text)[0], reply_markup=markup)
+        except BadRequest:  # unchanged, or the card was split: /birthdays shows it fresh
+            pass

@@ -95,3 +95,35 @@ async def test_list_birthdays_tool_is_read_only_and_sorted(tmp_path):
     listed = json.loads(result)["birthdays"]
     assert not is_error and {b["name"] for b in listed} == {"Late", "Early"}
     assert [b["days_away"] for b in listed] == sorted(b["days_away"] for b in listed)
+
+
+async def test_long_birthday_lists_split_and_remove_by_name(tmp_path, monkeypatch):
+    """Batch 7 N-14/N-15."""
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    bot.schedule_reminder = lambda rid: None
+    bot.unschedule_reminder = lambda rid: None
+    replies = []
+
+    async def reply_text(text, *, reply_markup=None):
+        replies.append((text, reply_markup))
+
+    def cmd(*args):
+        return (SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text)),
+                SimpleNamespace(args=list(args)))
+
+    for i in range(150):
+        Birthdays(bot.db).add(f"Person number {i:03d} with a long name", 1 + i % 12, 1 + i % 28)
+    await bot.on_birthdays(*cmd())
+    assert len(replies) > 1 and all(len(t) <= 4096 for t, _ in replies) and replies[-1][1] is not None
+    assert "/birthday remove" in replies[-1][0]
+
+    tomorrow = datetime.now(TZ).date() + __import__("datetime").timedelta(days=1)
+    await bot.on_birthdays(*cmd("Remove", "Smith", f"{tomorrow:%b}", str(tomorrow.day)))  # a name, not a command
+    assert "Saved Remove Smith" in replies[-1][0]
+    assert ("no heads-up this year" in replies[-1][0]) == (datetime.now(TZ).hour >= 9)  # 9:00 today has passed
+    await bot.on_birthdays(*cmd("remove", "remove", "smith"))
+    assert "Removed Remove Smith" in replies[-1][0]
+    assert not any(r["text"].startswith("🎂 Remove Smith") for r in bot.db.active_reminders())

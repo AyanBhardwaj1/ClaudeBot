@@ -254,3 +254,26 @@ async def test_urgent_only_check_holds_the_rest(tmp_path):
     await watcher.check(urgent_only=True)
     assert len(notes) == 1 and notes[0].startswith("🚨")
     assert [a["id"] for a in json.loads(db.get_setting("alert_digest"))] == ["abc222"]
+
+
+async def test_urgent_wakeups_are_capped_and_held_mail_isnt_listed_twice(tmp_path):
+    """Batch 7 N-12/N-16: an email can call itself urgent, so quiet time allows at most 3 pings."""
+    db = Database(tmp_path / "t.db")
+    notes = []
+
+    async def notify(text, actions=None):
+        notes.append(text)
+
+    watcher = InboxWatcher(db, FakeGoogle(inbox=[]), None, UsageTracker(db, TZ, None),
+                           make_config(tmp_path, quiet_hours="00:00-23:59"), notify)
+    watcher._urgent_only = True
+
+    def alert(i, urgent):
+        return {"id": f"abc{i}", "from": "x@y.z", "subject": "s", "summary": f"m{i}", "due": "", "kind": "other",
+                "urgent": urgent}
+
+    for i in range(4):
+        await watcher._send([alert(i, True), alert(100, False)])
+    assert len(notes) == 3 and all(n.startswith("🚨") for n in notes)
+    held = [a["id"] for a in json.loads(db.get_setting("alert_digest"))]
+    assert held == ["abc100", "abc3"]  # the 4th urgent one waits; the repeated plain one is held once

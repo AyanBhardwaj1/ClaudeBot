@@ -127,3 +127,41 @@ def test_same_reminder_at_two_times_both_restore(tmp_path):
     assert len(db.active_reminders()) == 2
     from claudebot.alert_rules import AlertRules
     assert [r["text"] for r in AlertRules(db).all()] == ["no linkedin"]  # repeated in the file, added once
+
+
+def test_reminders_on_different_days_both_restore(tmp_path):
+    """Batch 7 N-10: weekly on two weekdays and monthly on two dates are separate reminders."""
+    from helpers import TZ
+
+    payload = {"claudebot_version": "1.2.0", "reminders": [
+        {"text": "gym", "next_run": "2099-01-05T07:00:00-06:00", "repeat": "weekly"},  # a Monday
+        {"text": "gym", "next_run": "2099-01-08T07:00:00-06:00", "repeat": "weekly"},  # a Thursday
+        {"text": "pay", "next_run": "2099-01-01T09:00:00-06:00", "repeat": "monthly"},
+        {"text": "pay", "next_run": "2099-01-15T09:00:00-06:00", "repeat": "monthly"},
+        {"text": "pay", "next_run": "2099-07-15T09:00:00-05:00", "repeat": "monthly"}]}  # same local 9:00 in summer
+    db = Database(tmp_path / "t.db")
+    assert restore(db, payload, TZ)["reminders"] == 4
+    assert restore(db, payload, TZ)["reminders"] == 0
+
+
+async def test_a_big_preview_comes_as_a_file(tmp_path, monkeypatch):
+    """Batch 7 N-13: a full-size export isn't dozens of messages racing flood control."""
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    data = json.dumps({"claudebot_version": "1.2.0",
+                       "memories": [{"text": f"memory {i} " + "y" * 480} for i in range(100)]}).encode()
+    replies, docs = [], []
+
+    async def reply_text(text, *, reply_markup=None):
+        replies.append((text, reply_markup))
+
+    async def reply_document(*, document, filename):
+        docs.append((filename, document.read().decode()))
+
+    msg = SimpleNamespace(document=SimpleNamespace(file_name="claudebot-export-x.json"), forward_origin=None,
+                          reply_text=reply_text, reply_document=reply_document)
+    assert await bot.handle_export_file(msg, data)
+    assert len(replies) == 1 and replies[0][1] is not None and "100 memories" in replies[0][0]
+    assert docs and "memory 99 " + "y" * 480 in docs[0][1]
