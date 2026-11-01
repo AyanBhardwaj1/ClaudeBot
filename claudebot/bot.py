@@ -99,6 +99,7 @@ from .ui import (
 )
 from .usage import BudgetExceeded, UsageTracker
 from .web_agent import deep_research, run_briefing
+from .whatsnew import notes_to_show
 from .workbench import run_workbench
 
 log = logging.getLogger(__name__)
@@ -447,6 +448,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         except TelegramError:
             log.warning("Couldn't set the command menu", exc_info=True)
         log.info("ClaudeBot is online.")
+        if (notes := notes_to_show(self.db, self.onboarded())) is not None:
+            await self.send_to_owner(notes)
         if not self.onboarded() and self.db.get_setting(ONBOARDING_OFFERED_KEY) is None:
             # First start with an owner (after the setup wizard or pairing): say hello first.
             self.db.set_setting(ONBOARDING_OFFERED_KEY, datetime.now().isoformat())

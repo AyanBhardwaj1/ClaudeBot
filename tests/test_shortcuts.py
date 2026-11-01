@@ -54,3 +54,13 @@ async def test_health_check_follows_the_alive_file(tmp_path, monkeypatch):
     old = time.time() - 600
     os.utime(tmp_path / "alive", (old, old))
     assert not healthy(tmp_path)
+
+
+def test_whats_new_once_per_version_and_not_on_fresh_installs(tmp_path):
+    from claudebot.whatsnew import SEEN_KEY, notes_to_show
+
+    db = Database(tmp_path / "t.db")
+    assert notes_to_show(db, onboarded=False) is None  # fresh install: they just saw /start
+    db.set_setting(SEEN_KEY, "1.1.0")
+    assert "What's new" in notes_to_show(db, onboarded=True)
+    assert notes_to_show(db, onboarded=True) is None
