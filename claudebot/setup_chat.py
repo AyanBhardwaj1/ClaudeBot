@@ -58,6 +58,7 @@ HELP = (
     "Everyday\n"
     "/brief – your daily brief now\n"
     "/waiting – replies you owe, and replies you're waiting on\n"
+    "/sweep – archive old promotions and updates in one tap\n"
     "/reminders – everything I'll remind you of (tap to cancel)\n"
     "/lists – shopping, packing and to-do lists (tap to check off)\n"
     "/dms – Telegram chats waiting on your reply (connect me in Telegram Business)\n"

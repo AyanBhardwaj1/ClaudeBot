@@ -70,6 +70,7 @@ from .roles import (
 from .settings import apply_saved, brief_time, save_owner_id
 from .setup_chat import ONBOARDING_OFFERED_KEY, WELCOME, SetupHandlers
 from .style_handlers import StyleHandlers
+from .sweep import SweepHandlers
 from .tools import ToolContext
 from .ui import (
     LivePreview,
@@ -107,6 +108,7 @@ PRIVATE_COMMANDS = [
     BotCommand("lists", "Shopping, packing and to-do lists"),
     BotCommand("quiet", "Pause alerts and check-ins for a while"),
     BotCommand("rules", "Your rules for email alerts"),
+    BotCommand("sweep", "Archive old promotions and updates in one tap"),
     BotCommand("export", "Download everything I keep about you"),
     BotCommand("briefings", "Your scheduled briefings"),
     BotCommand("memory", "What I remember about you"),
@@ -220,7 +222,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -325,6 +327,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("quiet", self.on_quiet, filters=owner))
         self.app.add_handler(CommandHandler("rules", self.on_rules, filters=owner))
         self.app.add_handler(CommandHandler("export", self.on_export, filters=owner))
+        self.app.add_handler(CommandHandler("sweep", self.on_sweep, filters=owner))
+        self.app.add_handler(CallbackQueryHandler(self.on_sweep_button, pattern=r"^sweep:(promo|social|updates)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_brief_button, pattern=r"^brief:(good|tune)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_rule_button, pattern=r"^rule:del:\d+$"))
         self.app.add_handler(CallbackQueryHandler(self.on_quiet_button, pattern=r"^dnd:(\d{1,4}|morning|off)$"))

@@ -121,6 +121,26 @@ class Google:
             )
         return results
 
+    def message_ids(self, query: str, limit: int = 500) -> list[str]:
+        """Ids of messages matching a Gmail query, following pages up to `limit`."""
+        messages = self._gmail().users().messages()
+        ids: list[str] = []
+        token = None
+        while len(ids) < limit:
+            page = messages.list(userId="me", q=query, maxResults=min(limit - len(ids), 500),
+                                 **({"pageToken": token} if token else {})).execute()
+            ids += [m["id"] for m in page.get("messages", [])]
+            token = page.get("nextPageToken")
+            if not token:
+                break
+        return ids[:limit]
+
+    def archive_many(self, ids: list[str]) -> None:
+        """Take messages out of the inbox (they stay in All Mail), up to 1000 per Gmail call."""
+        messages = self._gmail().users().messages()
+        for start in range(0, len(ids), 1000):
+            messages.batchModify(userId="me", body={"ids": ids[start : start + 1000], "removeLabelIds": ["INBOX"]}).execute()
+
     def thread_states(self, query: str, max_threads: int = 25) -> list[dict]:
         """Who spoke last in each matching thread (drafts don't count): metadata only."""
         gmail = self._gmail()

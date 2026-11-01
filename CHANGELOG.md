@@ -2,6 +2,9 @@
 
 ## 1.2.0 (in progress)
 
+**Inbox cleanup**
+- `/sweep` counts old promotions, social and update emails and archives a whole category in one tap. Archived means out of the inbox but still in All Mail: nothing is deleted. No AI involved, so it's free.
+
 **Never lose a thread**
 - Every sent email's confirmation has a ⏰ Follow up if no reply button. Three days later ClaudeBot checks whether they answered. If they did, you get one line; if not, it drafts a polite nudge for you to send.
 
