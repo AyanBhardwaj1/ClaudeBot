@@ -11,6 +11,7 @@
 - `/usage` breaks this month's spend down by feature: conversations, inbox alerts, check-ins, reply tracking and so on.
 
 **Inbox cleanup**
+- Optional Saturday newsletter digest (`/settings`): ClaudeBot reads the week's newsletters and sends the 5 things worth knowing, then `/sweep` clears them out.
 - `/sweep` counts old promotions, social and update emails and archives a whole category in one tap. Archived means out of the inbox but still in All Mail: nothing is deleted. No AI involved, so it's free.
 
 **Undo for your calendar too**

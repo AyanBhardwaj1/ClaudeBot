@@ -24,6 +24,15 @@ REVIEW_PROMPT = (
     "prepare.\n"
     "End with one suggestion for next week."
 )
+DIGEST_KEY = "newsletter_digest"  # "on" to get it (off by default: it reads a lot of email)
+DIGEST_TIME = time(10)
+DIGEST_DAYS = (6,)  # Saturday
+DIGEST_PROMPT = (
+    "Read the newsletters in my inbox from the past 7 days for me (search: in:inbox newer_than:7d "
+    "(category:promotions OR category:updates OR list:*) and read the ones that look like newsletters, "
+    "up to 15). Tell me the 5 things worth knowing, one line each, naming the newsletter. Skip ads and "
+    "deals. Don't include links. End with: \"/sweep archives them.\""
+)
 BRIEF_BUTTONS = InlineKeyboardMarkup([[InlineKeyboardButton("👍 Useful", callback_data="brief:good"),
                                        InlineKeyboardButton("✏️ Change it", callback_data="brief:tune")]])
 
@@ -37,6 +46,14 @@ class ReviewHandlers:
             return
         reply = await self._ask_agent([{"type": "text", "text": REVIEW_PROMPT}], owner_present=False)
         await self.send_to_owner(f"🗓 Your week\n\n{reply}")
+
+    async def _digest_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        now = datetime.now(self.config.timezone)
+        if self.db.get_setting(DIGEST_KEY) != "on" or dnd_active(self.db, now) or not self.google.is_connected():
+            return
+        reply, ok = await self._run_agent([{"type": "text", "text": DIGEST_PROMPT}], owner_present=False, effort="low")
+        if ok:
+            await self.send_to_owner(f"📰 Your newsletters this week\n\n{reply}")
 
     async def on_brief_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query

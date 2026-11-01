@@ -63,7 +63,14 @@ from .modes import MODES, current_mode, defang_urls, fence_external, set_mode
 from .outbox import Outbox
 from .quiet import QuietHandlers
 from .reminders import next_occurrence, previous_window
-from .review import BRIEF_BUTTONS, REVIEW_DAYS, REVIEW_TIME, ReviewHandlers
+from .review import (
+    BRIEF_BUTTONS,
+    DIGEST_DAYS,
+    DIGEST_TIME,
+    REVIEW_DAYS,
+    REVIEW_TIME,
+    ReviewHandlers,
+)
 from .roles import (
     Profile,
     clear_role,
@@ -393,6 +400,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
                                 name="journal")
         app.job_queue.run_daily(self._habit_job, time=HABIT_TIME.replace(tzinfo=self.config.timezone),
                                 name="habits")
+        app.job_queue.run_daily(self._digest_job, time=DIGEST_TIME.replace(tzinfo=self.config.timezone),
+                                days=DIGEST_DAYS, name="newsletter-digest")
         app.job_queue.run_daily(self._weekly_review_job, time=REVIEW_TIME.replace(tzinfo=self.config.timezone),
                                 days=REVIEW_DAYS, name="weekly-review")
         if self.config.inbox_alerts:

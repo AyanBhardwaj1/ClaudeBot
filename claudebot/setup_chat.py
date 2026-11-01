@@ -28,7 +28,7 @@ from .heartbeat import CHECKINS_KEY
 from .journal import AWAIT as JOURNAL_AWAIT
 from .meeting_prep import SWITCH_KEY as PREP_SWITCH
 from .modes import MODES, current_mode
-from .review import FEEDBACK_AWAIT, REVIEW_KEY
+from .review import DIGEST_KEY, FEEDBACK_AWAIT, REVIEW_KEY
 from .roles import ROLES, current_profile, pick_role, set_role
 from .settings import FIELDS, ONBOARDED_KEY, InvalidSetting, resolve_place, save
 from .shortcuts import last_days
@@ -343,6 +343,7 @@ class SetupHandlers:
             f"👋 Check-ins: {'off' if self.db.get_setting(CHECKINS_KEY) == 'off' else 'on'}\n"
             f"📋 Meeting prep: {'off' if self.db.get_setting(PREP_SWITCH) == 'off' else 'on'}\n"
             f"🗓 Sunday review: {'off' if self.db.get_setting(REVIEW_KEY) == 'off' else 'on'}\n"
+            f"📰 Saturday newsletter digest: {'on' if self.db.get_setting(DIGEST_KEY) == 'on' else 'off'}\n"
             f"✉️ Email: {'drafts only' if self.db.get_setting(DRAFTS_ONLY_KEY) == 'on' else 'send with Undo'}\n"
             f"🔗 Google: {'connected' if self.google.is_connected() else 'not connected'}\n\n"
             "Tap to change:"
@@ -355,7 +356,8 @@ class SetupHandlers:
             [("📬 Alerts on/off", "set:alerts"), ("↩️ Undo", "set:undo"), ("💰 Budget", "set:budget")],
             [("💬 Suggestions on/off", "set:followups"), ("👋 Check-ins on/off", "set:checkins")],
             [("✉️ Send / drafts only", "set:drafts"), ("📋 Meeting prep on/off", "set:prep")],
-            [("🗓 Sunday review on/off", "set:review"), ("🔗 Google", "set:google")],
+            [("🗓 Sunday review on/off", "set:review"), ("📰 Newsletter digest on/off", "set:digest")],
+            [("🔗 Google", "set:google")],
         ])
 
     async def on_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -412,6 +414,12 @@ class SetupHandlers:
             await self.send_to_owner(
                 "👋 Check-ins on: I'll message you when something needs you (at most 3 a day)." if on
                 else "Check-ins off. /waiting still shows what needs a reply.")
+        elif key == "digest":
+            on = self.db.get_setting(DIGEST_KEY) != "on"
+            self.db.set_setting(DIGEST_KEY, "on" if on else "off")
+            await self.send_to_owner(
+                "📰 Newsletter digest on: Saturdays at 10:00, the 5 things worth knowing from your newsletters." if on
+                else "Newsletter digest off.")
         elif key == "review":
             on = self.db.get_setting(REVIEW_KEY) == "off"
             self.db.set_setting(REVIEW_KEY, "on" if on else "off")
