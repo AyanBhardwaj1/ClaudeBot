@@ -40,7 +40,7 @@ MAX_TEXT = 1000
 MAX_CHATS = 8
 QUICK_KEY = "dm_quick_replies"
 DEFAULT_QUICK = ["On it 👍", "Can I get back to you later today?", "Thanks!"]
-MAX_QUICK, MAX_QUICK_LEN = 3, 100
+MAX_QUICK, MAX_QUICK_LEN = 3, 60  # short enough that a button shows all of it
 
 
 def quick_replies(db: Database) -> list[str]:
@@ -205,7 +205,7 @@ class DMStore:
         return [{"from": "OWNER (you are drafting for them)" if r["from_owner"] else r["sender"],
                  "is_owner": bool(r["from_owner"]), "text": r["text"], "at": r["at"]} for r in rows]
 
-    def unanswered(self, now: datetime | None = None) -> list[DMChat]:
+    def unanswered(self, now: datetime | None = None, limit: int | None = MAX_CHATS) -> list[DMChat]:
         """Chats where someone else wrote last, longest-waiting first."""
         now = now or datetime.now(timezone.utc)
         waiting = []
@@ -222,7 +222,7 @@ class DMStore:
                                   last["message_id"], datetime.fromisoformat(last["at"]),
                                   [r["text"] for r in pending][-5:], now))
         # Chats that can still be answered first, newest first: last week's spam shouldn't hide today's Mom.
-        return sorted(waiting, key=lambda c: (not c.can_reply, -c.last_at.timestamp()))[:MAX_CHATS]
+        return sorted(waiting, key=lambda c: (not c.can_reply, -c.last_at.timestamp()))[:limit]
 
     # --- replies waiting for the owner's tap ---
 
@@ -310,9 +310,11 @@ class BusinessHandlers:
         for c in waiting:
             hours = int((datetime.now(timezone.utc) - c.waiting_since).total_seconds() // 3600)
             when = f"{hours}h" if hours else "just now"
-            lines.append(f"- {c.name} ({when}): {defang_urls(clip(' / '.join(c.messages), 200))}")
-            rows.append([InlineKeyboardButton(f"✍️ Reply to {c.name[:24]}", callback_data=f"dm:draft:{c.chat_id}"),
-                         InlineKeyboardButton("⚡ Quick", callback_data=f"dm:quick:{c.chat_id}")])
+            lines.append(f"- {defang_urls(c.name)} ({when}): {defang_urls(clip(' / '.join(c.messages), 200))}")
+            row = [InlineKeyboardButton(f"✍️ Reply to {c.name[:24]}", callback_data=f"dm:draft:{c.chat_id}")]
+            if c.can_reply:  # past Telegram's 24-hour window a quick reply can't go out anyway
+                row.append(InlineKeyboardButton("⚡ Quick", callback_data=f"dm:quick:{c.chat_id}"))
+            rows.append(row)
         await message.reply_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(rows))
 
     async def propose_dm_reply(self, chat_id: int, name: str, text: str) -> int:
@@ -320,7 +322,7 @@ class BusinessHandlers:
         reply_id = self.dms.propose(chat_id, name, text)
         buttons = [InlineKeyboardButton("✅ Send as me", callback_data=f"dmsend:{reply_id}"),
                    InlineKeyboardButton("✖️ Cancel", callback_data=f"dmcancel:{reply_id}")]
-        await self.send_to_owner(f"💬 To: {name} (sent from your account)\n\n{text}",
+        await self.send_to_owner(f"💬 To: {defang_urls(name)} (sent from your account)\n\n{text}",
                                  InlineKeyboardMarkup([buttons]))
         return reply_id
 
@@ -359,7 +361,7 @@ class BusinessHandlers:
         await self._deliver_dm(query, reply)
 
     def _waiting_chat(self, chat_id: int) -> DMChat | None:
-        return next((c for c in self.dms.unanswered() if c.chat_id == chat_id), None)
+        return next((c for c in self.dms.unanswered(limit=None) if c.chat_id == chat_id), None)
 
     async def _quick_card(self, query, chat_id: int) -> None:
         chat = self._waiting_chat(chat_id)
@@ -367,21 +369,33 @@ class BusinessHandlers:
             await query.answer("Nobody is waiting there now.")
             return
         await query.answer()
-        rows = [[InlineKeyboardButton(text[:60], callback_data=f"dmq:{chat_id}:{i}:{quick_tag(text)}")]
-                for i, text in enumerate(quick_replies(self.db))]
-        await self.send_to_owner(f"⚡ Quick reply to {chat.name}: one tap sends it from your account.\n"
-                                 "Change these with /quickreplies.", InlineKeyboardMarkup(rows))
+        options = quick_replies(self.db)
+        # Tied to their latest message: if they write again, this card stops working.
+        rows = [[InlineKeyboardButton(f"{i + 1}. {text}",
+                                      callback_data=f"dmq:{chat_id}:{chat.last_message_id}:{i}:{quick_tag(text)}")]
+                for i, text in enumerate(options)]
+        listed = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(options))  # in full, whatever the button shows
+        await self.send_to_owner(
+            f"⚡ Quick reply to {defang_urls(chat.name)}, who wrote: "
+            f"{defang_urls(clip(chat.messages[-1] if chat.messages else '', 200))}\n\n{listed}\n\n"
+            "One tap sends that reply from your account. Change them with /quickreplies.", InlineKeyboardMarkup(rows))
 
-    async def _quick_send(self, query, chat_id: str, index: str, tag: str) -> None:
+    async def _quick_send(self, query, chat_id: str, message_id: str, index: str, tag: str) -> None:
         options = quick_replies(self.db)
         text = options[int(index)] if int(index) < len(options) else None
         chat = self._waiting_chat(int(chat_id))
         if text is None or quick_tag(text) != tag:
             await query.answer("Those replies changed; tap ⚡ Quick again.")
             return
-        claim = f"dmq_sent:{chat.chat_id}:{chat.last_message_id}" if chat else ""
-        if chat is None or self.db.get_setting(claim):
+        if chat is None:
             await query.answer("Nobody is waiting there now.")
+            return
+        if chat.last_message_id != int(message_id):
+            await query.answer("They wrote again since this card; tap ⚡ Quick in /dms for a fresh one.")
+            return
+        claim = f"dmq_sent:{chat.chat_id}:{chat.last_message_id}"
+        if self.db.get_setting(claim):
+            await query.answer("A quick reply to that message already went (or is waiting on a retry above).")
             return
         self.db.set_setting(claim, "1")  # claimed before any await: a fast double tap sends once
         self.db.prune_settings("dmq_sent:", 50)

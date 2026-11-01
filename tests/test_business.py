@@ -383,7 +383,8 @@ async def test_quick_replies_send_the_text_shown_once(tmp_path, monkeypatch):
     card, markup = sent[-1]
     assert "Alex Kim" in card and len(buttons(markup)) == 3
     first = buttons(markup)[0]
-    assert first == f"dmq:500:0:{quick_tag('On it 👍')}" and len(first.encode()) <= 64
+    assert first == f"dmq:500:1:0:{quick_tag('On it 👍')}" and len(first.encode()) <= 64
+    assert "1. On it 👍" in card and "running late?" in card  # every reply in full, and what it answers
 
     await bot.on_dm_button(tap(first, user_id=999)[0], None)
     assert delivered == []  # strangers can't
@@ -393,9 +394,12 @@ async def test_quick_replies_send_the_text_shown_once(tmp_path, monkeypatch):
     await bot.on_dm_button(update, None)  # answered now: a second tap sends nothing
     assert len(delivered) == 1 and answers[-1] == "Nobody is waiting there now."
 
-    bot.dms.record(dm("and tomorrow?", message_id=9, at=datetime.now(timezone.utc)))
+    bot.dms.record(dm("did you crash my car??", message_id=9, at=datetime.now(timezone.utc)))
+    update, answers, _ = tap(first)  # the old card answered an older message
+    await bot.on_dm_button(update, None)
+    assert len(delivered) == 1 and "wrote again" in answers[-1]
     set_quick_replies(bot.db, "Sure | No")  # the list changed after the card went out
-    update, answers, _ = tap(first)
+    update, answers, _ = tap(f"dmq:500:9:0:{quick_tag('On it 👍')}")
     await bot.on_dm_button(update, None)
     assert len(delivered) == 1 and "changed" in answers[-1]
     await bot.on_dm_button(tap("dm:quick:999")[0], None)  # no such waiting chat: no card
@@ -422,6 +426,26 @@ async def test_a_fast_double_tap_on_a_quick_reply_sends_once(tmp_path, monkeypat
     bot, sent, _, delivered = make_bot(tmp_path, monkeypatch)
     bot.dms.save_connection(connection())
     bot.dms.record(dm("running late?", at=datetime.now(timezone.utc)))
-    update = tap(f"dmq:500:0:{quick_tag('On it 👍')}")[0]
+    update = tap(f"dmq:500:1:0:{quick_tag('On it 👍')}")[0]
     await asyncio.gather(bot.on_dm_button(update, None), bot.on_dm_button(update, None))
     assert len(delivered) == 1
+
+
+async def test_quick_reply_cards_defang_names_and_skip_closed_chats(tmp_path, monkeypatch):
+    """Batch 8 L-3/L-5."""
+    bot, sent, _, _ = make_bot(tmp_path, monkeypatch)
+    bot.dms.save_connection(connection())
+    bot.dms.record(dm("hi", name="Support https://evil.example/login", at=datetime.now(timezone.utc)))
+    bot.dms.record(dm("old", chat_id=600, from_id=600, name="Old", message_id=2,
+                      at=datetime.now(timezone.utc) - timedelta(days=3)))
+    replies = []
+
+    async def reply_text(text, *, reply_markup=None):
+        replies.append((text, reply_markup))
+
+    await bot.on_dms(SimpleNamespace(effective_message=SimpleNamespace(reply_text=reply_text)), None)
+    text, markup = replies[-1]
+    assert "https://evil.example" not in text
+    assert "dm:quick:500" in buttons(markup) and "dm:quick:600" not in buttons(markup)
+    await bot.on_dm_button(tap("dm:quick:500")[0], None)
+    assert "https://evil.example" not in sent[-1][0]

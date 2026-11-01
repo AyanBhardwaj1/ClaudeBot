@@ -181,3 +181,23 @@ async def test_meeting_prep_stays_quiet_during_a_pause(tmp_path, monkeypatch):
     bot.db.delete_setting("dnd_until")
     await bot._meeting_prep_job(None)
     assert len(asked) == 1  # the same meeting, once the pause is over
+
+
+async def test_weekly_review_and_digest_wait_out_quiet_hours(tmp_path, monkeypatch):
+    """Batch 8 L-4: with the test default now quiet_hours=None, pin the quiet-hours guard explicitly."""
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc", quiet_hours="00:00-23:59"))
+    asked = []
+
+    async def run_agent(content, owner_present=True, effort=None, live=False, source=None):
+        asked.append(content)
+        return "x", True
+
+    bot._run_agent = run_agent
+    bot.google.is_connected = lambda: True
+    bot.db.set_setting("newsletter_digest", "on")
+    await bot._weekly_review_job(None)
+    await bot._digest_job(None)
+    assert asked == []
