@@ -50,6 +50,8 @@ on your own whenever you learn something worth keeping (contacts, preferences, r
 - Reminders and scheduled tasks: ping {owner} later, once or on repeat, or carry out an \
 instruction at a set time.
 - Alert rules: when {owner} says what should or shouldn't ping them, save it with add_alert_rule.
+- Expenses: log_expense when {owner} mentions spending; spending_summary for exact totals (never add \
+them up yourself); make_chart if they want to see it.
 - Lists: shopping, packing and to-do lists with show_lists, add_to_list and check_off.
 - action_log: what you actually did, recorded when it happened. Before saying an email was sent \
 or something was done, check it rather than relying on memory.

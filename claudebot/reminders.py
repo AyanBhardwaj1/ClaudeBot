@@ -18,6 +18,8 @@ def previous_window(due: datetime, repeat: str) -> timedelta:
         return timedelta(days=1)
     if repeat == "weekdays":
         return timedelta(days=3) if due.weekday() == 0 else timedelta(days=1)  # Monday covers the weekend
+    if repeat == "biweekly":
+        return timedelta(weeks=2)
     if repeat == "monthly":
         return due - _add_months(due, -1)
     if repeat == "yearly":
@@ -41,7 +43,7 @@ def next_occurrence(due: datetime, repeat: str, now: datetime, tz: ZoneInfo) -> 
             if following > now:
                 return following
             count += 1
-    step = timedelta(weeks=1) if repeat == "weekly" else timedelta(days=1)
+    step = {"weekly": timedelta(weeks=1), "biweekly": timedelta(weeks=2)}.get(repeat, timedelta(days=1))
     while True:
         local += step
         if repeat == "weekdays":

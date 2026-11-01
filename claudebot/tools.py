@@ -18,6 +18,7 @@ from .actions import ActionLog, describe_tool_action
 from .alert_rules import AlertRules
 from .charts import CHART_TYPES, ChartError, render_chart, validate_spec
 from .db import Database
+from .expenses import expense_tool
 from .files import UnsupportedFile, to_content_block
 from .google_services import MAX_EVENTS, Google, GoogleNotConnected
 from .lists import list_tool
@@ -25,7 +26,7 @@ from .scheduling import busy_from_events, free_slots
 
 log = logging.getLogger(__name__)
 
-REPEAT_OPTIONS = ["none", "daily", "weekdays", "weekly", "monthly", "yearly"]
+REPEAT_OPTIONS = ["none", "daily", "weekdays", "weekly", "biweekly", "monthly", "yearly"]
 MAX_BRIEFINGS = 10
 
 
@@ -399,6 +400,28 @@ CLIENT_TOOLS = [
         "input_schema": _schema({"item_ids": {"type": "array", "items": {"type": "integer"}}}, ["item_ids"]),
     },
     {
+        "name": "log_expense",
+        "description": "Log money the owner says they spent (\"spent $12 on lunch\"). Ask for the amount if unclear.",
+        "input_schema": _schema({
+            "amount": {"type": "number", "exclusiveMinimum": 0},
+            "category": {"type": "string", "description": "one word: food, transport, rent, fun, shopping..."},
+            "note": {"type": "string"},
+            "currency": {"type": "string", "description": "3-letter code, default USD"},
+            "date": {"type": "string", "description": "YYYY-MM-DD if not today"},
+        }, ["amount", "category"]),
+    },
+    {
+        "name": "spending_summary",
+        "description": "Exact totals of the owner's logged expenses between two ISO dates, by category.",
+        "input_schema": _schema({"start": {"type": "string"}, "end": {"type": "string"},
+                                 "category": {"type": "string"}}, ["start", "end"]),
+    },
+    {
+        "name": "delete_expense",
+        "description": "Remove a logged expense by id (from spending_summary).",
+        "input_schema": _schema({"expense_id": {"type": "integer"}}, ["expense_id"]),
+    },
+    {
         "name": "add_alert_rule",
         "description": (
             "Save one of the owner's own rules for inbox alerts, in plain English, when they ask for it "
@@ -708,6 +731,10 @@ async def _dispatch(name: str, a: dict, ctx: ToolContext):
         if name != "show_lists":
             _require_owner(ctx, "change lists")
         return list_tool(name, a, ctx.db)
+    if name in ("log_expense", "spending_summary", "delete_expense"):
+        if name != "spending_summary":
+            _require_owner(ctx, "change expenses")
+        return expense_tool(name, a, ctx.db, ctx.tz)
     if name == "add_alert_rule":
         _require_owner(ctx, "change alert rules")
         rule = AlertRules(ctx.db).add(a["rule"])

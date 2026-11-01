@@ -20,6 +20,7 @@ def test_monthly_and_yearly_repeats():
     assert next_occurrence(at(2028, 2, 29), "yearly", at(2028, 3, 1), TZ) == at(2029, 2, 28)
     assert next_occurrence(at(2026, 3, 1), "monthly", at(2026, 7, 10), TZ) == at(2026, 8, 1)  # catches up
     assert previous_window(at(2026, 3, 1), "monthly").days >= 28
+    assert next_occurrence(at(2026, 11, 2), "biweekly", at(2026, 11, 3), TZ) == at(2026, 11, 16)
 
 
 async def test_fired_reminders_have_done_and_snooze(tmp_path, monkeypatch):

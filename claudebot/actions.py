@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS actions (
 CREATE INDEX IF NOT EXISTS actions_at ON actions(at);
 """
 ICONS = {"email": "📤", "calendar": "📅", "reminder": "⏰", "briefing": "🗞", "memory": "🧠", "telegram": "💬",
-         "list": "🗒", "rule": "📏"}
+         "list": "🗒", "rule": "📏", "money": "💸"}
 
 
 class ActionLog:
@@ -75,6 +75,9 @@ def describe_tool_action(name: str, args: dict, result) -> tuple[str, str] | Non
         return "list", f"Added to {args.get('list', '')}: {', '.join(result['added'])}"
     if name == "check_off" and result.get("checked"):
         return "list", f"Ticked {result['checked']} list item(s)"
+    if name == "log_expense" and result.get("logged"):
+        e = result["logged"]
+        return "money", f"Logged {e['amount']:.2f} {e['currency']} for {e['category']}"
     if name == "add_alert_rule" and result.get("saved"):
         return "rule", f"New alert rule: {result['saved']}"
     if name == "forget" and result.get("deleted"):

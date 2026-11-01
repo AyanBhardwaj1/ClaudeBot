@@ -39,6 +39,7 @@ from .buttons import ButtonHandlers
 from .checkins import CheckinHandlers, snooze_keyboard
 from .config import Config
 from .db import Database
+from .expenses import ExpenseHandlers
 from .export import ExportHandlers
 from .files import (
     MAX_FILE_BYTES,
@@ -112,6 +113,7 @@ PRIVATE_COMMANDS = [
     BotCommand("log", "What I actually did today"),
     BotCommand("style", "Make my drafts sound like you"),
     BotCommand("lists", "Shopping, packing and to-do lists"),
+    BotCommand("spent", "What you've spent this month"),
     BotCommand("quiet", "Pause alerts and check-ins for a while"),
     BotCommand("rules", "Your rules for email alerts"),
     BotCommand("sweep", "Archive old promotions and updates in one tap"),
@@ -212,7 +214,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -322,6 +324,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("today", self.on_today, filters=owner))
         self.app.add_handler(CommandHandler("catchup", self.on_catchup, filters=owner))
         self.app.add_handler(CommandHandler("trips", self.on_trips, filters=owner))
+        self.app.add_handler(CommandHandler("spent", self.on_spent, filters=owner))
         self.app.add_handler(CallbackQueryHandler(self.on_sweep_button, pattern=r"^sweep:(promo|social|updates)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_brief_button, pattern=r"^brief:(good|tune)$"))
         self.app.add_handler(CallbackQueryHandler(self.on_rule_button, pattern=r"^rule:del:\d+$"))
