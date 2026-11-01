@@ -14,7 +14,7 @@ from .google_services import GoogleNotConnected
 from .inbox_watch import GMAIL_ID, _sender, clip
 from .modes import defang_urls
 from .quiet import next_morning
-from .snooze import snooze
+from .snooze import done, snooze
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +60,10 @@ class TriageHandlers:
         text, markup = _card(queue[0], len(queue))
         await message.reply_text(text, reply_markup=markup)
 
+    def _requeue(self, item: dict) -> None:
+        queue = json.loads(self.db.get_setting(QUEUE_KEY) or "[]")
+        self.db.set_setting(QUEUE_KEY, json.dumps([item] + [q for q in queue if q["id"] != item["id"]]))
+
     async def on_triage_button(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
         if not self._from_owner(query):
@@ -78,22 +82,25 @@ class TriageHandlers:
                 ActionLog(self.db).record("email", "Archived an email (/triage)")
             except Exception:
                 log.exception("Archiving %s failed", message_id)
+                self._requeue(current)  # the card still works: try again or pick another button
                 await query.answer("Couldn't archive that one.")
                 return
         elif action == "snooze":
             name, address = _sender(current["from"])
             until = next_morning(datetime.now(self.config.timezone) + timedelta(hours=4), time(8))
+            try:  # held first, so a full snooze list is refused before the email leaves the inbox
+                snooze(self.db, message_id, f"{name or address}: {clip(current['subject'], 100)}", until)
+            except ValueError as e:
+                self._requeue(current)
+                await query.answer(str(e))
+                return
             try:
                 await asyncio.to_thread(self.google.modify_email, message_id, "archive")
             except Exception:
                 log.exception("Snoozing %s failed", message_id)
+                done(self.db, message_id)
+                self._requeue(current)  # the card still works: try again or pick another button
                 await query.answer("Couldn't snooze that one.")
-                return
-            try:
-                snooze(self.db, message_id, f"{name or address}: {clip(current['subject'], 100)}", until)
-            except ValueError as e:
-                await asyncio.to_thread(self.google.modify_email, message_id, "inbox")  # put it back
-                await query.answer(str(e))
                 return
             ActionLog(self.db).record("email", f"Snoozed an email until {until:%a %H:%M}")
         elif action == "later":

@@ -107,3 +107,45 @@ async def test_a_double_tap_acts_once(tmp_path, monkeypatch):
                                                          answer=noop, edit_message_text=noop))
     await asyncio.gather(bot.on_triage_button(tap, None), bot.on_triage_button(tap, None))
     assert len(scheduled) == 1
+
+
+async def test_failed_archive_keeps_the_card_working(tmp_path, monkeypatch):
+    """Batch 6 N-7: a Gmail error doesn't leave a dead card; a full snooze list is refused before archiving."""
+    import json
+
+    from claudebot.bot import TelegramBot
+    from claudebot.snooze import KEY, MAX_SNOOZED
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    bot.google.search_emails = lambda q, n: [{"id": f"abc00{i}", "from": "a@b.c", "subject": "s", "snippet": ""}
+                                             for i in range(2)]
+    calls, answers = [], []
+
+    def modify(mid, action):
+        calls.append((mid, action))
+        if len(calls) == 1:
+            raise RuntimeError("gmail down")
+
+    bot.google.modify_email = modify
+
+    async def noop(*a, **k):
+        pass
+
+    async def answer(text=None):
+        answers.append(text)
+
+    def tap(data):
+        return SimpleNamespace(callback_query=SimpleNamespace(from_user=SimpleNamespace(id=1), data=data,
+                                                              answer=answer, edit_message_text=noop))
+
+    await bot.on_triage(SimpleNamespace(effective_message=SimpleNamespace(reply_text=noop)), None)
+    await bot.on_triage_button(tap("tri:arch:abc000"), None)
+    assert answers[-1] == "Couldn't archive that one."
+    await bot.on_triage_button(tap("tri:arch:abc000"), None)  # same card, second try works
+    assert calls == [("abc000", "archive"), ("abc000", "archive")] and "old" not in str(answers[-1])
+
+    bot.db.set_setting(KEY, json.dumps([{"id": f"x{i}", "label": "l", "until": "2099-01-01T00:00:00+00:00"}
+                                        for i in range(MAX_SNOOZED)]))
+    await bot.on_triage_button(tap("tri:snooze:abc001"), None)
+    assert "Too many" in answers[-1] and len(calls) == 2  # never left the inbox

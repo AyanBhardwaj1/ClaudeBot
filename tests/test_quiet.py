@@ -94,3 +94,27 @@ async def test_focus_session_and_note(tmp_path, monkeypatch):
     assert "5 to 180" in replies[-1]
     await bot.on_note(update, SimpleNamespace(args="call the landlord".split()))
     assert Lists(bot.db).items("Notes")[0]["text"] == "call the landlord" and replies[-1] == "🗒 Noted."
+
+
+async def test_resume_button_cancels_the_focus_done_ping(tmp_path, monkeypatch):
+    """Batch 5 L-5: Resume on the card ends a focus session like /quiet off does."""
+    from types import SimpleNamespace
+
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc"))
+    sent = []
+
+    async def send(text, **k):
+        sent.append(text)
+
+    async def noop(*a, **k):
+        pass
+
+    bot.send_to_owner = send
+    bot.db.set_setting("focus_until", "2099-01-01T00:00:00+00:00")
+    tap = SimpleNamespace(callback_query=SimpleNamespace(from_user=SimpleNamespace(id=1), data="dnd:off", answer=noop))
+    await bot.on_quiet_button(tap, None)
+    await bot._focus_done(None)
+    assert bot.db.get_setting("focus_until") is None and not any("Focus session done" in t for t in sent)

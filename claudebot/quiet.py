@@ -58,6 +58,7 @@ class QuietHandlers:
     def _pause(self, until: datetime | None) -> str:
         if until is None:
             self.db.delete_setting(DND_KEY)
+            self.db.delete_setting("focus_until")  # resuming early (command or button): no "focus done" ping later
             return "🔔 Back on: alerts, check-ins and meeting prep resume."
         self.db.set_setting(DND_KEY, until.isoformat())
         return (f"🔕 Quiet until {until:%a %H:%M}. Reminders you set still come through; email alerts "
@@ -67,7 +68,6 @@ class QuietHandlers:
         now = datetime.now(self.config.timezone)
         text = " ".join(context.args or [])
         if text.lower() in ("off", "resume", "stop"):
-            self.db.delete_setting("focus_until")  # no "focus done" ping after resuming early
             await update.effective_message.reply_text(self._pause(None))
             return
         if text:
