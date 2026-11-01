@@ -28,8 +28,9 @@ from telegram.ext import ContextTypes
 from .actions import ActionLog
 from .db import Database
 from .heartbeat import Signal
-from .inbox_watch import clip
+from .inbox_watch import clip, in_quiet_hours
 from .modes import defang_urls
+from .quiet import next_morning
 
 log = logging.getLogger(__name__)
 
@@ -396,6 +397,8 @@ class BusinessHandlers:
         self.db.set_setting(key, "1")
         self.db.prune_settings("dm_later:", 50)
         when = datetime.now(self.config.timezone) + timedelta(hours=3)
+        if in_quiet_hours(when, self.config.quiet_hours):  # 3h from 10pm is 1am: the morning instead
+            when = next_morning(when)
         reminder_id = self.db.add_reminder(f"💬 Reply to “{contact_label(chat.name)}” on Telegram (/dms)", when, "none", False)
         self.db.set_setting(f"{DM_LATER_PREFIX}{reminder_id}", str(chat_id))  # skipped if you reply first
         self.db.prune_settings(DM_LATER_PREFIX, 50)

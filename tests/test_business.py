@@ -501,3 +501,16 @@ async def test_reply_later_reminder_is_skipped_once_you_replied(tmp_path, monkey
     rid = bot.db.active_reminders()[0]["id"]
     await bot._reminder_job(SimpleNamespace(job=SimpleNamespace(data=rid)))  # still waiting: it fires
     assert "Reply to" in sent[-1][0]
+
+
+async def test_reply_later_moves_out_of_quiet_hours(tmp_path, monkeypatch):
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc", quiet_hours="00:00-23:59"))
+    bot.schedule_reminder = lambda rid: None
+    bot.dms.save_connection(connection())
+    bot.dms.record(dm("call me back?", at=datetime.now(timezone.utc)))
+    await bot.on_dm_button(tap("dm:later:500")[0], None)
+    due = datetime.fromisoformat(bot.db.active_reminders()[0]["due_at"]).astimezone(bot.config.timezone)
+    assert (due.hour, due.minute) == (8, 0)
