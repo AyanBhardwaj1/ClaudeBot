@@ -11,6 +11,9 @@ from telegram.ext import ContextTypes
 from . import __version__
 from .actions import ActionLog
 from .alert_rules import AlertRules
+from .bills import Bills
+from .birthdays import Birthdays
+from .business import QUICK_KEY
 from .db import Database
 from .expenses import Expenses
 from .habits import Habits
@@ -27,6 +30,7 @@ EXPORTED_PREFIXES = ("cfg:", "role", "mode", "followups", "checkins", "drafts_on
 def export_data(db: Database, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     lists = Lists(db)
+    owned = {b.get("reminder_id") for b in Birthdays(db).all() + Bills(db).all()}
     settings = {r["key"]: r["value"] for r in db.conn.execute("SELECT key, value FROM settings ORDER BY key")
                 if r["key"].startswith(EXPORTED_PREFIXES) and not r["key"].startswith("followups:")}
     return {
@@ -34,7 +38,8 @@ def export_data(db: Database, now: datetime | None = None) -> dict:
         "claudebot_version": __version__,
         "memories": [dict(m) for m in db.conn.execute("SELECT id, text, created_at FROM memories ORDER BY id")],
         "reminders": [{"id": r["id"], "text": r["text"], "next_run": r["due_at"], "repeat": r["repeat"],
-                       "task": bool(r["run_as_task"]), "briefing": bool(r["briefing"])} for r in db.active_reminders()],
+                       "task": bool(r["run_as_task"]), "briefing": bool(r["briefing"])} for r in db.active_reminders()
+                      if r["id"] not in owned],  # a bill's or birthday's reminder comes back with it
         "lists": [{"name": n, "items": lists.items(n)} for n in lists.names()],
         "alert_rules": [r["text"] for r in AlertRules(db).all()],
         "writing_style": current_style(db),
@@ -44,6 +49,9 @@ def export_data(db: Database, now: datetime | None = None) -> dict:
         "habits": Habits(db).export(),
         "ious": Ious(db).balances(),
         "journal": [dict(r) for r in Journal(db).db.conn.execute("SELECT day, text FROM journal ORDER BY day")],
+        "birthdays": [{"name": b["name"], "month": b["month"], "day": b["day"]} for b in Birthdays(db).all()],
+        "bills": [{k: b[k] for k in ("name", "amount", "currency", "day")} for b in Bills(db).all()],
+        "quick_replies": json.loads(db.get_setting(QUICK_KEY) or "null"),
     }
 
 
@@ -55,5 +63,5 @@ class ExportHandlers:
         stamp = datetime.now(self.config.timezone).strftime("%Y-%m-%d")
         await self.app.bot.send_document(
             chat_id=self.config.owner_id, document=io.BytesIO(data), filename=f"claudebot-export-{stamp}.json",
-            caption="Your memories, reminders, lists, alert rules, writing style, expenses, IOUs, habits, journal, settings "
+            caption="Your memories, reminders, lists, alert rules, writing style, bills, birthdays, expenses, IOUs, habits, journal, settings "
                     "and what I did in the last 60 days. Not included: chat history, Telegram DMs and sign-in details.")

@@ -165,3 +165,42 @@ async def test_a_big_preview_comes_as_a_file(tmp_path, monkeypatch):
     assert await bot.handle_export_file(msg, data)
     assert len(replies) == 1 and replies[0][1] is not None and "100 memories" in replies[0][0]
     assert docs and "memory 99 " + "y" * 480 in docs[0][1]
+
+
+async def test_birthdays_bills_and_quick_replies_round_trip(tmp_path, monkeypatch):
+    from claudebot.bills import Bills
+    from claudebot.birthdays import Birthdays
+    from claudebot.bot import TelegramBot
+    from claudebot.business import quick_replies, set_quick_replies
+    from claudebot.restore import plan, preview
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    old = TelegramBot(make_config(tmp_path / "a", telegram_token="123:abc"))
+    old.schedule_reminder = old.unschedule_reminder = lambda rid: None
+    old.add_birthday("Mom", 3, 14)
+    old.add_bill("Rent", 1200, 1)
+    set_quick_replies(old.db, "On my way | Busy, call you later")
+    payload = export_data(old.db)
+    assert payload["reminders"] == []  # the bill's and birthday's reminders travel with them
+    text = preview(plan(payload))
+    assert "Mom: Mar 14" in text and "Rent: 1,200.00 USD" in text and "Busy, call you later" in text
+
+    new = TelegramBot(make_config(tmp_path / "b", telegram_token="123:abc"))
+    new.schedule_reminder = new.unschedule_reminder = lambda rid: None
+    raw = json.dumps(payload)
+    edits = []
+
+    async def answer(text=None):
+        pass
+
+    async def edit(text, *, reply_markup=None):
+        edits.append(text)
+
+    for _ in range(2):  # twice: nothing doubles
+        new.db.set_setting("restore_pending:abcd1234", raw)
+        await new.on_restore_button(SimpleNamespace(callback_query=SimpleNamespace(
+            from_user=SimpleNamespace(id=1), data="restore:yes:abcd1234", answer=answer, edit_message_text=edit)), None)
+    assert [b["name"] for b in Birthdays(new.db).all()] == ["Mom"] and [b["name"] for b in Bills(new.db).all()] == ["Rent"]
+    assert len(new.db.active_reminders()) == 2 and quick_replies(new.db) == ["On my way", "Busy, call you later"]

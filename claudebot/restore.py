@@ -4,6 +4,7 @@ rule, reminder and the writing style before anything is added, because those ste
 and a file can come from anyone. What is added is capped and de-duplicated, and everything goes
 through the same validation as normal use."""
 
+import calendar
 import io
 import json
 import logging
@@ -14,6 +15,10 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Message, Update
 from telegram.ext import ContextTypes
 
 from .alert_rules import AlertRules
+from .bills import MAX_BILLS, Bills
+from .birthdays import MAX_BIRTHDAYS, Birthdays, parse_birthday
+from .business import MAX_QUICK, MAX_QUICK_LEN, QUICK_KEY
+from .expenses import currency_code
 from .habits import Habits
 from .journal import Journal
 from .lists import Lists
@@ -75,12 +80,33 @@ def plan(payload: dict) -> dict:
         items = [i for i in items if i][:room]
         room -= len(items)
         lists.append({"name": _clean(lst.get("name", "List"), 40) or "List", "items": items})
+    birthdays = []
+    for b in payload.get("birthdays", []):
+        if isinstance(b, dict):
+            parsed = parse_birthday(f"{_clean(b.get('name', ''), 40)} {b.get('month')}-{b.get('day')}")
+            if parsed:
+                birthdays.append(parsed)
+    bills = []
+    for b in payload.get("bills", []):
+        try:
+            bill = {"name": _clean(b["name"], 40), "amount": round(float(b["amount"]), 2),
+                    "currency": currency_code(str(b.get("currency", "USD"))), "day": int(b["day"])}
+        except (KeyError, TypeError, ValueError):
+            continue
+        if bill["name"] and 0 < bill["amount"] <= 1_000_000_000 and 1 <= bill["day"] <= 31:
+            bills.append(bill)
+    raw_quick = payload.get("quick_replies")
+    quick = [" ".join(str(t).split())[:MAX_QUICK_LEN] for t in raw_quick][:MAX_QUICK] if isinstance(raw_quick, list) else []
+    quick = [t for t in quick if t]
     return {
         "memories": list(dict.fromkeys(m for m in memories if m))[:MAX_MEMORIES],
         "rules": list(dict.fromkeys(_clean(t, 150) for t in payload.get("alert_rules", []) if t))[:MAX_RULES],
         "reminders": reminders[:MAX_REMINDERS],
         "style": clean_style(str(payload["writing_style"])) if payload.get("writing_style") else "",
         "lists": lists,
+        "birthdays": birthdays[:MAX_BIRTHDAYS],
+        "bills": bills[:MAX_BILLS],
+        "quick_replies": quick,
         "habits": [h for h in payload.get("habits", []) if isinstance(h, dict)][:10],
         "journal": [e for e in payload.get("journal", []) if isinstance(e, dict)][:3650],
     }
@@ -103,6 +129,14 @@ def preview(p: dict) -> str:
             f"- {show(r['text'])} ({r['repeat']}, next {r['due']:%b %-d})" for r in p["reminders"]))
     if p["style"]:
         parts.append(f"✍️ Writing style:\n{show(p['style'])}")
+    if p["quick_replies"]:  # these go out from your own Telegram account on a tap
+        parts.append("⚡ Quick replies:\n" + "\n".join(f"- {show(t)}" for t in p["quick_replies"]))
+    if p["bills"]:
+        parts.append(f"🧾 {len(p['bills'])} bills:\n" + "\n".join(
+            f"- {show(b['name'])}: {b['amount']:,.2f} {b['currency']} on day {b['day']}" for b in p["bills"]))
+    if p["birthdays"]:
+        parts.append(f"🎂 {len(p['birthdays'])} birthdays:\n" + "\n".join(
+            f"- {show(name)}: {calendar.month_abbr[m]} {d}" for name, m, d in p["birthdays"]))
     for lst in p["lists"]:
         if lst["items"]:
             parts.append(f"📋 List {show(lst['name'])}:\n" + "\n".join(f"- {show(i)}" for i in lst["items"]))
@@ -154,6 +188,8 @@ def restore(db, payload: dict, tz=timezone.utc) -> dict:
                 break
     if p["style"]:
         db.set_setting(STYLE_KEY, p["style"])
+    if p["quick_replies"]:
+        db.set_setting(QUICK_KEY, json.dumps(p["quick_replies"]))
     habits = Habits(db)
     for h in p["habits"]:
         try:
@@ -229,6 +265,25 @@ class RestoreHandlers:
             log.exception("Restore failed")
             await query.edit_message_text("That restore failed partway; check /memory and /reminders.")
             return
+        p = plan(json.loads(raw))
+        have = {b["name"].lower() for b in Birthdays(self.db).all()}
+        for name, month, day in p["birthdays"]:  # through the normal path, so each gets its own reminder
+            if name.lower() not in have:
+                try:
+                    self.add_birthday(name, month, day)
+                except ValueError:
+                    break
+                have.add(name.lower())
+                counts["birthdays"] = counts.get("birthdays", 0) + 1
+        have = {b["name"].lower() for b in Bills(self.db).all()}
+        for b in p["bills"]:
+            if b["name"].lower() not in have:
+                try:
+                    self.add_bill(b["name"], b["amount"], b["day"], b["currency"])
+                except ValueError:
+                    break
+                have.add(b["name"].lower())
+                counts["bills"] = counts.get("bills", 0) + 1
         for row in self.db.active_reminders():
             self.schedule_reminder(row["id"])
         done = ", ".join(f"{n} {what}" for what, n in counts.items() if n) or "nothing new"
