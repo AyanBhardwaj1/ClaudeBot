@@ -1,7 +1,7 @@
 // ClaudeBot web app. No framework and no build step. Every string from the server is put on the
 // page as text (textContent), never as HTML: email subjects, contact names and replies can't inject markup.
 
-const state = { me: null, csrf: null, chatBusy: false };
+const state = { me: null, csrf: null, chatBusy: false, timer: null };
 const app = document.getElementById("app");
 
 // --- tiny DOM helper -------------------------------------------------------------------------
@@ -104,6 +104,8 @@ function navLink(name, icon, label, current) {
 }
 
 function layout(current, content) {
+  clearInterval(state.timer);  // a page's polling stops when you leave it
+  state.timer = null;
   const side = h("nav", { class: "side", "aria-label": "Main" },
     h("div", { class: "brand" }, h("img", { src: "/static/icon.svg", alt: "" }), "ClaudeBot"),
     h("div", { class: "nav" }, PAGES.map(([n, i, l]) => navLink(n, i, l, current))),
@@ -158,12 +160,15 @@ async function chatPage() {
   const send = h("button", { class: "btn primary", type: "submit" }, "Send");
   const form = h("form", { onsubmit: e => { e.preventDefault(); submit(input.value); } }, input, send);
   const fresh = h("button", { class: "btn small", type: "button", onclick: newChat }, "New chat");
+  const outbox = h("div", { class: "outbox", "aria-live": "polite" });
   const view = h("div", { class: "chat" },
     h("header", { class: "chat-head" }, h("h1", {}, "Chat"), fresh),
     scroller,
-    h("div", { class: "composer" }, form,
-      h("p", { class: "note" }, "Same conversation as Telegram. Anything that needs a tap to confirm (sending email, adding guests) shows up in Telegram.")));
+    h("div", { class: "composer" }, outbox, form,
+      h("p", { class: "note" }, "Same conversation as Telegram. Emails wait here (and in Telegram) with Undo or Send.")));
   layout("chat", view);
+  refreshOutbox(outbox);
+  state.timer = setInterval(() => refreshOutbox(outbox), 3000);
 
   input.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
@@ -237,12 +242,34 @@ async function chatPage() {
       reply.classList.add("error");
       reply.textContent = err.message;
     } finally {
+      refreshOutbox(outbox);
       state.chatBusy = false;
       send.disabled = fresh.disabled = false;
       scroller.scrollTop = scroller.scrollHeight;
       input.focus();
     }
   }
+}
+
+// --- emails waiting for you ---------------------------------------------------------------------
+
+async function refreshOutbox(box) {
+  let data;
+  try { data = await api("GET", "/api/outbox"); } catch { return; }
+  box.replaceChildren(...data.emails.map(e => {
+    const copies = [e.cc && `cc: ${e.cc}`, e.bcc && `bcc: ${e.bcc}`].filter(Boolean).join(" · ");
+    const seconds = Math.max(0, Math.round((new Date(e.send_at) - Date.now()) / 1000));
+    const run = async (path, done) => { if (await act(api("POST", `/api/outbox/${e.id}/${path}`), done)) refreshOutbox(box); };
+    return h("div", { class: `mail ${e.status}` },
+      h("div", { class: "grow" },
+        h("b", {}, e.status === "held" ? "✉️ Ready to send" : `📤 Sending in ${seconds < 90 ? `${seconds}s` : `${Math.round(seconds / 60)} min`}`, " to ", e.to),
+        copies ? h("div", { class: "copies" }, copies) : null,
+        h("details", {}, h("summary", {}, e.subject), h("div", { class: "body" }, e.body))),
+      h("div", { class: "row" }, e.status === "held"
+        ? [h("button", { class: "btn small primary", onclick: () => run("send", "Sending") }, "✅ Send"),
+           h("button", { class: "btn small", onclick: () => run("cancel", "Cancelled") }, "✖️ Cancel")]
+        : h("button", { class: "btn small", onclick: () => run("cancel", "Cancelled: not sent") }, "↩️ Undo")));
+  }));
 }
 
 // --- glance pages -----------------------------------------------------------------------------

@@ -96,6 +96,8 @@ class Api:
             g("/api/memories", self.memories), d("/api/memories/{id}", self.delete_memory),
             g("/api/log", self.action_log), g("/api/usage", self.usage), g("/api/dms", self.dms),
             g("/api/settings", self.settings), p("/api/settings", self.change_settings),
+            g("/api/outbox", self.outbox), p("/api/outbox/{id}/send", self.outbox_send),
+            p("/api/outbox/{id}/cancel", self.outbox_cancel),
         ]
 
     # --- session ---
@@ -347,6 +349,30 @@ class Api:
         return _json({"connected": True, "waiting": [
             {"chat_id": c.chat_id, "name": c.name, "since": c.waiting_since.isoformat(), "messages": c.messages,
              "can_reply": c.can_reply} for c in self.bot.dms.unanswered()]})
+
+    # --- outbox: emails waiting out their Undo window, or waiting for a Send tap ---
+
+    async def outbox(self, request: web.Request) -> web.Response:
+        """Every recipient and the whole body, as the Telegram card shows them: a hidden bcc can't slip
+        past the owner here either."""
+        rows = []
+        for status in ("held", "pending"):
+            for r in self.db.outbox_with_status(status):
+                email = json.loads(r["email_json"])
+                rows.append({"id": r["id"], "status": status, "send_at": r["send_at"],
+                             "to": email.get("to", ""), "cc": email.get("cc") or "", "bcc": email.get("bcc") or "",
+                             "subject": email.get("subject") or "(reply)", "body": email.get("body", "")})
+        return _json({"emails": rows})
+
+    async def outbox_send(self, request: web.Request) -> web.Response:
+        """Same as the ✅ Send button: only an email held for the owner's say-so."""
+        result = await self.bot.outbox.approve(_int(request, "id"))
+        return _json({"result": result}, 200 if result == "Sending." else 409)
+
+    async def outbox_cancel(self, request: web.Request) -> web.Response:
+        """Same as ↩️ Undo / ✖️ Cancel."""
+        result = await self.bot.outbox.undo(_int(request, "id"))
+        return _json({"result": result}, 200 if result == "Cancelled." else 409)
 
     # --- settings ---
 

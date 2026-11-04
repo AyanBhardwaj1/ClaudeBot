@@ -358,3 +358,38 @@ async def test_unexpected_errors_still_end_the_chat_stream(setup):
     bot._run_agent = boom
     body = await (await client.post("/api/chat", json={"text": "hi"}, headers=write(client, csrf))).text()
     assert "event: done" in body and '"ok": false' in body
+
+
+async def test_emails_waiting_on_you_show_and_act_like_the_telegram_buttons(setup):
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+    sent, edits = [], []
+    bot.google.send_email = lambda **email: sent.append(email) or {"status": "sent"}
+
+    async def announce(outbox_id, text, needs_approval=False):
+        return 900 + outbox_id
+
+    async def edit(message_id, text, followup_id=None):
+        edits.append((message_id, text))
+
+    async def notify(text):
+        pass
+
+    bot.outbox.ui = SimpleNamespace(announce=announce, edit=edit, notify=notify)
+    bot.outbox.schedule = lambda outbox_id, when: None
+    held = await bot.outbox.submit({"to": "sam@example.com", "bcc": "boss@example.com", "subject": "Hi", "body": "Friday works"},
+                                   needs_approval=True)
+    pending = await bot.outbox.submit({"to": "lee@example.com", "subject": "Quiz", "body": "Thanks!"})
+    emails = (await (await client.get("/api/outbox")).json())["emails"]
+    assert [(e["status"], e["to"]) for e in emails] == [("held", "sam@example.com"), ("pending", "lee@example.com")]
+    assert emails[0]["bcc"] == "boss@example.com" and emails[0]["body"] == "Friday works"  # nothing hidden
+
+    # Send only works on a held email: a pending one can't skip its Undo window this way
+    assert (await client.post(f"/api/outbox/{pending['outbox_id']}/send", headers=write(client, csrf))).status == 409
+    ok = await client.post(f"/api/outbox/{held['outbox_id']}/send", headers=write(client, csrf))
+    assert ok.status == 200 and sent[0]["to"] == "sam@example.com"
+    assert (await client.post(f"/api/outbox/{held['outbox_id']}/send", headers=write(client, csrf))).status == 409  # once
+    undo = await client.post(f"/api/outbox/{pending['outbox_id']}/cancel", headers=write(client, csrf))
+    assert undo.status == 200 and len(sent) == 1
+    assert any("Cancelled" in t for _, t in edits)  # the Telegram card follows along
+    assert (await (await client.get("/api/outbox")).json())["emails"] == []

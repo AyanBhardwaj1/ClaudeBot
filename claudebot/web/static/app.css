@@ -144,3 +144,12 @@ button { cursor: pointer; }
 .mt { margin-top: 10px; }
 .spacer { height: 14px; }
 .big { font-size: 28px; margin: 0; font-weight: 650; letter-spacing: -.02em; }
+.outbox { max-width: 760px; margin: 0 auto 8px; display: grid; gap: 8px; }
+.outbox:empty { display: none; }
+.mail { display: flex; gap: 12px; align-items: flex-start; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.mail.held { border-left-color: var(--warn); }
+.mail .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.mail .copies { color: var(--warn); font-size: 13px; }
+.mail details { margin-top: 4px; font-size: 14px; }
+.mail summary { cursor: pointer; color: var(--muted); }
+.mail .body { white-space: pre-wrap; margin-top: 6px; max-height: 220px; overflow-y: auto; }
