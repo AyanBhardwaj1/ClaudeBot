@@ -106,8 +106,16 @@ def load_config() -> Config:
         followups=_flag(os.getenv("FOLLOWUPS"), True),
         web_port=_web_port(os.getenv("WEB_PORT", "8765")),
         web_host=os.getenv("WEB_HOST", "127.0.0.1") or "127.0.0.1",
-        web_public_url=(os.getenv("WEB_PUBLIC_URL") or "").rstrip("/") or None,
+        web_public_url=_public_url(),
     )
+
+
+def _public_url() -> str | None:
+    """WEB_PUBLIC_URL, or on Fly.io the app's own https address (Fly sets FLY_APP_NAME)."""
+    url = (os.getenv("WEB_PUBLIC_URL") or "").strip().rstrip("/")
+    if not url and os.getenv("FLY_APP_NAME"):
+        url = f"https://{os.environ['FLY_APP_NAME']}.fly.dev"
+    return url or None
 
 
 def _web_port(value: str) -> int | None:

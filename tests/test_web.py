@@ -208,3 +208,106 @@ def test_static_files_ship_with_the_package():
     js = _static("app.js").decode()
     assert "innerHTML" not in js and "style:" not in js.replace('{ style: "currency"', "")  # CSP: no inline styles
     json.loads(_static("manifest.webmanifest"))
+
+
+async def test_junk_logins_cant_lock_the_owner_out(setup):
+    """Web review M1: only failures are throttled, and a valid link always gets in."""
+    bot, client = setup
+    for _ in range(30):
+        await client.post("/api/login", json={"token": "x" * 40})
+    assert (await client.post("/api/login", json={"token": "y" * 40})).status == 429
+    good = await client.post("/api/login", json={"token": auth.new_login_token(bot.db)}, headers={"Origin": origin(client)})
+    assert good.status == 200
+
+
+async def test_other_host_names_are_turned_away(setup):
+    """Web review M2: a DNS-rebinding page arrives as evil.example and gets 421, even for open paths."""
+    bot, client = setup
+    for path in ("/", "/api/health"):
+        res = await client.get(path, headers={"Host": "evil.example:8765"})
+        assert res.status == 421
+    res = await client.post("/api/login", json={"token": auth.new_login_token(bot.db)},
+                            headers={"Host": "evil.example:8765", "Origin": "http://evil.example:8765"})
+    assert res.status == 421
+    assert (await client.get("/", headers={"Host": "localhost:8765"})).status == 200
+
+
+async def test_public_address_needs_its_https_origin(tmp_path, monkeypatch):
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc", web_port=8765,
+                                  web_public_url="https://bot.example.com"))
+    client = TestClient(TestServer(WebServer(bot).app))
+    await client.start_server()
+    try:
+        host = {"Host": "bot.example.com"}
+        ok = await client.post("/api/login", json={"token": auth.new_login_token(bot.db)},
+                               headers={**host, "Origin": "https://bot.example.com"})
+        assert ok.status == 200 and ok.cookies[COOKIE]["secure"]
+        bad = await client.post("/api/login", json={"token": auth.new_login_token(bot.db)},
+                                headers={**host, "Origin": "http://bot.example.com"})
+        assert bad.status == 403
+    finally:
+        await client.close()
+
+
+def test_plain_http_public_address_is_refused(tmp_path):
+    from claudebot.web import check_public_url
+
+    with pytest.raises(RuntimeError):
+        check_public_url(make_config(tmp_path, web_port=8765, web_public_url="http://192.168.1.20:8765"))
+    check_public_url(make_config(tmp_path, web_port=8765, web_public_url="http://localhost:8765"))
+    check_public_url(make_config(tmp_path, web_port=8765, web_public_url="https://bot.example.com"))
+
+
+async def test_security_headers_on_streams_and_errors(setup):
+    """Web review L3."""
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+
+    async def run(content, owner_present=True, effort=None, on_text=None, source="chat"):
+        return "ok"
+
+    bot.agent.run = run
+    res = await client.post("/api/chat", json={"text": "hi"}, headers=write(client, csrf))
+    await res.text()
+    assert "default-src 'self'" in res.headers["Content-Security-Policy"] and res.headers["X-Content-Type-Options"] == "nosniff"
+    missing = await client.get("/nope")
+    assert missing.status == 404 and missing.headers["X-Content-Type-Options"] == "nosniff"
+
+
+async def test_one_chat_turn_at_a_time(setup):
+    """Web review L4: a second message while one is being answered is refused, not queued."""
+    import asyncio
+
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+    release = asyncio.Event()
+
+    async def run(content, owner_present=True, effort=None, on_text=None, source="chat"):
+        await release.wait()
+        return "done"
+
+    bot.agent.run = run
+    first = asyncio.ensure_future(client.post("/api/chat", json={"text": "one"}, headers=write(client, csrf)))
+    await asyncio.sleep(0.2)
+    second = await client.post("/api/chat", json={"text": "two"}, headers=write(client, csrf))
+    assert second.status == 409
+    release.set()
+    assert "done" in await (await first).text()
+
+
+def test_ipv6_login_links_are_bracketed(tmp_path):
+    config = make_config(tmp_path, web_port=8765, web_host="fd00::5")
+    assert login_url(config, "abc") == "http://[fd00::5]:8765/login#t=abc"
+
+
+def test_fly_gets_its_https_address(monkeypatch):
+    from claudebot.config import _public_url
+
+    monkeypatch.delenv("WEB_PUBLIC_URL", raising=False)
+    monkeypatch.setenv("FLY_APP_NAME", "my-bot")
+    assert _public_url() == "https://my-bot.fly.dev"
+    monkeypatch.setenv("WEB_PUBLIC_URL", "https://bot.example.com/")
+    assert _public_url() == "https://bot.example.com"

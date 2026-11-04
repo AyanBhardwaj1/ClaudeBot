@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 MAX_CHAT_CHARS = 8000
 HISTORY_LIMIT = 60
 STREAM_EVERY = 0.15  # seconds between streamed updates
+KEEPALIVE = 15  # seconds
 
 
 def _json(data, status: int = 200) -> web.Response:
@@ -74,9 +75,10 @@ def history_view(messages: list[dict]) -> list[dict]:
 
 
 class Api:
-    def __init__(self, bot):
+    def __init__(self, bot, server=None):
         self.bot = bot
         self.db = bot.db
+        self.chatting: set[str] = server.chatting if server is not None else set()
 
     def routes(self) -> list:
         g, p, d = web.get, web.post, web.delete
@@ -136,6 +138,16 @@ class Api:
             return _error("Say something first.")
         if len(text) > MAX_CHAT_CHARS:
             return _error(f"That's over {MAX_CHAT_CHARS:,} characters.")
+        busy_key = request["session"]["csrf"]  # one turn at a time per sign-in: a stuck tab can't queue up costs
+        if busy_key in self.chatting:
+            return _error("Still answering your last message.", 409)
+        self.chatting.add(busy_key)
+        try:
+            return await self._chat_turn(request, text)
+        finally:
+            self.chatting.discard(busy_key)
+
+    async def _chat_turn(self, request: web.Request, text: str) -> web.StreamResponse:
         response = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-store",
                                                "X-Accel-Buffering": "no"})
         await response.prepare(request)
@@ -161,7 +173,17 @@ class Api:
                                                  source="web", on_text=on_text)
 
         await send("start", {})
-        reply, ok = await asyncio.shield(asyncio.ensure_future(turn()))
+        task = asyncio.ensure_future(turn())
+        while True:  # a comment line now and then, so proxies don't drop a stream that's waiting its turn
+            done, _ = await asyncio.wait({task}, timeout=KEEPALIVE)
+            if done:
+                break
+            if state["open"]:
+                try:
+                    await response.write(b": still working\n\n")
+                except (ConnectionResetError, RuntimeError):
+                    state["open"] = False
+        reply, ok = task.result()
         await send("done", {"text": reply, "ok": ok})
         if state["open"]:
             await response.write_eof()

@@ -4,6 +4,7 @@
     python -m claudebot setup    guided setup: checks your keys and writes .env
     python -m claudebot google   connect Google from a computer with a browser
     python -m claudebot health   exit 0 if the running bot checked in recently (for Docker)
+    python -m claudebot web-login  print a one-time sign-in link for the web and desktop app
 """
 
 import logging
@@ -62,6 +63,15 @@ def main() -> None:
             sys.exit("\nSetup stopped. Run it again any time: python -m claudebot setup")
     elif command == "health":
         sys.exit(0 if healthy(load_config().data_dir) else 1)
+    elif command == "web-login":
+        from .db import Database
+        from .web import auth, login_url
+
+        config = load_config()
+        if config.web_port is None:
+            sys.exit("The web app is off (WEB_PORT=off).")
+        print("Your one-time sign-in link (works once, for 10 minutes; don't share it):\n")
+        print("    " + login_url(config, auth.new_login_token(Database(config.db_path))) + "\n")
     elif command == "google":
         from .google_auth import main as google
 

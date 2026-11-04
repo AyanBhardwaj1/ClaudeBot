@@ -34,9 +34,25 @@ MAX_LOGIN_FAILURES = 20  # per 10 minutes, across everyone: tokens are unguessab
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
+LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+WILDCARDS = {"0.0.0.0", "::", ""}
+
+
 def login_url(config, token: str) -> str:
-    base = config.web_public_url or f"http://{'localhost' if config.web_host in ('127.0.0.1', '0.0.0.0', '::') else config.web_host}:{config.web_port}"
+    if config.web_public_url:
+        base = config.web_public_url
+    else:
+        host = "localhost" if config.web_host in WILDCARDS | {"127.0.0.1", "::1"} else config.web_host
+        base = f"http://{f'[{host}]' if ':' in host else host}:{config.web_port}"
     return f"{base}/login#t={token}"  # the fragment never reaches a server, a log or a Referer
+
+
+def check_public_url(config) -> None:
+    """Plain http is fine on this computer only: elsewhere the sign-in link and cookie would cross the
+    network unencrypted."""
+    url = config.web_public_url
+    if url and urlsplit(url).scheme != "https" and (urlsplit(url).hostname or "") not in LOOPBACK:
+        raise RuntimeError(f"WEB_PUBLIC_URL must be https:// for anything but this computer (got {url}).")
 
 
 def _static(name: str) -> bytes:
@@ -50,19 +66,25 @@ class WebServer:
         self.db = bot.db
         self.runner: web.AppRunner | None = None
         self._failures: list[float] = []
+        self.chatting: set[str] = set()  # sessions with a chat turn in flight (one each)
+        public = urlsplit(config_url) if (config_url := self.config.web_public_url) else None
+        self.public_host = public.hostname if public else None
+        self.public_origin = f"{public.scheme}://{public.netloc}" if public else None
         self.app = self.build()
 
     # --- app ---
 
     def build(self) -> web.Application:
-        app = web.Application(middlewares=[self.headers_middleware, self.auth_middleware], client_max_size=64 * 1024)
-        api = Api(self.bot)
+        app = web.Application(middlewares=[self.host_middleware, self.auth_middleware], client_max_size=64 * 1024)
+        app.on_response_prepare.append(self.security_headers)  # every response: streams and errors too
+        api = Api(self.bot, self)
         app.add_routes([web.post("/api/login", self.login), web.get("/api/health", self.health)] + api.routes())
         for path in STATIC_FILES:
             app.router.add_get(path, self.static)
         return app
 
     async def start(self) -> None:
+        check_public_url(self.config)
         self.runner = web.AppRunner(self.app, access_log=None)  # no request log: nothing private ends up in one
         await self.runner.setup()
         await web.TCPSite(self.runner, self.config.web_host, self.config.web_port).start()
@@ -75,12 +97,7 @@ class WebServer:
 
     # --- middleware ---
 
-    @web.middleware
-    async def headers_middleware(self, request: web.Request, handler):
-        try:
-            response = await handler(request)
-        except web.HTTPException as e:
-            response = e
+    async def security_headers(self, request: web.Request, response: web.StreamResponse) -> None:
         response.headers.setdefault("Content-Security-Policy", CSP)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -89,9 +106,21 @@ class WebServer:
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         if self._secure(request):
             response.headers["Strict-Transport-Security"] = "max-age=31536000"
-        if isinstance(response, web.HTTPException) and response.status >= 400:
-            raise response
-        return response
+
+    def _host_ok(self, request: web.Request) -> bool:
+        """Only names this app is meant to be reached by: this computer, the public address, or the
+        address it listens on. A DNS-rebinding page arrives with its own name and is turned away."""
+        host = request.url.host or ""
+        allowed = LOOPBACK | ({self.public_host} if self.public_host else set())
+        if self.config.web_host not in WILDCARDS:
+            allowed.add(self.config.web_host)
+        return host.strip("[]") in allowed
+
+    @web.middleware
+    async def host_middleware(self, request: web.Request, handler):
+        if not self._host_ok(request):
+            return web.json_response({"error": "Unknown host."}, status=421)
+        return await handler(request)
 
     @web.middleware
     async def auth_middleware(self, request: web.Request, handler):
@@ -118,13 +147,11 @@ class WebServer:
         origin = request.headers.get("Origin")
         if origin is None:
             return request.headers.get("Sec-Fetch-Site") in (None, "same-origin")
-        # Either scheme for our own host: behind an HTTPS proxy (Fly, Caddy) the app sees plain http.
-        # A cross-site page still fails: its origin is a different host.
-        allowed = {f"http://{request.host}", f"https://{request.host}"}
-        if self.config.web_public_url:
-            parts = urlsplit(self.config.web_public_url)
-            allowed.add(f"{parts.scheme}://{parts.netloc}")
-        return origin in allowed
+        if self.public_host and request.url.host == self.public_host:
+            return origin == self.public_origin  # the public address: exactly its https origin
+        # This computer (the host was already checked): either scheme, since a local HTTPS proxy
+        # (Caddy) shows the app plain http.
+        return origin in {f"http://{request.host}", f"https://{request.host}"}
 
     # --- handlers ---
 
@@ -139,16 +166,17 @@ class WebServer:
         return web.json_response({"ok": True})
 
     async def login(self, request: web.Request) -> web.Response:
-        now = time.monotonic()
-        self._failures = [t for t in self._failures if now - t < 600]
-        if len(self._failures) >= MAX_LOGIN_FAILURES:
-            return web.json_response({"error": "Too many tries. Wait a few minutes."}, status=429)
+        """A valid link always works: the token is checked first, and only failures are throttled,
+        so nobody can lock the owner out by sending junk."""
         try:
             token = (await request.json()).get("token")
         except Exception:
             token = None
         if not auth.redeem_login_token(self.db, token):
-            self._failures.append(now)
+            now = time.monotonic()
+            self._failures = [t for t in self._failures if now - t < 600] + [now]
+            if len(self._failures) > MAX_LOGIN_FAILURES:
+                return web.json_response({"error": "Too many tries. Wait a few minutes."}, status=429)
             return web.json_response({"error": "That sign-in link has expired or was already used. "
                                                "Send /web in Telegram for a new one."}, status=401)
         session_id, csrf = auth.new_session(self.db, request.headers.get("User-Agent", ""))

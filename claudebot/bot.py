@@ -474,7 +474,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             try:
                 self.web = WebServer(self)
                 await self.web.start()
-            except OSError as e:  # the port is taken: the bot still runs, just without the web app
+            except (OSError, RuntimeError) as e:  # port taken or unsafe address: the bot runs without the web app
                 self.web = None
                 log.error("The web app couldn't start on port %s: %s", self.config.web_port, e)
         try:
