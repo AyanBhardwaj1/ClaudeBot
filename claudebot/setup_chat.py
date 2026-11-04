@@ -62,6 +62,7 @@ HELP = (
     "Your day\n"
     "/today – today at a glance (instant)\n"
     "/week – the next 7 days at a glance: events, reminders, bills, birthdays (no AI, instant)\n"
+    "/web – sign in to the web and desktop app (a one-time link)\n"
 
     "/catchup – what you missed since last time\n"
     "/plan – a realistic plan for today\n"

@@ -10,6 +10,7 @@ COPY docker-entrypoint.sh /usr/local/bin/
 # The entrypoint fixes the volume's owner, then runs ClaudeBot as the unprivileged claudebot user.
 RUN useradd --create-home claudebot && mkdir /data && chown claudebot:claudebot /data
 ENV CLAUDEBOT_DATA_DIR=/data PYTHONUNBUFFERED=1
+EXPOSE 8765
 VOLUME /data
 
 # Healthy while the bot's event loop keeps touching /data/alive (once a minute).

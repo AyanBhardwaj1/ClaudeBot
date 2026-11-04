@@ -103,6 +103,7 @@ from .ui import (
 )
 from .usage import BudgetExceeded, UsageTracker
 from .web_agent import deep_research, run_briefing
+from .web_commands import WebHandlers
 from .whatsnew import notes_to_show
 from .workbench import run_workbench
 
@@ -232,7 +233,7 @@ class TelegramOutboxUI:
         await self.bot.send_to_owner(text)
 
 
-class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, RestoreHandlers, MenuHandlers, BillHandlers, BirthdayHandlers, ButtonHandlers):
+class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandlers, MeetingPrepHandlers, ListHandlers, QuietHandlers, RuleHandlers, ReviewHandlers, ExportHandlers, SweepHandlers, TodayHandlers, ShortcutHandlers, ExpenseHandlers, HabitHandlers, JournalHandlers, BackupHandlers, PrivacyHandlers, TriageHandlers, IouHandlers, SnoozeHandlers, RestoreHandlers, MenuHandlers, BillHandlers, BirthdayHandlers, WebHandlers, ButtonHandlers):
     def __init__(self, config: Config):
         self.db = Database(config.db_path)
         config = apply_saved(config, self.db)  # what the owner set in chat beats .env
@@ -255,6 +256,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.tracker = UsageTracker(self.db, config.timezone, config.monthly_budget_usd)
         self.agent = Agent(config, self.db, client, self.tracker)
         self.dms = DMStore(self.db, config.owner_id)
+        self.web = None  # the web app's server, started once the bot is up (see _post_init)
         # Concurrent updates so an Undo tap is handled while a reply is still being written;
         # the agent's lock keeps conversation turns in order.
         self.app = (
@@ -265,6 +267,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             # reply the model was tricked into writing would leak whatever it carries.
             .defaults(Defaults(link_preview_options=LinkPreviewOptions(is_disabled=True)))
             .post_init(self._post_init)
+            .post_shutdown(self._post_shutdown)
             .build()
         )
         self.outbox = Outbox(
@@ -361,6 +364,7 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
         self.app.add_handler(CommandHandler("export", self.on_export, filters=owner))
         self.app.add_handler(CommandHandler("sweep", self.on_sweep, filters=owner))
         self.app.add_handler(CommandHandler("today", self.on_today, filters=owner))
+        self.app.add_handler(CommandHandler("web", self.on_web, filters=owner))
         self.app.add_handler(CommandHandler("week", self.on_week, filters=owner))
         self.app.add_handler(CommandHandler("catchup", self.on_catchup, filters=owner))
         self.app.add_handler(CommandHandler("trips", self.on_trips, filters=owner))
@@ -464,6 +468,15 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             self._cleanup_job, interval=UPLOAD_CLEANUP_HOURS * 3600, first=60, name="file-cleanup"
         )
         await self.outbox.resume()
+        if self.config.web_port is not None:
+            from .web import WebServer
+
+            try:
+                self.web = WebServer(self)
+                await self.web.start()
+            except OSError as e:  # the port is taken: the bot still runs, just without the web app
+                self.web = None
+                log.error("The web app couldn't start on port %s: %s", self.config.web_port, e)
         try:
             await app.bot.set_my_commands(PRIVATE_COMMANDS, scope=BotCommandScopeAllPrivateChats())
             await app.bot.set_my_commands(GROUP_COMMANDS, scope=BotCommandScopeAllGroupChats())
@@ -476,6 +489,10 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             # First start with an owner (after the setup wizard or pairing): say hello first.
             self.db.set_setting(ONBOARDING_OFFERED_KEY, datetime.now().isoformat())
             await self.begin_onboarding()
+
+    async def _post_shutdown(self, app: Application) -> None:
+        if getattr(self, "web", None) is not None:
+            await self.web.stop()
 
     def run(self) -> bool:
         """Run until stopped. True means restart with fresh settings (see request_restart)."""
@@ -541,18 +558,19 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
 
     async def _run_agent(
         self, content: list[dict], owner_present: bool = True, effort: str | None = None, live: bool = False,
-        source: str = "chat",
+        source: str = "chat", on_text=None,
     ) -> tuple[str, bool]:
-        """(reply, ok). API failures become a short message with ok=False."""
-        preview = LivePreview(self.app.bot, self.config.owner_id) if live else None
+        """(reply, ok). API failures become a short message with ok=False. `on_text` streams the reply
+        somewhere other than Telegram (the web app); then there's no Telegram typing indicator either."""
+        preview = LivePreview(self.app.bot, self.config.owner_id) if live and on_text is None else None
         if preview:
             await preview.start()
         stop = asyncio.Event()
-        typing = asyncio.create_task(self._keep_typing(stop, preview))
+        typing = asyncio.create_task(self._keep_typing(stop, preview)) if on_text is None else None
         try:
             reply = await self.agent.run(
-                content, owner_present=owner_present, effort=effort, on_text=preview.update if preview else None,
-                source=source,
+                content, owner_present=owner_present, effort=effort,
+                on_text=on_text or (preview.update if preview else None), source=source,
             )
             return reply, True
         except BudgetExceeded as e:
@@ -574,7 +592,8 @@ class TelegramBot(SetupHandlers, CheckinHandlers, BusinessHandlers, StyleHandler
             return "I can't reach the Claude API right now. Network trouble?", False
         finally:
             stop.set()
-            await typing
+            if typing is not None:
+                await typing
 
     async def _keep_typing(self, stop: asyncio.Event, preview: LivePreview | None = None) -> None:
         while not stop.is_set():

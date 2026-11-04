@@ -51,6 +51,9 @@ class Config:
     region: str | None = None
     country: str | None = None
     followups: bool = True
+    web_port: int | None = None  # the web app; None turns it off
+    web_host: str = "127.0.0.1"  # this computer only, unless set (Docker: 0.0.0.0 behind HTTPS)
+    web_public_url: str | None = None  # how you reach it, for login links (https://bot.example.com)
 
     @property
     def location(self) -> dict | None:
@@ -101,4 +104,18 @@ def load_config() -> Config:
         region=os.getenv("CLAUDEBOT_REGION") or None,
         country=_country(os.getenv("CLAUDEBOT_COUNTRY")),
         followups=_flag(os.getenv("FOLLOWUPS"), True),
+        web_port=_web_port(os.getenv("WEB_PORT", "8765")),
+        web_host=os.getenv("WEB_HOST", "127.0.0.1") or "127.0.0.1",
+        web_public_url=(os.getenv("WEB_PUBLIC_URL") or "").rstrip("/") or None,
     )
+
+
+def _web_port(value: str) -> int | None:
+    """WEB_PORT=8765 by default; off, 0 or empty turns the web app off."""
+    value = (value or "").strip().lower()
+    if value in ("", "0", "off", "false", "no"):
+        return None
+    port = int(value)
+    if not 1 <= port <= 65535:
+        raise ValueError(f"WEB_PORT must be 1-65535 or off, got {value!r}")
+    return port

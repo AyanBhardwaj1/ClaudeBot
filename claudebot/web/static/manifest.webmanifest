@@ -1,0 +1,13 @@
+{
+  "name": "ClaudeBot",
+  "short_name": "ClaudeBot",
+  "description": "Your personal assistant: email, calendar, reminders and more.",
+  "start_url": "/#/chat",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f6f3",
+  "theme_color": "#4f5bd5",
+  "icons": [
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

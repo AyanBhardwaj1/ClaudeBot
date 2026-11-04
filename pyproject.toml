@@ -12,6 +12,7 @@ dependencies = [
     "google-auth-httplib2==0.4.4",
     "python-dotenv==1.2.4",
     "matplotlib==3.11.2",
+    "aiohttp==3.12.15",
 ]
 
 [project.scripts]
@@ -22,7 +23,10 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["claudebot"]
+packages = ["claudebot", "claudebot.web"]
+
+[tool.setuptools.package-data]
+"claudebot.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

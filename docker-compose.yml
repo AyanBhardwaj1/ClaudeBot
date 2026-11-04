@@ -6,6 +6,11 @@ services:
     env_file: .env
     environment:
       CLAUDEBOT_DATA_DIR: /data  # beats any value in .env
+      WEB_HOST: 0.0.0.0  # inside the container; the port below is published to this computer only
+    ports:
+      # The web app (sign in with /web in Telegram). 127.0.0.1 keeps it on this computer; to use it
+      # from other devices, put an HTTPS reverse proxy in front and set WEB_PUBLIC_URL in .env.
+      - "127.0.0.1:8765:8765"
     volumes:
       - claudebot-data:/data  # chat history, memories, reminders and your Google token
 

@@ -4,6 +4,19 @@ primary_region = "iad"
 
 [env]
   CLAUDEBOT_DATA_DIR = "/data"
+  WEB_HOST = "0.0.0.0"
+  WEB_PORT = "8765"
+  # Set to your app's address so /web links point at it: https://<app name>.fly.dev
+  WEB_PUBLIC_URL = "https://claudebot-change-me.fly.dev"
+
+# The web app, over HTTPS only. Only you can sign in (a one-time link from your bot). The machine
+# must keep running for Telegram polling, so it never scales to zero.
+[http_service]
+  internal_port = 8765
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
 
 [[mounts]]
   source = "claudebot_data"
