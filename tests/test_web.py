@@ -210,8 +210,11 @@ def test_static_files_ship_with_the_package():
     json.loads(_static("manifest.webmanifest"))
 
 
-async def test_junk_logins_cant_lock_the_owner_out(setup):
+async def test_junk_logins_cant_lock_the_owner_out(setup, monkeypatch):
     """Web review M1: only failures are throttled, and a valid link always gets in."""
+    import claudebot.web
+
+    monkeypatch.setattr(claudebot.web, "FAILED_LOGIN_DELAY", 0)
     bot, client = setup
     for _ in range(30):
         await client.post("/api/login", json={"token": "x" * 40})
@@ -311,3 +314,47 @@ def test_fly_gets_its_https_address(monkeypatch):
     assert _public_url() == "https://my-bot.fly.dev"
     monkeypatch.setenv("WEB_PUBLIC_URL", "https://bot.example.com/")
     assert _public_url() == "https://bot.example.com"
+
+
+def test_plain_http_listen_address_is_refused(tmp_path):
+    """Round 2 L2: WEB_HOST=192.168.1.5 without an https WEB_PUBLIC_URL would send links in the clear."""
+    from claudebot.web import check_public_url
+
+    with pytest.raises(RuntimeError):
+        check_public_url(make_config(tmp_path, web_port=8765, web_host="192.168.1.5"))
+    check_public_url(make_config(tmp_path, web_port=8765, web_host="0.0.0.0"))
+    check_public_url(make_config(tmp_path, web_port=8765, web_host="192.168.1.5", web_public_url="https://bot.example.com"))
+
+
+async def test_login_failures_stay_bounded(setup):
+    """Round 2 L1."""
+    bot, client = setup
+    server = WebServer(bot)
+    assert server._failures.maxlen == 21
+
+
+async def test_local_public_address_keeps_direct_access_working(tmp_path, monkeypatch):
+    """Round 2 L3: WEB_PUBLIC_URL=http://localhost:9000 doesn't lock out http://localhost:<port>."""
+    from claudebot.bot import TelegramBot
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    bot = TelegramBot(make_config(tmp_path, telegram_token="123:abc", web_port=8765, web_public_url="http://localhost:9000"))
+    client = TestClient(TestServer(WebServer(bot).app))
+    await client.start_server()
+    try:
+        res = await client.post("/api/login", json={"token": auth.new_login_token(bot.db)}, headers={"Origin": origin(client)})
+        assert res.status == 200
+    finally:
+        await client.close()
+
+
+async def test_unexpected_errors_still_end_the_chat_stream(setup):
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+
+    async def boom(*a, **k):
+        raise KeyError("x")
+
+    bot._run_agent = boom
+    body = await (await client.post("/api/chat", json={"text": "hi"}, headers=write(client, csrf))).text()
+    assert "event: done" in body and '"ok": false' in body

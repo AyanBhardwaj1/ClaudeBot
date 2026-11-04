@@ -65,11 +65,15 @@ def main() -> None:
         sys.exit(0 if healthy(load_config().data_dir) else 1)
     elif command == "web-login":
         from .db import Database
-        from .web import auth, login_url
+        from .web import auth, check_public_url, login_url
 
         config = load_config()
         if config.web_port is None:
             sys.exit("The web app is off (WEB_PORT=off).")
+        try:
+            check_public_url(config)
+        except RuntimeError as e:
+            sys.exit(str(e))
         print("Your one-time sign-in link (works once, for 10 minutes; don't share it):\n")
         print("    " + login_url(config, auth.new_login_token(Database(config.db_path))) + "\n")
     elif command == "google":

@@ -5,7 +5,7 @@
 // pages of your ClaudeBot (anything else opens in your browser, web links only); it can't open new
 // windows or ask for the camera, microphone, location or notifications.
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, net, session, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { pathToFileURL } = require("url");
@@ -53,16 +53,16 @@ function createWindow() {
   win.once("ready-to-show", () => win.show());
 
   const allowed = url => (origin && isSameOrigin(url, origin)) || isSetupPage(url);
+  // Leaving your ClaudeBot is simply blocked: a page can't push you to another site, nor make the app open
+  // your browser on its own (that only happens from a link you click, after you say yes).
   win.webContents.on("will-navigate", (event, url) => {
-    if (allowed(url)) return;
-    event.preventDefault();
-    if (isSafeExternal(url)) shell.openExternal(url);
+    if (!allowed(url)) event.preventDefault();
   });
   win.webContents.on("will-redirect", (event, url) => {
     if (!allowed(url)) event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isSafeExternal(url)) shell.openExternal(url);
+    if (isSafeExternal(url)) confirmExternal(url);
     return { action: "deny" };
   });
   win.webContents.on("did-fail-load", (_e, code, description, url, isMainFrame) => {
@@ -103,12 +103,40 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+let asking = false;
+async function confirmExternal(url) {
+  if (asking) return;  // one question at a time: a page can't stack up dialogs
+  asking = true;
+  try {
+    const { response } = await dialog.showMessageBox(win, {
+      type: "question", buttons: ["Open in browser", "Cancel"], defaultId: 1, cancelId: 1,
+      message: "Open this link in your browser?", detail: url.slice(0, 300),
+    });
+    if (response === 0) await shell.openExternal(url);
+  } finally {
+    asking = false;
+  }
+}
+
+/** Best effort: end the session on the server too, not just forget the cookie here. */
+async function signOutOnServer() {
+  if (!origin) return;
+  try {
+    const me = await net.fetch(`${origin}/api/me`, { useSessionCookies: true });
+    if (!me.ok) return;
+    const { csrf } = await me.json();
+    await net.fetch(`${origin}/api/logout`, { method: "POST", useSessionCookies: true,
+                                              headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json", Origin: origin } });
+  } catch { /* offline: the cookie is still cleared below */ }
+}
+
 async function forgetServer() {
   const { response } = await dialog.showMessageBox(win, {
     type: "question", buttons: ["Forget", "Cancel"], defaultId: 1, cancelId: 1,
     message: "Forget this ClaudeBot?", detail: "This signs the desktop app out. Your ClaudeBot and its data aren't touched.",
   });
   if (response !== 0) return;
+  await signOutOnServer();
   await session.defaultSession.clearStorageData();
   origin = null;
   try { fs.unlinkSync(CONFIG()); } catch { /* already gone */ }

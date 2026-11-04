@@ -5,8 +5,10 @@ Telegram. Only the owner can sign in (see auth.py). By default it listens on thi
 (127.0.0.1:8765); to reach it from elsewhere, put it behind HTTPS and set WEB_PUBLIC_URL.
 """
 
+import asyncio
 import logging
 import time
+from collections import deque
 from importlib import resources
 from urllib.parse import urlsplit
 
@@ -32,6 +34,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 OPEN_PATHS = {"/api/login", "/api/health"}
 MAX_LOGIN_FAILURES = 20  # per 10 minutes, across everyone: tokens are unguessable, this just stops noise
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+FAILED_LOGIN_DELAY = 0.3  # seconds
 
 
 LOOPBACK = {"localhost", "127.0.0.1", "::1"}
@@ -49,10 +52,13 @@ def login_url(config, token: str) -> str:
 
 def check_public_url(config) -> None:
     """Plain http is fine on this computer only: elsewhere the sign-in link and cookie would cross the
-    network unencrypted."""
+    network unencrypted. That covers WEB_PUBLIC_URL, and WEB_HOST when links would point at it."""
     url = config.web_public_url
     if url and urlsplit(url).scheme != "https" and (urlsplit(url).hostname or "") not in LOOPBACK:
         raise RuntimeError(f"WEB_PUBLIC_URL must be https:// for anything but this computer (got {url}).")
+    if not url and config.web_host not in LOOPBACK | WILDCARDS:
+        raise RuntimeError(f"WEB_HOST={config.web_host} would send sign-in links over plain http. "
+                           "Put HTTPS in front and set WEB_PUBLIC_URL=https://...")
 
 
 def _static(name: str) -> bytes:
@@ -65,10 +71,11 @@ class WebServer:
         self.config = bot.config
         self.db = bot.db
         self.runner: web.AppRunner | None = None
-        self._failures: list[float] = []
+        self._failures: deque[float] = deque(maxlen=MAX_LOGIN_FAILURES + 1)  # bounded: a flood can't grow it
         self.chatting: set[str] = set()  # sessions with a chat turn in flight (one each)
         public = urlsplit(config_url) if (config_url := self.config.web_public_url) else None
         self.public_host = public.hostname if public else None
+        self.public_netloc = public.netloc if public else None
         self.public_origin = f"{public.scheme}://{public.netloc}" if public else None
         self.app = self.build()
 
@@ -147,8 +154,8 @@ class WebServer:
         origin = request.headers.get("Origin")
         if origin is None:
             return request.headers.get("Sec-Fetch-Site") in (None, "same-origin")
-        if self.public_host and request.url.host == self.public_host:
-            return origin == self.public_origin  # the public address: exactly its https origin
+        if self.public_netloc and request.host == self.public_netloc:
+            return origin == self.public_origin  # the public address: exactly its own origin
         # This computer (the host was already checked): either scheme, since a local HTTPS proxy
         # (Caddy) shows the app plain http.
         return origin in {f"http://{request.host}", f"https://{request.host}"}
@@ -174,8 +181,9 @@ class WebServer:
             token = None
         if not auth.redeem_login_token(self.db, token):
             now = time.monotonic()
-            self._failures = [t for t in self._failures if now - t < 600] + [now]
-            if len(self._failures) > MAX_LOGIN_FAILURES:
+            self._failures.append(now)
+            await asyncio.sleep(FAILED_LOGIN_DELAY)  # failures are slowed down; nothing else waits on it
+            if len(self._failures) > MAX_LOGIN_FAILURES and now - self._failures[0] < 600:
                 return web.json_response({"error": "Too many tries. Wait a few minutes."}, status=429)
             return web.json_response({"error": "That sign-in link has expired or was already used. "
                                                "Send /web in Telegram for a new one."}, status=401)

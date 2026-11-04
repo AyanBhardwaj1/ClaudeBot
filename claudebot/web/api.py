@@ -183,7 +183,11 @@ class Api:
                     await response.write(b": still working\n\n")
                 except (ConnectionResetError, RuntimeError):
                     state["open"] = False
-        reply, ok = task.result()
+        try:
+            reply, ok = task.result()
+        except Exception:  # anything unexpected still ends the stream properly
+            log.exception("A web chat turn failed")
+            reply, ok = "Something went wrong on my side. Try again in a moment.", False
         await send("done", {"text": reply, "ok": ok})
         if state["open"]:
             await response.write_eof()

@@ -12,7 +12,7 @@ address.
 3. Open ClaudeBot desktop and paste the link. That's it.
 
 To switch servers or sign in again: **ClaudeBot → Sign in with a new link…** (Ctrl/Cmd+Shift+L).
-**Forget this server** signs the app out and clears its storage.
+**Forget this server** signs the app out (on the server too) and clears its storage.
 
 ## Build it
 
@@ -30,11 +30,19 @@ the first time, and Windows SmartScreen shows "More info → Run anyway". To sig
 electron-builder secrets (`CSC_LINK`, `CSC_KEY_PASSWORD`, and for macOS notarization `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) and remove `CSC_IDENTITY_AUTO_DISCOVERY` from the workflow.
 
+## Updates
+
+The app doesn't update itself; that keeps it simple and leaves nothing that could push code to you.
+Install new versions from the **Desktop app** workflow's latest run (or rebuild) now and then: each
+one brings Chromium's security fixes. New ClaudeBot features need no update at all, because they
+come from your server.
+
 ## How it's locked down
 
 - The web app runs with no Node.js access, in Chromium's sandbox, with context isolation.
-- The window only shows pages of the ClaudeBot you connected. Other links open in your browser
-  (web links only: no `file:` or custom schemes), and pages can't open new windows.
+- The window only shows pages of the ClaudeBot you connected. A page can't send you elsewhere;
+  a link you click asks before opening in your browser (web links only, never `file:` or custom
+  schemes), and pages can't open new windows.
 - No camera, microphone, location or notification permissions, ever.
 - Plain `http://` is only accepted for this computer (`localhost`); anything else must be `https://`.
 - Packaged builds turn off `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` and `--inspect`, encrypt cookies,
