@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.0
+
+**Web and desktop app**
+- ClaudeBot in your browser: chat (the same conversation as Telegram, streamed), Today, Week, Lists, Reminders, Bills, Birthdays, Telegram DMs, Memory, Activity and Settings. Works on phones and installs as an app.
+- A desktop app for macOS, Windows and Linux (`desktop/`). Paste the link from `/web` and you're in.
+- Sign in with `/web` in Telegram: a one-time link that only you can get. `/web signout` ends every session.
+- On by default for this computer (localhost:8765). Docker publishes it to localhost; Fly serves it over HTTPS at your app's address; elsewhere, put HTTPS in front and set `WEB_PUBLIC_URL`.
+- Locked down:
+  - The session cookie is HttpOnly and SameSite=Strict, and only its hash is stored.
+  - Changes need a CSRF token and the app's own origin.
+  - Unknown host names are refused (no DNS rebinding).
+  - A strict CSP is in place, and everything is shown as text.
+  - The desktop app gives the page no Node.js and denies every permission.
+
+
 ## 1.2.0
 
 **Safer**

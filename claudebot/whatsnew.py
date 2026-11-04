@@ -4,14 +4,12 @@ from . import __version__
 
 SEEN_KEY = "seen_version"
 NOTES = (
-    "✨ What's new in ClaudeBot 1.2\n"
-    "- /dms: your Telegram DMs, with replies sent from your account when you tap\n"
-    "- /triage: unread email one card at a time, with 💤 snooze\n"
-    "- Meeting prep, a Sunday review, and a 📅 Times button for meeting requests\n"
-    "- /style: drafts that sound like you\n"
-    "- /log: what I actually did; Remove cards for calendar events\n"
-    "- /lists, /spent, /owed, /habit, /journal, /note\n"
-    "- /today, /catchup, /quiet, /focus, /rules, /sweep, /privacy, /export\n"
+    "✨ What's new in ClaudeBot 1.3\n"
+    "- 🌐 A web app and a desktop app (macOS, Windows, Linux): send /web for your sign-in link\n"
+    "- /week: the next 7 days at a glance\n"
+    "- /bills with ✅ Paid, /birthdays with a heads-up the day before\n"
+    "- ⚡ Quick replies and ⏰ 3h reminders in /dms\n"
+    "- Optional: urgent email can wake you in quiet hours (/settings)\n"
     "/help has everything."
 )
 

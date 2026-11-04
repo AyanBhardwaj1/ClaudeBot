@@ -4,6 +4,8 @@
 
 You run your own copy: your inbox and your conversations stay between you, Telegram, Google and the Claude API. Setup takes about 5 minutes ([Quick start](#quick-start)).
 
+Use it on Telegram, in your browser, or as a desktop app for macOS, Windows and Linux. It's one assistant with one conversation, one memory and the same safety rules everywhere ([Web and desktop app](#web-and-desktop-app)).
+
 Text it like a person:
 
 - "what's in my inbox?" / "anything from my professor this week?"
@@ -178,6 +180,31 @@ fly deploy && fly logs                    # send your bot /start <code> from the
 
 Then `/connect` from your phone. ClaudeBot backs up its database every night to `data/backups/` (the last 7 are kept), and the Docker image has a health check. The Google token is saved in the volume, so it survives redeploys.
 
+## Web and desktop app
+
+The web app runs inside ClaudeBot itself. It has chat (the same conversation as Telegram, streamed as Claude writes), plus Today, Week, Lists, Reminders, Bills, Birthdays, Telegram DMs, Memory, Activity and Settings. It works on phones and installs as an app from the browser menu.
+
+**Sign in:** send your bot **/web** and open the link. Only you can get one; it works once, for 10 minutes. `/web signout` signs out every browser and the desktop app. On the server, `python -m claudebot web-login` prints a link too.
+
+**Where it's reachable:**
+
+- **On your computer:** it's on by default at http://localhost:8765, for this computer only.
+- **Docker Compose:** publishes it to the host's localhost only.
+- **Fly.io:** serves it at `https://<your app>.fly.dev` with no extra setup.
+- **Another machine with your own domain:** put HTTPS in front (Caddy: `reverse_proxy localhost:8765`) and set `WEB_PUBLIC_URL=https://bot.example.com`. Plain http is refused for anything but this computer.
+
+`WEB_PORT=off` turns the web app off.
+
+**Desktop app** (macOS, Windows, Linux): install it, send `/web`, and paste the link. That's the whole setup. The installers come from the **Desktop app** workflow in GitHub Actions; building from source is in [desktop/README.md](desktop/README.md). The app is a locked-down window onto your own ClaudeBot: no Node.js in the page, only your server's pages load, and every permission is denied.
+
+**How the web app is protected:**
+
+- Sign-in is a one-time link from your own bot. Sessions use an HttpOnly, SameSite=Strict cookie, and only a hash of it is stored.
+- Every change needs a CSRF token and the app's own origin.
+- Requests for unknown host names are refused, which stops DNS rebinding.
+- A strict Content-Security-Policy is in place, and all text is shown as text, never as HTML.
+- Anything that needs a confirmation tap in Telegram (sending email, inviting guests) still asks in Telegram.
+
 ## Commands
 
 - `/help` lists everything; `/settings`, `/connect` and `/status` are covered above.
@@ -219,6 +246,9 @@ These live in `.env` (see `.env.example`). The ones marked * can also be changed
 | `GROUP_DAILY_LIMIT` | 30 | Answers per group per day in group mode |
 | `GROUP_MONTHLY_BUDGET_USD` | 5 | Monthly spending cap for all group answers combined |
 | `CLAUDEBOT_EFFORT` | medium | `low` is cheaper and faster, `high` is smarter on hard requests |
+| `WEB_PORT` | 8765 | The web app's port; `off` turns it off |
+| `WEB_HOST` | 127.0.0.1 | Where it listens. Docker and Fly set `0.0.0.0` behind their own port rules. |
+| `WEB_PUBLIC_URL` | none (Fly: `https://<app>.fly.dev`) | Your HTTPS address, for sign-in links from other devices |
 
 ### What it costs
 
