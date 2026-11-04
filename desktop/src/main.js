@@ -5,7 +5,7 @@
 // pages of your ClaudeBot (anything else opens in your browser, web links only); it can't open new
 // windows or ask for the camera, microphone, location or notifications.
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, net, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain, nativeImage, net, session, shell } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { pathToFileURL } = require("url");
@@ -17,6 +17,38 @@ const isSetupPage = url => url === SETUP_PAGE || url.startsWith(`${SETUP_PAGE}?`
 const CONFIG = () => path.join(app.getPath("userData"), "config.json");
 let win = null;
 let origin = null;
+let tray = null;
+let quitting = false;
+const SHORTCUT = "CommandOrControl+Shift+Space";
+
+/** Bring the window up (from the tray, the shortcut or a second launch), optionally on a page. */
+function show(view) {
+  if (!win) createWindow();
+  if (view && origin) showApp(`${origin}/#/${view}`);
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function buildTray() {
+  try {
+    tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "tray.png")));
+  } catch {
+    tray = null;  // some Linux desktops have no tray: the app still works, closing just quits
+    return;
+  }
+  tray.setToolTip("ClaudeBot");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "Open ClaudeBot", click: () => show() },
+    { type: "separator" },
+    { label: "Chat", click: () => show("chat") },
+    { label: "Today", click: () => show("today") },
+    { label: "Week", click: () => show("week") },
+    { type: "separator" },
+    { label: "Quit ClaudeBot", click: () => { quitting = true; app.quit(); } },
+  ]));
+  tray.on("click", () => show());
+}
 
 function loadConfig() {
   try {
@@ -51,6 +83,14 @@ function createWindow() {
     },
   });
   win.once("ready-to-show", () => win.show());
+  // With a tray icon, closing the window keeps ClaudeBot one click (or the shortcut) away; Quit quits.
+  win.on("close", event => {
+    if (tray && !quitting && process.platform !== "darwin") {
+      event.preventDefault();
+      win.hide();
+    }
+  });
+  win.on("closed", () => { win = null; });
 
   const allowed = url => (origin && isSameOrigin(url, origin)) || isSetupPage(url);
   // Leaving your ClaudeBot is simply blocked: a page can't push you to another site, nor make the app open
@@ -84,6 +124,10 @@ function buildMenu() {
         { label: "Reload", accelerator: "CmdOrCtrl+R", click: () => (origin ? showApp(win.webContents.getURL()) : showSetup()) },
         { type: "separator" },
         { label: "Forget this server", click: forgetServer },
+        ...(process.platform === "linux" ? [] : [{
+          label: "Open at login", type: "checkbox", checked: app.getLoginItemSettings().openAtLogin,
+          click: item => app.setLoginItemSettings({ openAtLogin: item.checked }),
+        }]),
         ...(process.platform === "darwin" ? [] : [{ type: "separator" }, { role: "quit" }]),
       ],
     },
@@ -157,9 +201,9 @@ ipcMain.handle("claudebot:connect", async (event, link) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
-    if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
-  });
+  app.on("second-instance", () => show());
+  app.on("before-quit", () => { quitting = true; });
+  app.on("will-quit", () => globalShortcut.unregisterAll());
   app.whenReady().then(() => {
     // No camera, microphone, location, notifications or anything else, ever.
     session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
@@ -170,7 +214,10 @@ if (!app.requestSingleInstanceLock()) {
     origin = loadConfig();
     buildMenu();
     createWindow();
-    app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+    buildTray();
+    // Ctrl/Cmd+Shift+Space from anywhere brings up the chat (skipped quietly if another app has it).
+    globalShortcut.register(SHORTCUT, () => show("chat"));
+    app.on("activate", () => show());
   });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 }
