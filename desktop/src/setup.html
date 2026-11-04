@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Connect ClaudeBot</title>
+<link rel="stylesheet" href="setup.css">
+<script src="setup.js" defer></script>
+</head>
+<body>
+<main class="card">
+  <img src="icon.svg" alt="" class="logo">
+  <h1>Connect your ClaudeBot</h1>
+  <ol>
+    <li>Open your ClaudeBot chat in Telegram and send <b>/web</b>.</li>
+    <li>Copy the link it sends you and paste it here.</li>
+  </ol>
+  <form id="form">
+    <label for="link">Sign-in link</label>
+    <input id="link" type="url" required autocomplete="off" spellcheck="false" placeholder="https://your-bot.example.com/login#t=…">
+    <p id="error" class="error" role="alert" hidden></p>
+    <button type="submit">Connect</button>
+  </form>
+  <p class="fine">The link works once, for 10 minutes. ClaudeBot runs on your own server; this app only opens it.</p>
+</main>
+</body>
+</html>
