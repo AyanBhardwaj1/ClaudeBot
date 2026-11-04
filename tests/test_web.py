@@ -435,3 +435,26 @@ def test_history_marks_messages_with_files():
                                              {"type": "document", "source": {"type": "file", "file_id": "f"}},
                                              {"type": "text", "text": "what's due?"}]}]
     assert history_view(messages) == [{"role": "you", "text": "📎 what's due?"}]
+
+
+async def test_add_reminders_and_memories_and_search(setup):
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+    scheduled = []
+    bot.schedule_reminder = scheduled.append
+    later = (datetime.now(TZ) + timedelta(days=1)).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M")
+    ok = await client.post("/api/reminders", json={"text": "renew passport", "when": later, "repeat": "none"},
+                           headers=write(client, csrf))
+    assert ok.status == 200 and scheduled == [(await ok.json())["id"]]
+    past = (datetime.now(TZ) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
+    for body in ({"text": "x", "when": past}, {"text": "x", "when": later, "repeat": "hourly"},
+                 {"text": "", "when": later}, {"text": "x", "when": "soon"}):
+        assert (await client.post("/api/reminders", json=body, headers=write(client, csrf))).status == 400
+    assert (await client.post("/api/reminders", json={"text": "standup", "when": past, "repeat": "weekdays"},
+                              headers=write(client, csrf))).status == 200  # a repeat may start in the past
+
+    assert (await client.post("/api/memories", json={"text": "Passport number ends in 42"}, headers=write(client, csrf))).status == 200
+    assert (await client.post("/api/memories", json={"text": "Passport number ends in 42"}, headers=write(client, csrf))).status == 409
+    hits = (await (await client.get("/api/search?q=PASSPORT")).json())["results"]
+    assert {h["kind"] for h in hits} == {"memory", "reminder"}
+    assert (await (await client.get("/api/search?q=p")).json())["results"] == []

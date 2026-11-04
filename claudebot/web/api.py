@@ -96,14 +96,16 @@ class Api:
             g("/api/me", self.me), p("/api/logout", self.logout), p("/api/logout-all", self.logout_all),
             g("/api/history", self.history), p("/api/chat", self.chat), p("/api/new", self.new_chat),
             g("/api/today", self.today), g("/api/week", self.week),
-            g("/api/reminders", self.reminders), p("/api/reminders/{id}/cancel", self.cancel_reminder),
+            g("/api/reminders", self.reminders), p("/api/reminders", self.add_reminder),
+            p("/api/reminders/{id}/cancel", self.cancel_reminder),
             g("/api/lists", self.lists), p("/api/lists/items", self.add_list_items),
             p("/api/lists/{list_id}/items/{item_id}/toggle", self.toggle_item),
             p("/api/lists/{list_id}/clear", self.clear_list),
             g("/api/bills", self.bills), p("/api/bills/{id}/paid", self.pay_bill), d("/api/bills/{id}", self.delete_bill),
             g("/api/birthdays", self.birthdays), p("/api/birthdays", self.add_birthday),
             d("/api/birthdays/{id}", self.delete_birthday),
-            g("/api/memories", self.memories), d("/api/memories/{id}", self.delete_memory),
+            g("/api/memories", self.memories), p("/api/memories", self.add_memory),
+            d("/api/memories/{id}", self.delete_memory), g("/api/search", self.search),
             g("/api/log", self.action_log), g("/api/usage", self.usage), g("/api/dms", self.dms),
             g("/api/settings", self.settings), p("/api/settings", self.change_settings),
             g("/api/outbox", self.outbox), p("/api/outbox/{id}/send", self.outbox_send),
@@ -265,11 +267,37 @@ class Api:
 
     async def reminders(self, request: web.Request) -> web.Response:
         tz = self.bot.config.timezone
+        owned = {b.get("reminder_id") for b in Bills(self.db).all() + Birthdays(self.db).all()}
         rows = [{"id": r["id"], "text": r["text"], "repeat": r["repeat"], "task": bool(r["run_as_task"]),
-                 "briefing": bool(r["briefing"]),
+                 "briefing": bool(r["briefing"]), "owned": r["id"] in owned,
                  "next": datetime.fromisoformat(r["due_at"]).astimezone(tz).isoformat()}
                 for r in self.db.active_reminders()]
         return _json({"reminders": rows})
+
+    async def add_reminder(self, request: web.Request) -> web.Response:
+        """A plain reminder from the form: same checks as the set_reminder tool (a real time, in the
+        future unless it repeats, one of the known repeats)."""
+        from ..tools import REPEAT_OPTIONS
+
+        body = await _body(request)
+        text = " ".join(str(body.get("text", "")).split())[:300]
+        repeat = body.get("repeat", "none")
+        if not text:
+            return _error("What should I remind you about?")
+        if repeat not in REPEAT_OPTIONS:
+            return _error("Pick how often it repeats.")
+        tz = self.bot.config.timezone
+        try:
+            when = datetime.fromisoformat(str(body.get("when", "")))
+        except ValueError:
+            return _error("Pick a date and time.")
+        when = when.replace(tzinfo=tz) if when.tzinfo is None else when.astimezone(tz)
+        if when <= datetime.now(tz) and repeat == "none":
+            return _error("That time has already passed.")
+        reminder_id = self.db.add_reminder(text, when, repeat, False)
+        self.bot.schedule_reminder(reminder_id)
+        ActionLog(self.db).record("reminder", f"Reminder set for {when:%a %b %-d %H:%M}: {text} (web)")
+        return _json({"id": reminder_id, "next": when.isoformat()})
 
     async def cancel_reminder(self, request: web.Request) -> web.Response:
         reminder_id = _int(request, "id")
@@ -375,6 +403,42 @@ class Api:
     async def memories(self, request: web.Request) -> web.Response:
         return _json({"memories": [{"id": m["id"], "text": m["text"]}
                                    for m in self.db.list_memories()]})
+
+    async def add_memory(self, request: web.Request) -> web.Response:
+        text = " ".join(str((await _body(request)).get("text", "")).split())[:500]
+        if not text:
+            return _error("What should I remember?")
+        if text in {m["text"] for m in self.db.list_memories()}:
+            return _error("I already remember that.", 409)
+        memory_id = self.db.add_memory(text)
+        ActionLog(self.db).record("memory", f"Saved memory #{memory_id} (web)")
+        return _json({"id": memory_id})
+
+    async def search(self, request: web.Request) -> web.Response:
+        """Find things across memories, lists, reminders, bills and birthdays. Plain substring
+        matching on what's stored here: no model call, nothing leaves the server."""
+        query = " ".join(request.query.get("q", "").lower().split())[:100]
+        if len(query) < 2:
+            return _json({"results": []})
+        hits = []
+
+        def add(kind: str, text: str, page: str) -> None:
+            if query in text.lower() and len(hits) < 40:
+                hits.append({"kind": kind, "text": text, "page": page})
+
+        for m in self.db.list_memories():
+            add("memory", m["text"], "memory")
+        lists = Lists(self.db)
+        for name in lists.names():
+            for item in lists.items(name):
+                add("list", f"{name}: {item['text']}", "lists")
+        for r in self.db.active_reminders():
+            add("reminder", r["text"], "reminders")
+        for b in Bills(self.db).all():
+            add("bill", b["name"], "bills")
+        for b in Birthdays(self.db).all():
+            add("birthday", b["name"], "birthdays")
+        return _json({"results": hits})
 
     async def delete_memory(self, request: web.Request) -> web.Response:
         memory_id = _int(request, "id")

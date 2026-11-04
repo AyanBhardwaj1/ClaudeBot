@@ -159,3 +159,6 @@ button { cursor: pointer; }
 .chip[hidden] { display: none; }
 .chip span { background: var(--sunken); border-radius: 99px; padding: 3px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%; }
 .chip-x { border: 0; background: transparent; color: var(--muted); }
+.search { padding: 0 4px 12px; }
+.search .field { width: 100%; }
+select.field { padding-right: 28px; }

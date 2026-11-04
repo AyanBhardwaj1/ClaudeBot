@@ -95,7 +95,7 @@ const TABS = ["chat", "today", "week", "lists", "more"];
 
 function route() {
   const name = location.hash.replace(/^#\/?/, "") || "chat";
-  return [...PAGES.map(p => p[0]), "more"].includes(name) ? name : "chat";
+  return [...PAGES.map(p => p[0]), "more", "search"].includes(name) ? name : "chat";
 }
 
 function navLink(name, icon, label, current) {
@@ -108,6 +108,9 @@ function layout(current, content) {
   state.timer = null;
   const side = h("nav", { class: "side", "aria-label": "Main" },
     h("div", { class: "brand" }, h("img", { src: "/static/icon.svg", alt: "" }), "ClaudeBot"),
+    h("form", { class: "search", role: "search", onsubmit: e => { e.preventDefault(); openSearch(e.target.q.value); } },
+      h("input", { class: "field", name: "q", id: "search", type: "search", placeholder: "Search  (Ctrl K)", "aria-label": "Search",
+                   value: state.query || "" })),
     h("div", { class: "nav" }, PAGES.map(([n, i, l]) => navLink(n, i, l, current))),
     h("div", { class: "foot" }, `Signed in as ${state.me.name}. `,
       h("button", { type: "button", onclick: signOut }, "Sign out")));
@@ -135,12 +138,23 @@ function rows(items, render, emptyText) {
   return items.length ? h("ul", { class: "rows" }, items.map(render)) : h("p", { class: "empty" }, emptyText);
 }
 
+// Times are shown in your ClaudeBot's time zone (the one reminders and your calendar use), whatever
+// time zone this browser or computer is in.
+const tz = () => state.me?.timezone;
+
 function fmtDate(iso, opts = { weekday: "short", month: "short", day: "numeric" }) {
-  return new Date(iso.length === 10 ? iso + "T12:00:00" : iso).toLocaleDateString(undefined, opts);
+  if (iso.length === 10) return new Date(iso + "T12:00:00Z").toLocaleDateString(undefined, { ...opts, timeZone: "UTC" });
+  return new Date(iso).toLocaleDateString(undefined, { ...opts, timeZone: tz() });
 }
 
 function fmtTime(iso) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", timeZone: tz() });
+}
+
+function botLocalInput(date) {  // "YYYY-MM-DDTHH:MM" in the bot's time zone, for datetime-local inputs
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz(), hourCycle: "h23", year: "numeric",
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(date).map(x => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
 function money(amount, currency) {
@@ -373,15 +387,26 @@ async function listsPage() {
 async function remindersPage() {
   const d = await act(api("GET", "/api/reminders"));
   if (!d) return;
-  layout("reminders", page("Reminders", "Set new ones by asking: \"remind me Friday at 9 to renew my passport\".",
+  const what = h("input", { class: "field flex1", placeholder: "Remind me to…", "aria-label": "Reminder", required: true, maxlength: 300 });
+  const local = botLocalInput(new Date(Date.now() + 3600e3)).slice(0, 14) + "00";  // the next whole hour
+  const when = h("input", { class: "field", type: "datetime-local", "aria-label": "When", required: true, value: local });
+  const repeat = h("select", { class: "field", "aria-label": "Repeat" },
+    ["none", "daily", "weekdays", "weekly", "biweekly", "monthly", "yearly"].map(r => h("option", { value: r }, r === "none" ? "once" : r)));
+  const form = h("form", { class: "row", onsubmit: async e => {
+    e.preventDefault();
+    if (await act(api("POST", "/api/reminders", { text: what.value, when: when.value, repeat: repeat.value }), "Reminder set")) remindersPage();
+  } }, what, when, repeat, h("button", { class: "btn primary" }, "Add"));
+  layout("reminders", page("Reminders", "Add one here, or just ask: \"remind me Friday at 9 to renew my passport\". Times are in your ClaudeBot's time zone.",
+    card(null, form), h("div", { class: "spacer" }),
     card(null, rows(d.reminders, r => h("li", {},
       h("span", { class: "time" }, fmtDate(r.next), h("br"), fmtTime(r.next)),
       h("span", { class: "grow" }, r.text),
       r.repeat !== "none" ? h("span", { class: "pill" }, r.repeat) : null,
       r.briefing ? h("span", { class: "pill" }, "briefing") : r.task ? h("span", { class: "pill" }, "task") : null,
-      h("button", { class: "btn small danger", onclick: async () => {
-        if (await act(api("POST", `/api/reminders/${r.id}/cancel`), "Cancelled")) remindersPage();
-      } }, "Cancel")), "No reminders."))));
+      r.owned ? h("span", { class: "pill", title: "Change it on the Bills or Birthdays page" }, "auto")
+        : h("button", { class: "btn small danger", onclick: async () => {
+            if (await act(api("POST", `/api/reminders/${r.id}/cancel`), "Cancelled")) remindersPage();
+          } }, "Cancel")), "No reminders."))));
 }
 
 async function billsPage() {
@@ -437,7 +462,13 @@ async function dmsPage() {
 async function memoryPage() {
   const d = await act(api("GET", "/api/memories"));
   if (!d) return;
-  layout("memory", page("Memory", "What ClaudeBot remembers about you. Tell it \"remember that…\" to add more.",
+  const fact = h("input", { class: "field flex1", placeholder: "Something to remember (e.g. my passport expires in May 2028)", "aria-label": "Memory", required: true, maxlength: 500 });
+  const form = h("form", { class: "row", onsubmit: async e => {
+    e.preventDefault();
+    if (await act(api("POST", "/api/memories", { text: fact.value }), "Remembered")) memoryPage();
+  } }, fact, h("button", { class: "btn primary" }, "Add"));
+  layout("memory", page("Memory", "What ClaudeBot remembers about you. Add something here, or tell it \"remember that…\".",
+    card(null, form), h("div", { class: "spacer" }),
     card(null, rows(d.memories, m => h("li", {}, h("span", { class: "grow" }, m.text),
       h("button", { class: "btn small danger", onclick: async () => {
         if (await act(api("DELETE", `/api/memories/${m.id}`), "Forgotten")) memoryPage();
@@ -488,8 +519,34 @@ async function settingsPage() {
       } }, "Sign out all")))));
 }
 
+function openSearch(query) {
+  state.query = query;
+  if (location.hash === "#/search") searchPage(); else location.hash = "#/search";
+}
+
+async function searchPage() {
+  const input = h("input", { class: "field flex1", type: "search", placeholder: "Search memories, lists, reminders, bills, birthdays",
+                             "aria-label": "Search", value: state.query || "" });
+  const results = h("div", {});
+  const run = async () => {
+    state.query = input.value;
+    const d = input.value.trim().length < 2 ? { results: [] } : await act(api("GET", `/api/search?q=${encodeURIComponent(input.value)}`));
+    if (!d) return;
+    const icon = { memory: "🧠", list: "🗒", reminder: "⏰", bill: "🧾", birthday: "🎂" };
+    results.replaceChildren(card(null, rows(d.results, r => h("li", {},
+      h("span", { "aria-hidden": "true" }, icon[r.kind]), h("a", { class: "grow", href: `#/${r.page}` }, r.text)),
+      input.value.trim().length < 2 ? "Type at least two letters." : "Nothing found. Ask ClaudeBot in Chat: it can also search your email and calendar.")));
+  };
+  let timer;
+  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 200); });
+  layout("search", page("Search", "Everything stored in your ClaudeBot. Email and calendar search happen in Chat.",
+    h("div", { class: "row" }, input), h("div", { class: "spacer" }), results));
+  input.focus();
+  run();
+}
+
 function morePage() {
-  layout("more", page("More", null, card(null, h("div", { class: "nav" }, PAGES.slice(4).map(([n, i, l]) => navLink(n, i, l, null))),
+  layout("more", page("More", null, card(null, h("div", { class: "nav" }, [["search", "🔎", "Search"], ...PAGES.slice(4)].map(([n, i, l]) => navLink(n, i, l, null))),
     h("div", { class: "spacer" }), h("button", { class: "btn", onclick: signOut }, "Sign out"))));
 }
 
@@ -497,12 +554,12 @@ function morePage() {
 
 const VIEWS = { chat: chatPage, today: todayPage, week: weekPage, lists: listsPage, reminders: remindersPage,
                 bills: billsPage, birthdays: birthdaysPage, dms: dmsPage, memory: memoryPage, activity: activityPage,
-                settings: settingsPage, more: morePage };
+                settings: settingsPage, more: morePage, search: searchPage };
 
 async function render() {
   if (!state.me) return;
   await VIEWS[route()]();
-  document.title = `${PAGES.find(p => p[0] === route())?.[2] || "More"} · ClaudeBot`;
+  document.title = `${PAGES.find(p => p[0] === route())?.[2] || (route() === "search" ? "Search" : "More")} · ClaudeBot`;
 }
 
 async function boot() {
@@ -517,6 +574,13 @@ async function boot() {
     return err instanceof SignedOut ? showSignedOut() : app.replaceChildren(h("div", { class: "center" }, err.message));
   }
   window.addEventListener("hashchange", render);
+  window.addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      const box = document.getElementById("search");
+      if (box && box.offsetParent) box.focus(); else location.hash = "#/search";
+    }
+  });
   await render();
 }
 
