@@ -52,6 +52,15 @@ def _int(request: web.Request, name: str) -> int:
         raise web.HTTPNotFound() from None
 
 
+async def _read_capped(part, limit: int, too_big: str) -> bytes:
+    data = bytearray()
+    while chunk := await part.read_chunk(64 * 1024):
+        data.extend(chunk)
+        if len(data) > limit:
+            raise ValueError(too_big)  # stop reading: the rest is never buffered
+    return bytes(data)
+
+
 def _is_special_file(data: bytes, name: str) -> bool:
     """A ClaudeBot export (restored only in Telegram, after its review card) or a Google OAuth client
     file (its secret must never reach Claude)."""
@@ -147,6 +156,16 @@ class Api:
     async def chat(self, request: web.Request) -> web.StreamResponse:
         """One turn, streamed as server-sent events: `delta` with the reply so far, then `done`.
         The turn runs on its own task: closing the tab doesn't cut it off halfway through a tool."""
+        busy_key = request["session"]["csrf"]  # one turn at a time per sign-in, taken before any body is read
+        if busy_key in self.chatting:
+            return _error("Still answering your last message.", 409)
+        self.chatting.add(busy_key)
+        try:
+            return await self._chat(request)
+        finally:
+            self.chatting.discard(busy_key)
+
+    async def _chat(self, request: web.Request) -> web.StreamResponse:
         upload = None
         if request.content_type == "multipart/form-data":
             try:
@@ -159,39 +178,38 @@ class Api:
             return _error("Say something first.")
         if len(text) > MAX_CHAT_CHARS:
             return _error(f"That's over {MAX_CHAT_CHARS:,} characters.")
-        busy_key = request["session"]["csrf"]  # one turn at a time per sign-in: a stuck tab can't queue up costs
-        if busy_key in self.chatting:
-            return _error("Still answering your last message.", 409)
-        self.chatting.add(busy_key)
-        try:
-            content = [{"type": "text", "text": text}]
-            if upload is not None:
-                try:
-                    block = await self._file_block(*upload)
-                except UnsupportedFile as e:
-                    return _error(str(e))
-                except Exception:
-                    log.exception("Storing a web upload failed")
-                    return _error("I couldn't save that file just now. Please try again.", 502)
-                question = text or "(sent with no message: say briefly what it is and anything I need to act on)"
-                content = [block, {"type": "text", "text": question}]  # as a file sent on Telegram
-            return await self._chat_turn(request, content)
-        finally:
-            self.chatting.discard(busy_key)
+        content = [{"type": "text", "text": text}]
+        if upload is not None:
+            try:
+                block = await self._file_block(*upload)
+            except UnsupportedFile as e:
+                return _error(str(e))
+            except Exception:
+                log.exception("Storing a web upload failed")
+                return _error("I couldn't save that file just now. Please try again.", 502)
+            question = text or "(sent with no message: say briefly what it is and anything I need to act on)"
+            content = [block, {"type": "text", "text": question}]  # as a file sent on Telegram
+        return await self._chat_turn(request, content)
 
     async def _read_upload(self, request: web.Request) -> tuple[str, tuple[bytes, str, str] | None]:
-        """A message and at most one file, as multipart: `text`, then `file`."""
+        """A message and at most one file, as multipart: `text` and `file`, nothing else. Every part is
+        read in chunks against its own cap, so nothing bigger than the limit is ever held in memory."""
         reader = await request.multipart()
-        text, upload = "", None
-        async for part in reader:
+        text, upload, parts = "", None, 0
+        while (part := await reader.next()) is not None:
+            parts += 1
+            if parts > 2 or part.name not in ("text", "file"):
+                raise ValueError("Send a message and at most one file.")
             if part.name == "text":
-                text = (await part.text())[: MAX_CHAT_CHARS + 1].strip()
-            elif part.name == "file" and part.filename and upload is None:
-                data = await part.read(decode=False)
-                if len(data) > MAX_FILE_BYTES:
-                    raise ValueError(f"{part.filename} is too big for me (10 MB max).")
-                name = " ".join(part.filename.split())[:80] or "file"
-                upload = (bytes(data), part.headers.get("Content-Type", ""), name)
+                raw = await _read_capped(part, MAX_CHAT_CHARS * 4, "That message is too long.")
+                text = raw.decode("utf-8", errors="replace").strip()
+            elif upload is None and part.filename:
+                name = " ".join("".join(ch for ch in part.filename if ch.isprintable()).split())
+                name = name.replace("/", "_").replace("\\", "_")[:80] or "file"
+                data = await _read_capped(part, MAX_FILE_BYTES, f"{name} is too big for me (10 MB max).")
+                upload = (data, part.headers.get("Content-Type", ""), name)
+            else:
+                raise ValueError("Send at most one file.")
         if len(text) > MAX_CHAT_CHARS:
             raise ValueError(f"That's over {MAX_CHAT_CHARS:,} characters.")
         if upload and _is_special_file(upload[0], upload[2]):
@@ -294,6 +312,8 @@ class Api:
         when = when.replace(tzinfo=tz) if when.tzinfo is None else when.astimezone(tz)
         if when <= datetime.now(tz) and repeat == "none":
             return _error("That time has already passed.")
+        if not datetime.now(tz) - timedelta(days=366) < when < datetime.now(tz) + timedelta(days=3650):
+            return _error("Pick a date within the next ten years.")
         reminder_id = self.db.add_reminder(text, when, repeat, False)
         self.bot.schedule_reminder(reminder_id)
         ActionLog(self.db).record("reminder", f"Reminder set for {when:%a %b %-d %H:%M}: {text} (web)")

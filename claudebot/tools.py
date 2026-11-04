@@ -570,6 +570,8 @@ def _schedule(a: dict, ctx: ToolContext) -> tuple[str, datetime]:
         when = when.replace(tzinfo=ctx.tz)
     if when < datetime.now(ctx.tz) and repeat == "none":
         raise ValueError("That time is in the past.")
+    if not datetime.now(ctx.tz) - timedelta(days=366) < when < datetime.now(ctx.tz) + timedelta(days=3650):
+        raise ValueError("Pick a time within the next ten years (a repeat may start up to a year back).")
     return repeat, when
 
 

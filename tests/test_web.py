@@ -458,3 +458,58 @@ async def test_add_reminders_and_memories_and_search(setup):
     hits = (await (await client.get("/api/search?q=PASSPORT")).json())["results"]
     assert {h["kind"] for h in hits} == {"memory", "reminder"}
     assert (await (await client.get("/api/search?q=p")).json())["results"] == []
+
+
+async def test_chunked_bodies_are_capped_too(setup):
+    """Web review round 3, H1: a body with no Content-Length can't get past the 64 KB cap, even before sign-in."""
+    bot, client = setup
+
+    async def chunks():
+        for _ in range(40):
+            yield b"x" * 4096  # 160 KB, no Content-Length
+
+    res = await client.post("/api/login", data=chunks(), headers={"Content-Type": "application/json"})
+    assert res.status in (400, 401, 413)  # refused either way; nothing over 64 KB was buffered
+    csrf = await sign_in(bot, client)
+
+    async def chunks2():
+        yield b'{"text": "'
+        for _ in range(40):
+            yield b"y" * 4096
+        yield b'"}'
+
+    res = await client.post("/api/memories", data=chunks2(), headers={**write(client, csrf), "Content-Type": "application/json"})
+    assert res.status == 413 and bot.db.list_memories() == []
+
+
+async def test_multipart_parts_are_capped_while_reading(setup, monkeypatch):
+    """Round 3, M1: a huge part is refused once it passes the cap, not after it's all in memory."""
+    from aiohttp import FormData
+
+    import claudebot.web.api as api_module
+
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+    monkeypatch.setattr(api_module, "MAX_FILE_BYTES", 100_000)
+    form = FormData()
+    form.add_field("file", b"z" * 300_000, filename="big.pdf", content_type="application/pdf")
+    res = await client.post("/api/chat", data=form, headers=write(client, csrf))
+    assert res.status == 400 and "too big" in (await res.json())["error"]
+    form = FormData()
+    form.add_field("text", "a" * 40_000, content_type="text/plain")  # a content type makes it multipart
+    res = await client.post("/api/chat", data=form, headers=write(client, csrf))
+    assert res.status == 400 and "too long" in (await res.json())["error"]
+    form = FormData()
+    for name in ("text", "file", "extra"):
+        form.add_field(name, "x", filename="f.txt" if name != "text" else None)
+    assert (await client.post("/api/chat", data=form, headers=write(client, csrf))).status == 400
+
+
+async def test_reminder_dates_must_be_sensible(setup):
+    """Round 3, L1."""
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+    for when, repeat in (("9999-12-31T23:59", "none"), ("0001-01-01T00:00", "daily")):
+        res = await client.post("/api/reminders", json={"text": "x", "when": when, "repeat": repeat}, headers=write(client, csrf))
+        assert res.status == 400
+    assert bot.db.active_reminders() == []

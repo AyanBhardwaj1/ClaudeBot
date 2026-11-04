@@ -50,7 +50,7 @@ async def test_unattended_turns_cant_change_email_or_plant_reminders(tmp_path):
     result, is_error = await run_tool("modify_email", {"message_id": "m1", "action": "archive"}, ctx)
     assert is_error
     result, is_error = await run_tool("set_reminder", {"text": "Call 0800 123 re your bank",
-                                                       "when": "2099-01-01T09:00:00", "repeat": "monthly"}, ctx)
+                                                       "when": "2030-01-01T09:00:00", "repeat": "monthly"}, ctx)
     assert is_error and db.active_reminders() == []
 
 

@@ -286,7 +286,7 @@ async function chatPage() {
       reply.classList.add("error");
       reply.textContent = err.message;
     } finally {
-      refreshOutbox(outbox);
+      refreshOutbox(outbox, true);
       state.chatBusy = false;
       send.disabled = fresh.disabled = clip.disabled = false;
       scroller.scrollTop = scroller.scrollHeight;
@@ -297,23 +297,59 @@ async function chatPage() {
 
 // --- emails waiting for you ---------------------------------------------------------------------
 
-async function refreshOutbox(box) {
+// The strip is updated in place: an opened email stays open and scrolled, rows never move under your
+// finger (new ones go at the end), and whenever rows come or go, ✅ Send is held off for a moment so a
+// tap meant for something that just moved can't land on it.
+const SETTLE_MS = 1500;
+
+function outboxRow(box, e) {
+  const copies = [e.cc && `cc: ${e.cc}`, e.bcc && `bcc: ${e.bcc}`].filter(Boolean).join(" · ");
+  const run = async (path, done) => { if (await act(api("POST", `/api/outbox/${e.id}/${path}`), done)) refreshOutbox(box, true); };
+  const label = h("span", {});
+  const send = e.status === "held" ? h("button", { class: "btn small primary", onclick: () => run("send", "Sending") }, "✅ Send") : null;
+  const row = h("div", { class: `mail ${e.status}` },
+    h("div", { class: "grow" },
+      h("b", {}, label, " to ", e.to),
+      copies ? h("div", { class: "copies" }, copies) : null,
+      h("details", {}, h("summary", {}, e.subject), h("div", { class: "body" }, e.body))),
+    h("div", { class: "row" }, e.status === "held"
+      ? [send, h("button", { class: "btn small", onclick: () => run("cancel", "Cancelled") }, "✖️ Cancel")]
+      : h("button", { class: "btn small", onclick: () => run("cancel", "Cancelled: not sent") }, "↩️ Undo")));
+  return { row, label, send };
+}
+
+async function refreshOutbox(box, force = false) {
+  if (!force && (document.hidden || box.matches(":hover"))) return;  // not while you're reaching for a button
   let data;
   try { data = await api("GET", "/api/outbox"); } catch { return; }
-  box.replaceChildren(...data.emails.map(e => {
-    const copies = [e.cc && `cc: ${e.cc}`, e.bcc && `bcc: ${e.bcc}`].filter(Boolean).join(" · ");
+  box.rows = box.rows || new Map();
+  const seen = new Set();
+  let changed = false;
+  for (const e of data.emails) {
+    const key = `${e.id}:${e.status}`;
+    seen.add(key);
+    if (!box.rows.has(key)) {
+      const parts = outboxRow(box, e);
+      box.rows.set(key, { ...parts, email: e });
+      box.append(parts.row);
+      changed = true;
+    }
+    const { label } = box.rows.get(key);
     const seconds = Math.max(0, Math.round((new Date(e.send_at) - Date.now()) / 1000));
-    const run = async (path, done) => { if (await act(api("POST", `/api/outbox/${e.id}/${path}`), done)) refreshOutbox(box); };
-    return h("div", { class: `mail ${e.status}` },
-      h("div", { class: "grow" },
-        h("b", {}, e.status === "held" ? "✉️ Ready to send" : `📤 Sending in ${seconds < 90 ? `${seconds}s` : `${Math.round(seconds / 60)} min`}`, " to ", e.to),
-        copies ? h("div", { class: "copies" }, copies) : null,
-        h("details", {}, h("summary", {}, e.subject), h("div", { class: "body" }, e.body))),
-      h("div", { class: "row" }, e.status === "held"
-        ? [h("button", { class: "btn small primary", onclick: () => run("send", "Sending") }, "✅ Send"),
-           h("button", { class: "btn small", onclick: () => run("cancel", "Cancelled") }, "✖️ Cancel")]
-        : h("button", { class: "btn small", onclick: () => run("cancel", "Cancelled: not sent") }, "↩️ Undo")));
-  }));
+    label.textContent = e.status === "held" ? "✉️ Ready to send"
+      : `📤 Sending in ${seconds < 90 ? `${seconds}s` : `${Math.round(seconds / 60)} min`}`;
+  }
+  for (const [key, parts] of box.rows) {
+    if (!seen.has(key)) { parts.row.remove(); box.rows.delete(key); changed = true; }
+  }
+  if (changed) {
+    for (const { send } of box.rows.values()) {
+      if (!send) continue;
+      send.disabled = true;
+      clearTimeout(send.settle);
+      send.settle = setTimeout(() => { send.disabled = false; }, SETTLE_MS);
+    }
+  }
 }
 
 // --- glance pages -----------------------------------------------------------------------------
@@ -528,10 +564,12 @@ async function searchPage() {
   const input = h("input", { class: "field flex1", type: "search", placeholder: "Search memories, lists, reminders, bills, birthdays",
                              "aria-label": "Search", value: state.query || "" });
   const results = h("div", {});
+  let latest = 0;
   const run = async () => {
     state.query = input.value;
+    const mine = ++latest;
     const d = input.value.trim().length < 2 ? { results: [] } : await act(api("GET", `/api/search?q=${encodeURIComponent(input.value)}`));
-    if (!d) return;
+    if (!d || mine !== latest) return;  // a slower answer to an older query never replaces a newer one
     const icon = { memory: "🧠", list: "🗒", reminder: "⏰", bill: "🧾", birthday: "🎂" };
     results.replaceChildren(card(null, rows(d.results, r => h("li", {},
       h("span", { "aria-hidden": "true" }, icon[r.kind]), h("a", { class: "grow", href: `#/${r.page}` }, r.text)),
@@ -570,6 +608,8 @@ async function boot() {
   try {
     state.me = await api("GET", "/api/me");
     state.csrf = state.me.csrf;
+    try { new Intl.DateTimeFormat(undefined, { timeZone: state.me.timezone }); }
+    catch { state.me.timezone = undefined; }  // a zone this browser doesn't know: show local times instead
   } catch (err) {
     return err instanceof SignedOut ? showSignedOut() : app.replaceChildren(h("div", { class: "center" }, err.message));
   }

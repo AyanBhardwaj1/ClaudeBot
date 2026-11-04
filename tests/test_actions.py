@@ -34,13 +34,13 @@ async def test_tool_results_are_logged_only_when_they_happened(tmp_path):
     await run_tool("create_calendar_event", {"summary": "Dentist", "start": "2026-11-12T15:00:00",
                                              "end": "2026-11-12T16:00:00"}, ctx)
     await run_tool("create_draft", {"to": "sam@example.com", "subject": "Lunch", "body": "Friday?"}, ctx)
-    await run_tool("set_reminder", {"text": "call mom", "when": "2099-01-01T18:00:00"}, ctx)
+    await run_tool("set_reminder", {"text": "call mom", "when": "2030-01-01T18:00:00"}, ctx)
     await run_tool("forget", {"memory_id": 12345}, ctx)  # nothing to forget: not an action
     await run_tool("send_email", {"to": "sam@example.com", "subject": "Hi", "body": "x"}, ctx)  # only queued
     await run_tool("list_calendar_events", {"start": "2026-11-12T00:00:00", "end": "2026-11-13T00:00:00"}, ctx)
     summaries = [r["summary"] for r in ActionLog(db).since(datetime.now(timezone.utc) - timedelta(minutes=1))]
     assert summaries == ['Added "Dentist" (2026-11-12T15:00:00)', "Saved a draft to sam@example.com: Lunch",
-                         "Set a reminder: call mom (2099-01-01T18:00:00)"]
+                         "Set a reminder: call mom (2030-01-01T18:00:00)"]
 
 
 async def test_delivered_emails_are_logged_failed_ones_are_not(tmp_path):

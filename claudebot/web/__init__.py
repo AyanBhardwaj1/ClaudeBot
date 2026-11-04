@@ -84,8 +84,8 @@ class WebServer:
     # --- app ---
 
     def build(self) -> web.Application:
-        app = web.Application(middlewares=[self.host_middleware, self.auth_middleware],
-                              client_max_size=MAX_FILE_BYTES + 1024 * 1024)  # room for one file in chat
+        # Every body is capped at 64 KB, chunked or not; chat's multipart is read in capped chunks instead.
+        app = web.Application(middlewares=[self.host_middleware, self.auth_middleware], client_max_size=MAX_BODY)
         app.on_response_prepare.append(self.security_headers)  # every response: streams and errors too
         api = Api(self.bot, self)
         app.add_routes([web.post("/api/login", self.login), web.get("/api/health", self.health)] + api.routes())
@@ -132,6 +132,8 @@ class WebServer:
             return web.json_response({"error": "Unknown host."}, status=421)
         if request.path != "/api/chat" and (request.content_length or 0) > MAX_BODY:
             return web.json_response({"error": "That's too big."}, status=413)  # only chat takes files
+        if request.path == "/api/chat" and (request.content_length or 0) > MAX_FILE_BYTES + 1024 * 1024:
+            return web.json_response({"error": "That's too big (10 MB max)."}, status=413)
         return await handler(request)
 
     @web.middleware
