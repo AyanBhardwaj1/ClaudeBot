@@ -162,6 +162,67 @@ function money(amount, currency) {
   catch { return `${amount.toFixed(2)} ${currency}`; }
 }
 
+// --- Markdown, safely --------------------------------------------------------------------------
+// Replies use a little Markdown. It's turned into elements with text nodes only (never HTML), so text
+// a reply quotes from an email can't become markup. Links stay plain text, as on Telegram.
+
+function inline(text) {
+  const out = [];
+  const pattern = /(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
+  let last = 0, m;
+  while ((m = pattern.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const t = m[0];
+    if (t.startsWith("`")) out.push(h("code", {}, t.slice(1, -1)));
+    else if (t.startsWith("**") || t.startsWith("__")) out.push(h("strong", {}, t.slice(2, -2)));
+    else out.push(h("em", {}, t.slice(1, -1)));
+    last = m.index + t.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+function markdown(text) {
+  const frag = document.createDocumentFragment();
+  const lines = String(text).split("\n");
+  let list = null, para = [];
+  const flush = () => {
+    if (para.length) { frag.append(h("p", {}, ...para.flatMap((l, i) => i ? [h("br"), ...inline(l)] : inline(l)))); para = []; }
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("```")) {  // a code block, kept exactly as written
+      flush(); list = null;
+      const code = [];
+      while (++i < lines.length && !lines[i].startsWith("```")) code.push(lines[i]);
+      frag.append(h("pre", {}, h("code", {}, code.join("\n"))));
+      continue;
+    }
+    const bullet = /^\s*[-*•]\s+(.*)$/.exec(line), numbered = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
+    const heading = /^#{1,4}\s+(.*)$/.exec(line);
+    if (bullet || numbered) {
+      flush();
+      const tag = bullet ? "ul" : "ol";
+      if (!list || list.tagName.toLowerCase() !== tag) { list = h(tag, {}); frag.append(list); }
+      list.append(h("li", {}, ...inline(bullet ? bullet[1] : numbered[2])));
+    } else if (heading) {
+      flush(); list = null;
+      frag.append(h("p", {}, h("strong", {}, ...inline(heading[1]))));
+    } else if (!line.trim()) {
+      flush(); list = null;
+    } else {
+      list = null;
+      para.push(line);
+    }
+  }
+  flush();
+  return frag;
+}
+
+function setReply(el, text) {
+  el.replaceChildren(markdown(text));
+}
+
 // --- chat -------------------------------------------------------------------------------------
 
 const STARTERS = ["What's on my calendar today?", "Anything important in my inbox?", "Remind me to call Mom at 6pm",
@@ -210,7 +271,8 @@ async function chatPage() {
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = `${input.scrollHeight}px`; });
 
   const bubble = (role, text, extra = "") => {
-    const el = h("div", { class: `msg ${role} ${extra}` }, text);
+    const el = h("div", { class: `msg ${role} ${extra}` });
+    if (role === "claudebot") setReply(el, text); else el.textContent = text;
     log.append(el);
     scroller.scrollTop = scroller.scrollHeight;
     return el;
@@ -270,9 +332,9 @@ async function chatPage() {
           buffer = buffer.slice(cut + 2);
           const event = /^event: (.*)$/m.exec(chunk)?.[1];
           const data = JSON.parse(/^data: (.*)$/m.exec(chunk)?.[1] || "{}");
-          if (event === "delta") { reply.textContent = data.text; scroller.scrollTop = scroller.scrollHeight; }
+          if (event === "delta") { setReply(reply, data.text); scroller.scrollTop = scroller.scrollHeight; }
           if (event === "done") {
-            reply.textContent = data.text;
+            setReply(reply, data.text);
             reply.classList.remove("pending");
             if (!data.ok) reply.classList.add("error");
             finished = true;
