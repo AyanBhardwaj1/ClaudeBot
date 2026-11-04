@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from aiohttp import web
 
+from ..files import MAX_FILE_BYTES
 from . import auth
 from .api import COOKIE, Api
 
@@ -35,6 +36,7 @@ OPEN_PATHS = {"/api/login", "/api/health"}
 MAX_LOGIN_FAILURES = 20  # per 10 minutes, across everyone: tokens are unguessable, this just stops noise
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 FAILED_LOGIN_DELAY = 0.3  # seconds
+MAX_BODY = 64 * 1024  # every request but a chat message with a file
 
 
 LOOPBACK = {"localhost", "127.0.0.1", "::1"}
@@ -82,7 +84,8 @@ class WebServer:
     # --- app ---
 
     def build(self) -> web.Application:
-        app = web.Application(middlewares=[self.host_middleware, self.auth_middleware], client_max_size=64 * 1024)
+        app = web.Application(middlewares=[self.host_middleware, self.auth_middleware],
+                              client_max_size=MAX_FILE_BYTES + 1024 * 1024)  # room for one file in chat
         app.on_response_prepare.append(self.security_headers)  # every response: streams and errors too
         api = Api(self.bot, self)
         app.add_routes([web.post("/api/login", self.login), web.get("/api/health", self.health)] + api.routes())
@@ -127,6 +130,8 @@ class WebServer:
     async def host_middleware(self, request: web.Request, handler):
         if not self._host_ok(request):
             return web.json_response({"error": "Unknown host."}, status=421)
+        if request.path != "/api/chat" and (request.content_length or 0) > MAX_BODY:
+            return web.json_response({"error": "That's too big."}, status=413)  # only chat takes files
         return await handler(request)
 
     @web.middleware

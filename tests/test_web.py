@@ -393,3 +393,45 @@ async def test_emails_waiting_on_you_show_and_act_like_the_telegram_buttons(setu
     assert undo.status == 200 and len(sent) == 1
     assert any("Cancelled" in t for _, t in edits)  # the Telegram card follows along
     assert (await (await client.get("/api/outbox")).json())["emails"] == []
+
+
+async def test_chat_with_a_file_goes_in_like_a_telegram_file(setup):
+    from aiohttp import FormData
+
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+    seen = []
+
+    async def run(content, owner_present=True, effort=None, on_text=None, source="chat"):
+        seen.append(content)
+        return "It's a syllabus."
+
+    async def to_block(data, mime, name, origin="owner"):
+        return {"type": "document", "source": {"type": "file", "file_id": "f1"}, "title": name}
+
+    bot.agent.run = run
+    bot.uploader.to_block = to_block
+    form = FormData()
+    form.add_field("text", "what's due?")
+    form.add_field("file", b"%PDF-1.4 hello", filename="syllabus.pdf", content_type="application/pdf")
+    body = await (await client.post("/api/chat", data=form, headers=write(client, csrf))).text()
+    assert "It's a syllabus." in body
+    assert seen[0][0]["title"] == "syllabus.pdf" and seen[0][1] == {"type": "text", "text": "what's due?"}
+
+    for name, data in (("claudebot-export-2026-11-01.json", b"{}"), ("credentials.json", b'{"installed": {"client_secret": "x"}}')):
+        form = FormData()
+        form.add_field("file", data, filename=name, content_type="application/json")
+        res = await client.post("/api/chat", data=form, headers=write(client, csrf))
+        assert res.status == 400 and "Telegram" in (await res.json())["error"]
+    assert len(seen) == 1
+
+    big = await client.post("/api/settings", data=b"x" * 100_000,
+                            headers={**write(client, csrf), "Content-Type": "application/json"})
+    assert big.status == 413  # only chat takes big bodies
+
+
+def test_history_marks_messages_with_files():
+    messages = [{"role": "user", "content": [{"type": "text", "text": "[Now]"},
+                                             {"type": "document", "source": {"type": "file", "file_id": "f"}},
+                                             {"type": "text", "text": "what's due?"}]}]
+    assert history_view(messages) == [{"role": "you", "text": "📎 what's due?"}]

@@ -13,6 +13,7 @@ from ..bills import Bills, next_due, paid_dates
 from ..birthdays import Birthdays, next_birthday, parse_birthday
 from ..checkins import URGENT_WAKES_KEY
 from ..expenses import Expenses
+from ..files import MAX_FILE_BYTES, UnsupportedFile
 from ..inbox_watch import ALERT_MODE_KEY
 from ..lists import Lists
 from ..quiet import dnd_until, parse_pause
@@ -51,6 +52,15 @@ def _int(request: web.Request, name: str) -> int:
         raise web.HTTPNotFound() from None
 
 
+def _is_special_file(data: bytes, name: str) -> bool:
+    """A ClaudeBot export (restored only in Telegram, after its review card) or a Google OAuth client
+    file (its secret must never reach Claude)."""
+    lowered = name.lower()
+    if lowered.startswith("claudebot-export") and lowered.endswith(".json"):
+        return True
+    return lowered.endswith(".json") and b"client_secret" in data[:200_000]
+
+
 def history_view(messages: list[dict]) -> list[dict]:
     """What the owner and ClaudeBot said in this conversation, for the chat screen. The owner's words
     are the last text block of a user turn (the first is the time/memory preamble, and background
@@ -64,7 +74,7 @@ def history_view(messages: list[dict]) -> list[dict]:
             if any(b.get("type") == "tool_result" for b in blocks) and not texts:
                 continue
             files = any(b.get("type") in ("image", "document", "container_upload") for b in blocks)
-            text = texts[-1] if texts else ("📎 (a file)" if files else "")
+            text = (f"📎 {texts[-1]}" if files else texts[-1]) if texts else ("📎 (a file)" if files else "")
             if text:
                 out.append({"role": "you", "text": text})
         elif m["role"] == "assistant":
@@ -135,8 +145,15 @@ class Api:
     async def chat(self, request: web.Request) -> web.StreamResponse:
         """One turn, streamed as server-sent events: `delta` with the reply so far, then `done`.
         The turn runs on its own task: closing the tab doesn't cut it off halfway through a tool."""
-        text = str((await _body(request)).get("text", "")).strip()
-        if not text:
+        upload = None
+        if request.content_type == "multipart/form-data":
+            try:
+                text, upload = await self._read_upload(request)
+            except ValueError as e:
+                return _error(str(e))
+        else:
+            text = str((await _body(request)).get("text", "")).strip()
+        if not text and upload is None:
             return _error("Say something first.")
         if len(text) > MAX_CHAT_CHARS:
             return _error(f"That's over {MAX_CHAT_CHARS:,} characters.")
@@ -145,11 +162,53 @@ class Api:
             return _error("Still answering your last message.", 409)
         self.chatting.add(busy_key)
         try:
-            return await self._chat_turn(request, text)
+            content = [{"type": "text", "text": text}]
+            if upload is not None:
+                try:
+                    block = await self._file_block(*upload)
+                except UnsupportedFile as e:
+                    return _error(str(e))
+                except Exception:
+                    log.exception("Storing a web upload failed")
+                    return _error("I couldn't save that file just now. Please try again.", 502)
+                question = text or "(sent with no message: say briefly what it is and anything I need to act on)"
+                content = [block, {"type": "text", "text": question}]  # as a file sent on Telegram
+            return await self._chat_turn(request, content)
         finally:
             self.chatting.discard(busy_key)
 
-    async def _chat_turn(self, request: web.Request, text: str) -> web.StreamResponse:
+    async def _read_upload(self, request: web.Request) -> tuple[str, tuple[bytes, str, str] | None]:
+        """A message and at most one file, as multipart: `text`, then `file`."""
+        reader = await request.multipart()
+        text, upload = "", None
+        async for part in reader:
+            if part.name == "text":
+                text = (await part.text())[: MAX_CHAT_CHARS + 1].strip()
+            elif part.name == "file" and part.filename and upload is None:
+                data = await part.read(decode=False)
+                if len(data) > MAX_FILE_BYTES:
+                    raise ValueError(f"{part.filename} is too big for me (10 MB max).")
+                name = " ".join(part.filename.split())[:80] or "file"
+                upload = (bytes(data), part.headers.get("Content-Type", ""), name)
+        if len(text) > MAX_CHAT_CHARS:
+            raise ValueError(f"That's over {MAX_CHAT_CHARS:,} characters.")
+        if upload and _is_special_file(upload[0], upload[2]):
+            raise ValueError("Send that file in Telegram: exports are restored there after a tap, and Google "
+                             "client files are set up with /connect, so their secret never reaches Claude.")
+        return text, upload
+
+    async def _file_block(self, data: bytes, mime: str, name: str) -> dict:
+        from ..bot import (
+            workbench_file_note,  # here, not at the top: bot.py imports the web app
+        )
+        from ..files import is_workbench_file
+
+        if is_workbench_file(mime):  # Excel/Word/PowerPoint: Claude opens these with code in the workbench
+            await self.bot.uploader.store_raw(data, mime, name)
+            return {"type": "text", "text": workbench_file_note(name, None)}
+        return await self.bot.uploader.to_block(data, mime, name)
+
+    async def _chat_turn(self, request: web.Request, content: list[dict]) -> web.StreamResponse:
         response = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-store",
                                                "X-Accel-Buffering": "no"})
         await response.prepare(request)
@@ -171,8 +230,7 @@ class Api:
 
         async def turn() -> tuple[str, bool]:
             async with self.bot._message_order:  # after any Telegram message already queued
-                return await self.bot._run_agent([{"type": "text", "text": text}], owner_present=True,
-                                                 source="web", on_text=on_text)
+                return await self.bot._run_agent(content, owner_present=True, source="web", on_text=on_text)
 
         await send("start", {})
         task = asyncio.ensure_future(turn())

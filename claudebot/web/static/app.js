@@ -158,13 +158,27 @@ async function chatPage() {
   const scroller = h("div", { class: "log" }, log);
   const input = h("textarea", { rows: 1, placeholder: "Message ClaudeBot", "aria-label": "Message", maxlength: 8000 });
   const send = h("button", { class: "btn primary", type: "submit" }, "Send");
-  const form = h("form", { onsubmit: e => { e.preventDefault(); submit(input.value); } }, input, send);
+  let file = null;
+  const chip = h("div", { class: "chip", hidden: true });
+  const picker = h("input", { type: "file", hidden: true, "aria-hidden": "true",
+    accept: "image/*,.pdf,.txt,.md,.csv,.json,.docx,.xlsx,.pptx", onchange: () => pick(picker.files[0]) });
+  const clip = h("button", { class: "btn clip", type: "button", "aria-label": "Attach a file", title: "Attach a file (10 MB max)",
+                             onclick: () => picker.click() }, "📎");
+  const pick = f => {
+    file = f && f.size <= 10 * 1024 * 1024 ? f : null;
+    if (f && !file) toast(`${f.name} is too big (10 MB max).`);
+    chip.hidden = !file;
+    chip.replaceChildren(...(file ? [h("span", {}, `📎 ${file.name}`),
+      h("button", { type: "button", class: "chip-x", "aria-label": "Remove file", onclick: () => pick(null) }, "✕")] : []));
+    picker.value = "";
+  };
+  const form = h("form", { onsubmit: e => { e.preventDefault(); submit(input.value); } }, clip, input, picker, send);
   const fresh = h("button", { class: "btn small", type: "button", onclick: newChat }, "New chat");
   const outbox = h("div", { class: "outbox", "aria-live": "polite" });
   const view = h("div", { class: "chat" },
     h("header", { class: "chat-head" }, h("h1", {}, "Chat"), fresh),
     scroller,
-    h("div", { class: "composer" }, outbox, form,
+    h("div", { class: "composer" }, outbox, chip, form,
       h("p", { class: "note" }, "Same conversation as Telegram. Emails wait here (and in Telegram) with Undo or Send.")));
   layout("chat", view);
   refreshOutbox(outbox);
@@ -172,6 +186,12 @@ async function chatPage() {
 
   input.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+  });
+  view.addEventListener("dragover", e => { e.preventDefault(); });
+  view.addEventListener("drop", e => { e.preventDefault(); if (e.dataTransfer.files[0]) pick(e.dataTransfer.files[0]); });
+  input.addEventListener("paste", e => {
+    const pasted = [...(e.clipboardData?.files || [])][0];
+    if (pasted) { e.preventDefault(); pick(pasted); }
   });
   input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = `${input.scrollHeight}px`; });
 
@@ -197,17 +217,27 @@ async function chatPage() {
 
   async function submit(text) {
     text = text.trim();
-    if (!text || state.chatBusy) return;
+    if ((!text && !file) || state.chatBusy) return;
     state.chatBusy = true;
-    send.disabled = fresh.disabled = true;
+    send.disabled = fresh.disabled = clip.disabled = true;
     log.querySelector(".hello")?.remove();
-    bubble("you", text);
+    const attached = file;
+    bubble("you", attached ? `📎 ${attached.name}${text ? `\n${text}` : ""}` : text);
     input.value = "";
     input.style.height = "auto";
+    pick(null);
     const reply = bubble("claudebot", "", "pending");
     try {
-      const res = await fetch("/api/chat", { method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": state.csrf }, body: JSON.stringify({ text }) });
+      let body, headers = { "X-CSRF-Token": state.csrf };
+      if (attached) {
+        body = new FormData();
+        body.append("text", text);
+        body.append("file", attached, attached.name);  // the browser sets the multipart Content-Type
+      } else {
+        body = JSON.stringify({ text });
+        headers["Content-Type"] = "application/json";
+      }
+      const res = await fetch("/api/chat", { method: "POST", credentials: "same-origin", headers, body });
       if (res.status === 401) throw new SignedOut();
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => ({}));
@@ -244,7 +274,7 @@ async function chatPage() {
     } finally {
       refreshOutbox(outbox);
       state.chatBusy = false;
-      send.disabled = fresh.disabled = false;
+      send.disabled = fresh.disabled = clip.disabled = false;
       scroller.scrollTop = scroller.scrollHeight;
       input.focus();
     }
