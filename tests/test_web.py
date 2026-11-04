@@ -513,3 +513,48 @@ async def test_reminder_dates_must_be_sensible(setup):
         res = await client.post("/api/reminders", json={"text": "x", "when": when, "repeat": repeat}, headers=write(client, csrf))
         assert res.status == 400
     assert bot.db.active_reminders() == []
+
+
+async def test_answer_telegram_dms_from_the_web(setup):
+    from datetime import timezone as tzu
+
+    from claudebot.business import quick_tag
+
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+    delivered = []
+
+    async def send_as_owner(chat_id, text, business_connection_id):
+        delivered.append((chat_id, text))
+        return SimpleNamespace(message_id=500 + len(delivered))
+
+    bot._send_as_owner = send_as_owner
+    bot.dms.save_connection(SimpleNamespace(id="bc1", user=SimpleNamespace(id=1), user_chat_id=1, is_enabled=True,
+                                            rights=SimpleNamespace(can_reply=True)))
+
+    def dm(text, message_id):
+        return SimpleNamespace(business_connection_id="bc1", chat=SimpleNamespace(id=500, type="private", full_name="Alex"),
+                               from_user=SimpleNamespace(id=500, full_name="Alex"), message_id=message_id,
+                               date=datetime.now(tzu.utc), text=text, caption=None)
+
+    bot.dms.record(dm("running late?", 1))
+    d = await (await client.get("/api/dms")).json()
+    chat = d["waiting"][0]
+    assert chat["message_id"] == 1 and d["quick"][0]["text"] == "On it 👍"
+
+    stale = await client.post("/api/dms/500/reply", json={"text": "ok", "message_id": 0}, headers=write(client, csrf))
+    assert stale.status == 409 and delivered == []
+    ok = await client.post("/api/dms/500/reply", json={"text": "No worries!", "message_id": 1}, headers=write(client, csrf))
+    assert ok.status == 200 and delivered == [(500, "No worries!")]
+    again = await client.post("/api/dms/500/reply", json={"text": "No worries!", "message_id": 1}, headers=write(client, csrf))
+    assert again.status == 409 and len(delivered) == 1  # answered: nobody waiting, nothing sent twice
+
+    bot.dms.record(dm("and tomorrow?", 2))
+    quick = {"index": 0, "tag": quick_tag("On it 👍"), "message_id": 2}
+    assert (await client.post("/api/dms/500/quick", json=quick, headers=write(client, csrf))).status == 200
+    assert delivered[-1] == (500, "On it 👍")
+    bot.dms.record(dm("one more", 3))
+    bad_tag = {**quick, "tag": "deadbeef", "message_id": 3}
+    assert (await client.post("/api/dms/500/quick", json=bad_tag, headers=write(client, csrf))).status == 409
+    later = await (await client.post("/api/dms/500/later", headers=write(client, csrf))).json()
+    assert "remind you" in later["message"] and len(delivered) == 2

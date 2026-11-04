@@ -162,3 +162,5 @@ button { cursor: pointer; }
 .search { padding: 0 4px 12px; }
 .search .field { width: 100%; }
 select.field { padding-right: 28px; }
+.stack { display: grid; gap: 14px; }
+.field.reply { flex: 1; resize: vertical; min-height: 42px; }

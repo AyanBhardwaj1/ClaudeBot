@@ -7,7 +7,9 @@
 - A desktop app for macOS, Windows and Linux (`desktop/`). Paste the link from `/web` and you're in.
 - Attach a photo, PDF, text or Office file in web chat (📎, drag and drop, or paste), up to 10 MB: it's handled just like a file sent on Telegram. Export files and Google client files are refused there and belong in Telegram.
 - Add reminders (once or repeating) and memories from the web app, and search everything ClaudeBot keeps (memories, lists, reminders, bills, birthdays) with Ctrl/Cmd+K. Times always show in your ClaudeBot's time zone.
+- Answer your Telegram DMs from the web and desktop app: type a reply, tap a ⚡ quick reply, or ⏰ remind yourself in 3 hours. Replies go out from your own account through the same checks as Telegram (tied to the message you're answering, once per message).
 - Emails waiting for your Undo or Send show above the web chat box, with every recipient (cc and bcc) and the whole body; Send, Cancel and Undo work there just like the Telegram buttons.
+- Desktop app: Ctrl/Cmd+Shift+Space brings up the chat from anywhere, a tray (menu bar) icon opens Chat, Today and Week, and Open at login is in the ClaudeBot menu (macOS, Windows).
 - Sign in with `/web` in Telegram: a one-time link that only you can get. `/web signout` ends every session.
 - On by default for this computer (localhost:8765). Docker publishes it to localhost; Fly serves it over HTTPS at your app's address; elsewhere, put HTTPS in front and set `WEB_PUBLIC_URL`.
 - Locked down:

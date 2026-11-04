@@ -488,11 +488,29 @@ async function birthdaysPage() {
 async function dmsPage() {
   const d = await act(api("GET", "/api/dms"));
   if (!d) return;
-  layout("dms", page("Telegram DMs", d.connected ? "Who's waiting on a reply. Draft and send replies from Telegram (/dms)."
+  const chatCard = c => {
+    const box = h("textarea", { class: "field reply", rows: 2, maxlength: 4000, placeholder: `Reply to ${c.name}…`, "aria-label": `Reply to ${c.name}` });
+    const done = r => { toast(r.message || "Sent"); dmsPage(); };
+    const send = async (path, body) => {
+      const r = await act(api("POST", `/api/dms/${c.chat_id}/${path}`, body));
+      if (r) done(r);
+    };
+    const open = c.can_reply && d.can_send;
+    return card(null,
+      h("div", { class: "row" }, h("b", { class: "grow" }, c.name), h("span", { class: "pill" }, `waiting since ${fmtTime(c.since)}`)),
+      h("ul", { class: "rows" }, c.messages.map(m => h("li", {}, h("span", { class: "grow" }, m)))),
+      open ? [
+        h("div", { class: "row mt" }, d.quick.map(q => h("button", { class: "btn small", title: "Sends this from your Telegram account",
+          onclick: () => send("quick", { index: q.index, tag: q.tag, message_id: c.message_id }) }, `⚡ ${q.text}`))),
+        h("form", { class: "row mt", onsubmit: e => { e.preventDefault(); if (box.value.trim()) send("reply", { text: box.value, message_id: c.message_id }); } },
+          box, h("button", { class: "btn primary" }, "Send as me")),
+      ] : h("p", { class: "empty" }, d.can_send ? "Telegram only allows replies within 24 hours of their last message. Answer in Telegram yourself."
+                                                : "Allow \"Reply to messages\" for your ClaudeBot in Telegram Settings → Business → Chatbots to answer here."),
+      h("div", { class: "row mt" }, h("button", { class: "btn small", onclick: () => send("later") }, "⏰ Remind me in 3h")));
+  };
+  layout("dms", page("Telegram DMs", d.connected ? "Who's waiting on a reply. Replies go out from your own Telegram account when you click."
                                                  : "Not connected. In Telegram: Settings → Business → Chatbots → add your ClaudeBot.",
-    card(null, rows(d.waiting, c => h("li", {},
-      h("span", { class: "grow" }, h("b", {}, c.name), h("br"), c.messages.join(" / ")),
-      h("span", { class: "pill" }, fmtTime(c.since))), "Nobody is waiting on you."))));
+    d.waiting.length ? h("div", { class: "stack" }, d.waiting.map(chatCard)) : card(null, h("p", { class: "empty" }, "Nobody is waiting on you."))));
 }
 
 async function memoryPage() {

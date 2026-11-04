@@ -116,6 +116,8 @@ class Api:
             g("/api/memories", self.memories), p("/api/memories", self.add_memory),
             d("/api/memories/{id}", self.delete_memory), g("/api/search", self.search),
             g("/api/log", self.action_log), g("/api/usage", self.usage), g("/api/dms", self.dms),
+            p("/api/dms/{chat_id}/reply", self.dm_reply), p("/api/dms/{chat_id}/quick", self.dm_quick),
+            p("/api/dms/{chat_id}/later", self.dm_later),
             g("/api/settings", self.settings), p("/api/settings", self.change_settings),
             g("/api/outbox", self.outbox), p("/api/outbox/{id}/send", self.outbox_send),
             p("/api/outbox/{id}/cancel", self.outbox_cancel),
@@ -486,11 +488,58 @@ class Api:
                       "by_source": by_source})
 
     async def dms(self, request: web.Request) -> web.Response:
+        from ..business import quick_replies, quick_tag
+
         if not self.bot.dms.active_connection_id():
-            return _json({"connected": False, "waiting": []})
-        return _json({"connected": True, "waiting": [
-            {"chat_id": c.chat_id, "name": c.name, "since": c.waiting_since.isoformat(), "messages": c.messages,
-             "can_reply": c.can_reply} for c in self.bot.dms.unanswered()]})
+            return _json({"connected": False, "waiting": [], "quick": []})
+        return _json({
+            "connected": True, "can_send": self.bot.dms.can_reply(),
+            "quick": [{"index": i, "text": t, "tag": quick_tag(t)} for i, t in enumerate(quick_replies(self.db))],
+            "waiting": [{"chat_id": c.chat_id, "name": c.name, "since": c.waiting_since.isoformat(),
+                         "messages": c.messages, "can_reply": c.can_reply, "message_id": c.last_message_id}
+                        for c in self.bot.dms.unanswered()]})
+
+    async def _send_dm(self, reply: dict, claim: str) -> web.Response:
+        status, message = await self.bot.deliver_dm(reply)
+        if status in ("pending", "expired"):  # nothing went out: no retry card on the web, so free the claim
+            self.bot.dms.set_reply_status(reply["id"], "cancelled" if status == "pending" else "expired")
+            self.db.delete_setting(claim)
+        return _json({"status": status, "message": message}, 200 if status == "sent" else 409)
+
+    async def dm_reply(self, request: web.Request) -> web.Response:
+        """A reply the owner typed here, sent from their own Telegram account: their words, their click.
+        Tied to the message it answers (a stale screen can't send), and once per message."""
+        body = await _body(request)
+        text = str(body.get("text", "")).strip()[:4000]
+        chat = self.bot._waiting_chat(_int(request, "chat_id"))
+        if not text:
+            return _error("Write a reply first.")
+        if chat is None:
+            return _error("Nobody is waiting there now.", 409)
+        if body.get("message_id") != chat.last_message_id:
+            return _error("They wrote again; read it before replying.", 409)
+        claim = f"dmweb_sent:{chat.chat_id}:{chat.last_message_id}"
+        if self.db.get_setting(claim):
+            return _error("You already replied to that message.", 409)
+        self.db.set_setting(claim, "1")  # before any await: a double click sends once
+        self.db.prune_settings("dmweb_sent:", 50)
+        reply = self.bot.dms.take_reply(self.bot.dms.propose(chat.chat_id, chat.name, text), "sending")
+        return await self._send_dm(reply, claim)
+
+    async def dm_quick(self, request: web.Request) -> web.Response:
+        body = await _body(request)
+        try:
+            index, tag, message_id = int(body.get("index")), str(body.get("tag")), int(body.get("message_id"))
+        except (TypeError, ValueError):
+            return _error("Pick a quick reply.")
+        chat_id = _int(request, "chat_id")
+        reply, problem = self.bot.claim_quick_reply(chat_id, message_id, index, tag)
+        if reply is None:
+            return _error(problem, 409)
+        return await self._send_dm(reply, f"dmq_sent:{chat_id}:{message_id}")
+
+    async def dm_later(self, request: web.Request) -> web.Response:
+        return _json({"message": self.bot.remind_to_reply(_int(request, "chat_id"))})
 
     # --- outbox: emails waiting out their Undo window, or waiting for a Send tap ---
 

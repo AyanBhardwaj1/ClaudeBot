@@ -418,15 +418,17 @@ class BusinessHandlers:
         return next((c for c in self.dms.unanswered(limit=None) if c.chat_id == chat_id), None)
 
     async def _dm_later(self, query, chat_id: int) -> None:
-        """A plain reminder to answer them yourself in 3 hours: nothing is sent to anyone."""
+        await query.answer(self.remind_to_reply(chat_id))
+
+    def remind_to_reply(self, chat_id: int) -> str:
+        """A plain reminder to answer them yourself in 3 hours: nothing is sent to anyone. Returns what
+        to tell the owner (the ⏰ 3h button and the web app share this)."""
         chat = self._waiting_chat(chat_id)
         if chat is None:
-            await query.answer("Nobody is waiting there now.")
-            return
+            return "Nobody is waiting there now."
         key = f"dm_later:{chat_id}:{chat.last_message_id}"
         if self.db.get_setting(key):  # one reminder per message, however many taps
-            await query.answer("Already set.")
-            return
+            return "Already set."
         self.db.set_setting(key, "1")
         self.db.prune_settings("dm_later:", 50)
         when = datetime.now(self.config.timezone) + timedelta(hours=3)
@@ -442,7 +444,7 @@ class BusinessHandlers:
         self.schedule_reminder(reminder_id)
         ActionLog(self.db).record("reminder", f"Reminder to reply to {chat.name} at {when:%H:%M}")
         day = "" if when.date() == datetime.now(self.config.timezone).date() else f"{when:%a} "
-        await query.answer(f"⏰ I'll remind you {day}at {when:%H:%M}.")
+        return f"⏰ I'll remind you {day}at {when:%H:%M}."
 
     async def _quick_card(self, query, chat_id: int) -> None:
         chat = self._waiting_chat(chat_id)
@@ -462,27 +464,32 @@ class BusinessHandlers:
             "One tap sends that reply from your account. Change them with /quickreplies.", InlineKeyboardMarkup(rows))
 
     async def _quick_send(self, query, chat_id: str, message_id: str, index: str, tag: str) -> None:
-        options = quick_replies(self.db)
-        text = options[int(index)] if int(index) < len(options) else None
-        chat = self._waiting_chat(int(chat_id))
-        if text is None or quick_tag(text) != tag:
-            await query.answer("Those replies changed; tap ⚡ Quick again.")
+        reply, problem = self.claim_quick_reply(int(chat_id), int(message_id), int(index), tag)
+        if reply is None:
+            await query.answer(problem)
             return
-        if chat is None:
-            await query.answer("Nobody is waiting there now.")
-            return
-        if chat.last_message_id != int(message_id):
-            await query.answer("They wrote again since this card; tap ⚡ Quick in /dms for a fresh one.")
-            return
-        claim = f"dmq_sent:{chat.chat_id}:{chat.last_message_id}"
-        if self.db.get_setting(claim):
-            await query.answer("A quick reply to that message already went (or is waiting on a retry above).")
-            return
-        self.db.set_setting(claim, "1")  # claimed before any await: a fast double tap sends once
-        self.db.prune_settings("dmq_sent:", 50)
-        reply = self.dms.take_reply(self.dms.propose(chat.chat_id, chat.name, text), "sending")
         await query.answer()
         await self._deliver_dm(query, reply)
+
+    def claim_quick_reply(self, chat_id: int, message_id: int, index: int, tag: str) -> tuple[dict | None, str]:
+        """(the reply to send, or None with why not). The button's text must still be the saved text
+        (tag), the chat must still be waiting on that same message, and each message gets one quick
+        reply: claimed here before any await, so a double tap sends once."""
+        options = quick_replies(self.db)
+        text = options[index] if 0 <= index < len(options) else None
+        chat = self._waiting_chat(chat_id)
+        if text is None or quick_tag(text) != tag:
+            return None, "Those replies changed; tap ⚡ Quick again."
+        if chat is None:
+            return None, "Nobody is waiting there now."
+        if chat.last_message_id != message_id:
+            return None, "They wrote again since this card; tap ⚡ Quick in /dms for a fresh one."
+        claim = f"dmq_sent:{chat.chat_id}:{chat.last_message_id}"
+        if self.db.get_setting(claim):
+            return None, "A quick reply to that message already went (or is waiting on a retry above)."
+        self.db.set_setting(claim, "1")
+        self.db.prune_settings("dmq_sent:", 50)
+        return self.dms.take_reply(self.dms.propose(chat.chat_id, chat.name, text), "sending"), ""
 
     async def on_quick_replies(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message
@@ -499,50 +506,47 @@ class BusinessHandlers:
                                  "\n\nChange them: /quickreplies On it 👍 | Running late | Thanks!")
 
     async def _deliver_dm(self, query, reply: dict) -> None:
-        connection_id = self.dms.active_connection_id()
-        recent = self.dms.last_incoming_at(reply["chat_id"])
+        status, message = await self.deliver_dm(reply)
         retry = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Send as me", callback_data=f"dmsend:{reply['id']}"),
                                        InlineKeyboardButton("✖️ Cancel", callback_data=f"dmcancel:{reply['id']}")]])
+        await query.edit_message_text(message, reply_markup=retry if status == "pending" else None)
+
+    async def deliver_dm(self, reply: dict) -> tuple[str, str]:
+        """Send a reply the owner approved, from their own account. Returns (status, what to tell them):
+        sent; pending (refused, nothing sent, can be retried); expired (outside Telegram's 24 hours);
+        unknown (the connection dropped mid-send: it may have gone out, so never offer a retry)."""
+        connection_id = self.dms.active_connection_id()
+        recent = self.dms.last_incoming_at(reply["chat_id"])
         if connection_id is None or not self.dms.can_reply():
             self.dms.set_reply_status(reply["id"], "pending")
-            await query.edit_message_text(
-                "I can't reply from your account right now: connect me in Telegram Settings → Business → Chatbots "
-                f"and allow \"Reply to messages\". Then tap Send again.\n\n{reply['text']}", reply_markup=retry)
-            return
+            return "pending", ("I can't reply from your account right now: connect me in Telegram Settings → Business → "
+                               f"Chatbots and allow \"Reply to messages\". Then tap Send again.\n\n{reply['text']}")
         if recent is None or datetime.now(timezone.utc) - recent >= REPLY_WINDOW:
             self.dms.set_reply_status(reply["id"], "expired")
-            await query.edit_message_text(
-                f"Telegram only lets me answer chats active in the last 24 hours. Copy it and send it yourself:\n\n"
-                f"{reply['text']}")
-            return
+            return "expired", ("Telegram only lets me answer chats active in the last 24 hours. Copy it and send it "
+                               f"yourself:\n\n{reply['text']}")
         try:
             sent = await self._send_as_owner(reply["chat_id"], reply["text"], connection_id)
         except (BadRequest, Forbidden, RetryAfter) as e:  # refused: nothing was sent (checked first:
             # in python-telegram-bot, BadRequest is a subclass of NetworkError)
             self.dms.set_reply_status(reply["id"], "pending")
-            await query.edit_message_text(f"Telegram refused that ({e.message}). Nothing was sent; tap Send to try "
-                                          f"again.\n\n{reply['text']}", reply_markup=retry)
-            return
+            return "pending", f"Telegram refused that ({e.message}). Nothing was sent; tap Send to try again.\n\n{reply['text']}"
         except (TimedOut, NetworkError) as e:
             # It may have gone out anyway: no Send button, or a second tap could send it twice.
             self.dms.set_reply_status(reply["id"], "unknown")
             ActionLog(self.db).record("telegram", f"MAY have sent a Telegram reply to {reply['name']} (connection dropped)")
             log.warning("Telegram reply may or may not have been sent: %s", e)
-            await query.edit_message_text(
-                f"⚠️ The connection dropped while sending to {defang_urls(reply['name'])}. It may have gone out: check the chat "
-                f"before sending again.\n\n{reply['text']}")
-            return
+            return "unknown", (f"⚠️ The connection dropped while sending to {defang_urls(reply['name'])}. It may have "
+                               f"gone out: check the chat before sending again.\n\n{reply['text']}")
         except TelegramError as e:  # anything else Telegram raised before sending
             self.dms.set_reply_status(reply["id"], "pending")
-            await query.edit_message_text(f"Telegram said no ({e.message}). Tap Send to try again.\n\n{reply['text']}",
-                                          reply_markup=retry)
-            return
+            return "pending", f"Telegram said no ({e.message}). Tap Send to try again.\n\n{reply['text']}"
         self.dms.set_reply_status(reply["id"], "sent")
         now = datetime.now(timezone.utc)
         self.dms.record_sent(reply["chat_id"], getattr(sent, "message_id", None) or -reply["id"], reply["text"], now)
         ActionLog(self.db).record("telegram", f"Sent a Telegram reply to {reply['name']}: {reply['text']}")
-        await query.edit_message_text(f"✅ Sent to {defang_urls(reply['name'])}:\n\n{reply['text']}")
         self.db.add_notice(f"Telegram reply sent to {reply['name']} (chat {reply['chat_id']}).")
+        return "sent", f"✅ Sent to {defang_urls(reply['name'])}:\n\n{reply['text']}"
 
     async def _send_as_owner(self, chat_id: int, text: str, business_connection_id: str):
         return await self.app.bot.send_message(chat_id=chat_id, text=text, business_connection_id=business_connection_id)
