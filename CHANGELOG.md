@@ -9,6 +9,7 @@
 - Add reminders (once or repeating) and memories from the web app, and search everything ClaudeBot keeps (memories, lists, reminders, bills, birthdays) with Ctrl/Cmd+K. Times always show in your ClaudeBot's time zone.
 - Answer your Telegram DMs from the web and desktop app: type a reply, tap a ⚡ quick reply, or ⏰ remind yourself in 3 hours. Replies go out from your own account through the same checks as Telegram (tied to the message you're answering, once per message).
 - Replies in web chat show bold, lists, headings and code. They're built as plain text elements, never as HTML, so nothing quoted from an email can turn into markup, and links stay plain text.
+- Web Settings now covers what ClaudeBot does on its own: check-ins, meeting prep, weekend briefs, the weekly review, the newsletter digest, suggested follow-ups and drafts-only, stored the same way as `/settings` in Telegram.
 - Emails waiting for your Undo or Send show above the web chat box, with every recipient (cc and bcc) and the whole body; Send, Cancel and Undo work there just like the Telegram buttons.
 - Desktop app: Ctrl/Cmd+Shift+Space brings up the chat from anywhere, a tray (menu bar) icon opens Chat, Today and Week, and Open at login is in the ClaudeBot menu (macOS, Windows).
 - Sign in with `/web` in Telegram: a one-time link that only you can get. `/web signout` ends every session.

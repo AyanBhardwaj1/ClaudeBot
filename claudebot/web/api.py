@@ -576,10 +576,19 @@ class Api:
     async def settings(self, request: web.Request) -> web.Response:
         now = datetime.now(self.bot.config.timezone)
         until = dnd_until(self.db, now)
+        switches = {name: self._switch_on(name) for name in SWITCHES}
         return _json({"quiet_until": until.isoformat() if until else None,
                       "alert_mode": self.db.get_setting(ALERT_MODE_KEY) or "instant",
                       "urgent_wakes": self.db.get_setting(URGENT_WAKES_KEY) == "on",
-                      "quiet_hours": self.bot.config.quiet_hours})
+                      "quiet_hours": self.bot.config.quiet_hours, "switches": switches,
+                      "brief_time": self.bot.config.daily_brief_time})
+
+    def _switch_on(self, name: str) -> bool:
+        if name == "followups":
+            return self.bot._followups_on()
+        key, default_on = SWITCHES[name]
+        value = self.db.get_setting(key)
+        return value != "off" if default_on else value == "on"
 
     async def change_settings(self, request: web.Request) -> web.Response:
         body = await _body(request)
@@ -599,7 +608,23 @@ class Api:
                 self.db.set_setting(URGENT_WAKES_KEY, "on")
             else:
                 self.db.delete_setting(URGENT_WAKES_KEY)
+        if "switch" in body:  # the same stored values /settings uses in Telegram
+            name, on = body.get("switch"), body.get("on")
+            if name not in SWITCHES or not isinstance(on, bool):
+                return _error("Unknown setting.")
+            self.db.set_setting(SWITCHES[name][0], "on" if on else "off")
+            ActionLog(self.db).record("settings", f"{SWITCH_LABELS[name]} turned {'on' if on else 'off'} (web)")
         return await self.settings(request)
 
+
+# Settings the web can switch: name -> (stored key, on unless set to "off"). Same keys as /settings.
+SWITCHES = {
+    "followups": ("followups", True), "checkins": ("checkins", True), "meeting_prep": ("meeting_prep", True),
+    "weekly_review": ("weekly_review", True), "brief_weekends": ("brief_weekends", True),
+    "newsletter_digest": ("newsletter_digest", False), "drafts_only": ("drafts_only", False),
+}
+SWITCH_LABELS = {"followups": "Suggested follow-ups", "checkins": "Check-ins", "meeting_prep": "Meeting prep",
+                 "weekly_review": "Weekly review", "brief_weekends": "Daily brief on weekends",
+                 "newsletter_digest": "Newsletter digest", "drafts_only": "Drafts only"}
 
 COOKIE = "cb_session"

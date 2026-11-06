@@ -595,3 +595,16 @@ async def test_one_reply_per_message_across_typed_and_quick_and_failures_are_exp
                               headers=write(client, csrf))).status == 400
     assert (await client.post("/api/dms/500/reply", json={"text": "x" * 4001, "message_id": 7},
                               headers=write(client, csrf))).status == 400
+
+
+async def test_settings_switches_use_the_telegram_keys(setup):
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+    s = await (await client.get("/api/settings")).json()
+    assert s["switches"]["checkins"] and not s["switches"]["drafts_only"]
+    s = await (await client.post("/api/settings", json={"switch": "checkins", "on": False}, headers=write(client, csrf))).json()
+    assert not s["switches"]["checkins"] and bot.db.get_setting("checkins") == "off"
+    s = await (await client.post("/api/settings", json={"switch": "drafts_only", "on": True}, headers=write(client, csrf))).json()
+    assert s["switches"]["drafts_only"] and bot.db.get_setting("drafts_only") == "on"
+    for bad in ({"switch": "monthly_budget_usd", "on": True}, {"switch": "checkins", "on": "yes"}):
+        assert (await client.post("/api/settings", json=bad, headers=write(client, csrf))).status == 400
