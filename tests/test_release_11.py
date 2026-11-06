@@ -168,15 +168,19 @@ def test_busy_is_everything_except_free_and_declined_events():
 async def test_find_free_time_tool(tmp_path):
     db = Database(tmp_path / "t.db")
     google = FakeGoogle()
-    google.events = [{"id": "e1", "summary": "Standup", "start": "2026-11-05T09:00:00-06:00",
-                      "end": "2026-11-05T12:00:00-06:00"}]
+    day = (datetime.now(TZ) + timedelta(days=2)).date().isoformat()  # always in the future
+    next_day = (datetime.now(TZ) + timedelta(days=3)).date().isoformat()
+    offset = datetime.fromisoformat(f"{day}T09:00:00").replace(tzinfo=TZ).strftime("%z")
+    offset = f"{offset[:3]}:{offset[3:]}"
+    google.events = [{"id": "e1", "summary": "Standup", "start": f"{day}T09:00:00{offset}",
+                      "end": f"{day}T12:00:00{offset}"}]
     google.list_events = lambda start, end, max_results=250: google.events
     result, is_error = await run_tool("find_free_time", {
-        "start": "2026-11-05T00:00:00", "end": "2026-11-06T00:00:00", "duration_minutes": 60, "max_slots": 2,
+        "start": f"{day}T00:00:00", "end": f"{next_day}T00:00:00", "duration_minutes": 60, "max_slots": 2,
     }, make_context(db, google=google))
     assert not is_error
     slots = json.loads(result)["slots"]
-    assert len(slots) == 2 and slots[0]["start"].startswith("2026-11-05T12:00")
+    assert len(slots) == 2 and slots[0]["start"].startswith(f"{day}T12:00")
 
 
 # --- C13: drafts-only mode ---
