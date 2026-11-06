@@ -547,15 +547,22 @@ async function birthdaysPage() {
 
 // --- DMs, memory, activity --------------------------------------------------------------------
 
-async function dmsPage() {
+async function dmsPage(notice) {
   const d = await act(api("GET", "/api/dms"));
   if (!d) return;
   const chatCard = c => {
     const box = h("textarea", { class: "field reply", rows: 2, maxlength: 4000, placeholder: `Reply to ${c.name}…`, "aria-label": `Reply to ${c.name}` });
-    const done = r => { toast(r.message || "Sent"); dmsPage(); };
+    // Whatever happens, the page reloads; anything but "sent" stays on screen (a dropped connection
+    // means the reply may have gone out, and you need to see that before doing anything else).
     const send = async (path, body) => {
-      const r = await act(api("POST", `/api/dms/${c.chat_id}/${path}`, body));
-      if (r) done(r);
+      try {
+        const r = await api("POST", `/api/dms/${c.chat_id}/${path}`, body);
+        toast(r.message?.split("\n")[0] || "Done");
+        dmsPage();
+      } catch (err) {
+        if (err instanceof SignedOut) return showSignedOut();
+        dmsPage(err.message);
+      }
     };
     const open = c.can_reply && d.can_send;
     return card(null,
@@ -572,6 +579,8 @@ async function dmsPage() {
   };
   layout("dms", page("Telegram DMs", d.connected ? "Who's waiting on a reply. Replies go out from your own Telegram account when you click."
                                                  : "Not connected. In Telegram: Settings → Business → Chatbots → add your ClaudeBot.",
+    notice ? h("div", { class: "notice", role: "alert" }, notice, " ",
+                h("button", { class: "btn small", onclick: () => dmsPage() }, "OK")) : null,
     d.waiting.length ? h("div", { class: "stack" }, d.waiting.map(chatCard)) : card(null, h("p", { class: "empty" }, "Nobody is waiting on you."))));
 }
 

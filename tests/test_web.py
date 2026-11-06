@@ -558,3 +558,40 @@ async def test_answer_telegram_dms_from_the_web(setup):
     assert (await client.post("/api/dms/500/quick", json=bad_tag, headers=write(client, csrf))).status == 409
     later = await (await client.post("/api/dms/500/later", headers=write(client, csrf))).json()
     assert "remind you" in later["message"] and len(delivered) == 2
+
+
+async def test_one_reply_per_message_across_typed_and_quick_and_failures_are_explained(setup):
+    """Round 4 M1/M2: a typed reply and a quick reply share one slot per message; an uncertain send keeps
+    it (nothing goes out on top), and the reason reaches the page as an error."""
+    from datetime import timezone as tzu
+
+    from telegram.error import TimedOut
+
+    from claudebot.business import quick_tag
+
+    bot, client = setup
+    csrf = await sign_in(bot, client)
+    delivered, drop = [], {"on": True}
+
+    async def send_as_owner(chat_id, text, business_connection_id):
+        delivered.append(text)
+        if drop["on"]:
+            raise TimedOut("dropped")
+        return SimpleNamespace(message_id=900)
+
+    bot._send_as_owner = send_as_owner
+    bot.dms.save_connection(SimpleNamespace(id="bc1", user=SimpleNamespace(id=1), user_chat_id=1, is_enabled=True,
+                                            rights=SimpleNamespace(can_reply=True)))
+    bot.dms.record(SimpleNamespace(business_connection_id="bc1", chat=SimpleNamespace(id=500, type="private", full_name="Alex"),
+                                   from_user=SimpleNamespace(id=500, full_name="Alex"), message_id=7,
+                                   date=datetime.now(tzu.utc), text="you there?", caption=None))
+    res = await client.post("/api/dms/500/reply", json={"text": "Yes, 10 min", "message_id": 7}, headers=write(client, csrf))
+    body = await res.json()
+    assert res.status == 409 and "may have gone out" in body["error"]
+    quick = {"index": 0, "tag": quick_tag("On it 👍"), "message_id": 7}
+    again = await client.post("/api/dms/500/quick", json=quick, headers=write(client, csrf))
+    assert again.status == 409 and delivered == ["Yes, 10 min"]  # nothing on top of a reply that may have landed
+    assert (await client.post("/api/dms/500/reply", json={"text": "x", "message_id": True},
+                              headers=write(client, csrf))).status == 400
+    assert (await client.post("/api/dms/500/reply", json={"text": "x" * 4001, "message_id": 7},
+                              headers=write(client, csrf))).status == 400

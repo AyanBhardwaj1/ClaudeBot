@@ -174,3 +174,4 @@ select.field { padding-right: 28px; }
 .msg pre code { background: none; padding: 0; white-space: pre; }
 .msg.claudebot.pending:empty::after, .msg.claudebot.pending > :last-child::after { content: "▍"; color: var(--accent); animation: blink 1s steps(2) infinite; }
 .msg.claudebot.pending::after { content: none; }
+.notice { white-space: pre-wrap; background: var(--panel); border: 1px solid var(--warn); border-left-width: 4px; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }

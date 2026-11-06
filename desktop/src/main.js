@@ -22,12 +22,27 @@ let quitting = false;
 const SHORTCUT = "CommandOrControl+Shift+Space";
 
 /** Bring the window up (from the tray, the shortcut or a second launch), optionally on a page. */
+const VIEWS = new Set(["chat", "today", "week"]);
+
 function show(view) {
   if (!win) createWindow();
-  if (view && origin) showApp(`${origin}/#/${view}`);
+  if (view && VIEWS.has(view) && origin) {
+    const current = win.webContents.getURL();
+    if (isSameOrigin(current, origin)) {
+      // Already on ClaudeBot: switch views in the page, so a draft or a streaming reply isn't thrown away.
+      if (!current.endsWith(`#/${view}`)) win.webContents.executeJavaScript(`location.hash = "#/${view}"`).catch(() => {});
+    } else {
+      showApp(`${origin}/#/${view}`);
+    }
+  }
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+}
+
+function reload() {
+  if (!win) return show();
+  if (origin) win.webContents.reload(); else showSetup();
 }
 
 function buildTray() {
@@ -84,8 +99,10 @@ function createWindow() {
   });
   win.once("ready-to-show", () => win.show());
   // With a tray icon, closing the window keeps ClaudeBot one click (or the shortcut) away; Quit quits.
+  // On Windows, with a tray icon, closing the window keeps ClaudeBot one click (or the shortcut) away.
+  // Not on Linux: there a tray can exist without being shown anywhere, and the app would run invisibly.
   win.on("close", event => {
-    if (tray && !quitting && process.platform !== "darwin") {
+    if (tray && !quitting && process.platform === "win32") {
       event.preventDefault();
       win.hide();
     }
@@ -120,8 +137,8 @@ function buildMenu() {
     {
       label: "ClaudeBot",
       submenu: [
-        { label: "Sign in with a new link…", accelerator: "CmdOrCtrl+Shift+L", click: () => showSetup() },
-        { label: "Reload", accelerator: "CmdOrCtrl+R", click: () => (origin ? showApp(win.webContents.getURL()) : showSetup()) },
+        { label: "Sign in with a new link…", accelerator: "CmdOrCtrl+Shift+L", click: () => { show(); showSetup(); } },
+        { label: "Reload", accelerator: "CmdOrCtrl+R", click: reload },
         { type: "separator" },
         { label: "Forget this server", click: forgetServer },
         ...(process.platform === "linux" ? [] : [{
@@ -135,9 +152,9 @@ function buildMenu() {
     {
       label: "View",
       submenu: [
-        { label: "Chat", accelerator: "CmdOrCtrl+1", click: () => origin && showApp(`${origin}/#/chat`) },
-        { label: "Today", accelerator: "CmdOrCtrl+2", click: () => origin && showApp(`${origin}/#/today`) },
-        { label: "Week", accelerator: "CmdOrCtrl+3", click: () => origin && showApp(`${origin}/#/week`) },
+        { label: "Chat", accelerator: "CmdOrCtrl+1", click: () => show("chat") },
+        { label: "Today", accelerator: "CmdOrCtrl+2", click: () => show("today") },
+        { label: "Week", accelerator: "CmdOrCtrl+3", click: () => show("week") },
         { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { role: "togglefullscreen" },
         ...(app.isPackaged ? [] : [{ role: "toggleDevTools" }]),
       ],
@@ -175,6 +192,7 @@ async function signOutOnServer() {
 }
 
 async function forgetServer() {
+  show();  // macOS: the window may be closed while the app runs
   const { response } = await dialog.showMessageBox(win, {
     type: "question", buttons: ["Forget", "Cancel"], defaultId: 1, cancelId: 1,
     message: "Forget this ClaudeBot?", detail: "This signs the desktop app out. Your ClaudeBot and its data aren't touched.",
@@ -203,6 +221,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", () => show());
   app.on("before-quit", () => { quitting = true; });
+  app.on("session-end", () => { quitting = true; });  // Windows shutdown or log off: never hold it up
   app.on("will-quit", () => globalShortcut.unregisterAll());
   app.whenReady().then(() => {
     // No camera, microphone, location, notifications or anything else, ever.

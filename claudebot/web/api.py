@@ -499,44 +499,50 @@ class Api:
                          "messages": c.messages, "can_reply": c.can_reply, "message_id": c.last_message_id}
                         for c in self.bot.dms.unanswered()]})
 
-    async def _send_dm(self, reply: dict, claim: str) -> web.Response:
+    async def _send_dm(self, reply: dict, message_id: int) -> web.Response:
         status, message = await self.bot.deliver_dm(reply)
-        if status in ("pending", "expired"):  # nothing went out: no retry card on the web, so free the claim
+        if status in ("pending", "expired"):  # certainly not sent, and no retry card on the web: free the slot
             self.bot.dms.set_reply_status(reply["id"], "cancelled" if status == "pending" else "expired")
-            self.db.delete_setting(claim)
-        return _json({"status": status, "message": message}, 200 if status == "sent" else 409)
+            self.bot.release_reply_slot(reply["chat_id"], message_id)
+        if status == "sent":
+            return _json({"status": status, "message": message})
+        return _json({"status": status, "message": message, "error": message}, 409)  # the page shows the reason
 
     async def dm_reply(self, request: web.Request) -> web.Response:
         """A reply the owner typed here, sent from their own Telegram account: their words, their click.
-        Tied to the message it answers (a stale screen can't send), and once per message."""
+        Tied to the message it answers (a stale screen can't send), and one reply per message, shared with
+        the quick replies here and in Telegram."""
+        from ..business import ALREADY_REPLIED
+
         body = await _body(request)
-        text = str(body.get("text", "")).strip()[:4000]
+        text = str(body.get("text", "")).strip()
+        message_id = body.get("message_id")
         chat = self.bot._waiting_chat(_int(request, "chat_id"))
         if not text:
             return _error("Write a reply first.")
+        if len(text) > 4000:
+            return _error("That's over 4,000 characters; Telegram won't take it in one message.")
+        if type(message_id) is not int:
+            return _error("Which message are you answering?")
         if chat is None:
             return _error("Nobody is waiting there now.", 409)
-        if body.get("message_id") != chat.last_message_id:
+        if message_id != chat.last_message_id:
             return _error("They wrote again; read it before replying.", 409)
-        claim = f"dmweb_sent:{chat.chat_id}:{chat.last_message_id}"
-        if self.db.get_setting(claim):
-            return _error("You already replied to that message.", 409)
-        self.db.set_setting(claim, "1")  # before any await: a double click sends once
-        self.db.prune_settings("dmweb_sent:", 50)
+        if not self.bot.claim_reply_slot(chat.chat_id, chat.last_message_id):
+            return _error(ALREADY_REPLIED, 409)
         reply = self.bot.dms.take_reply(self.bot.dms.propose(chat.chat_id, chat.name, text), "sending")
-        return await self._send_dm(reply, claim)
+        return await self._send_dm(reply, message_id)
 
     async def dm_quick(self, request: web.Request) -> web.Response:
         body = await _body(request)
-        try:
-            index, tag, message_id = int(body.get("index")), str(body.get("tag")), int(body.get("message_id"))
-        except (TypeError, ValueError):
+        index, tag, message_id = body.get("index"), body.get("tag"), body.get("message_id")
+        if type(index) is not int or type(message_id) is not int or not isinstance(tag, str):
             return _error("Pick a quick reply.")
-        chat_id = _int(request, "chat_id")
-        reply, problem = self.bot.claim_quick_reply(chat_id, message_id, index, tag)
+        reply, problem = self.bot.claim_quick_reply(_int(request, "chat_id"), message_id, index, tag)
         if reply is None:
-            return _error(problem, 409)
-        return await self._send_dm(reply, f"dmq_sent:{chat_id}:{message_id}")
+            return _error(problem.replace("tap ⚡ Quick again", "reload this page").replace(
+                "tap ⚡ Quick in /dms for a fresh one", "read it first"), 409)
+        return await self._send_dm(reply, message_id)
 
     async def dm_later(self, request: web.Request) -> web.Response:
         return _json({"message": self.bot.remind_to_reply(_int(request, "chat_id"))})

@@ -42,6 +42,9 @@ MAX_TEXT = 1000
 MAX_CHATS = 8
 QUICK_KEY = "dm_quick_replies"
 DM_LATER_PREFIX = "dm_later_rid:"
+REPLY_SLOT = "dm_reply_slot:"
+ALREADY_REPLIED = ("You've already answered that message (or a reply may have gone out: check the chat). "
+                   "Anything new they write can be answered again.")
 DEFAULT_QUICK = ["On it 👍", "Can I get back to you later today?", "Thanks!"]
 MAX_QUICK, MAX_QUICK_LEN = 3, 60  # short enough that a button shows all of it
 
@@ -484,12 +487,24 @@ class BusinessHandlers:
             return None, "Nobody is waiting there now."
         if chat.last_message_id != message_id:
             return None, "They wrote again since this card; tap ⚡ Quick in /dms for a fresh one."
-        claim = f"dmq_sent:{chat.chat_id}:{chat.last_message_id}"
-        if self.db.get_setting(claim):
-            return None, "A quick reply to that message already went (or is waiting on a retry above)."
-        self.db.set_setting(claim, "1")
-        self.db.prune_settings("dmq_sent:", 50)
+        if not self.claim_reply_slot(chat.chat_id, chat.last_message_id):
+            return None, ALREADY_REPLIED
         return self.dms.take_reply(self.dms.propose(chat.chat_id, chat.name, text), "sending"), ""
+
+    def claim_reply_slot(self, chat_id: int, message_id: int) -> bool:
+        """One reply per incoming message, whichever way it's sent (a ⚡ quick reply in Telegram or on the
+        web, or a reply typed on the web). Claimed before any await, so a double tap or a second tab sends
+        once; kept after an uncertain send, so nothing goes out on top of a reply that may have landed."""
+        key = f"{REPLY_SLOT}{chat_id}:{message_id}"
+        if self.db.get_setting(key):
+            return False
+        self.db.set_setting(key, "1")
+        self.db.prune_settings(REPLY_SLOT, 100)
+        return True
+
+    def release_reply_slot(self, chat_id: int, message_id: int) -> None:
+        """Only after a send that certainly didn't go out (refused, or outside the 24 hours)."""
+        self.db.delete_setting(f"{REPLY_SLOT}{chat_id}:{message_id}")
 
     async def on_quick_replies(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         message = update.effective_message

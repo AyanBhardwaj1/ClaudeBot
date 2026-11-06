@@ -14,7 +14,7 @@ address.
 To switch servers or sign in again: **ClaudeBot → Sign in with a new link…** (Ctrl/Cmd+Shift+L).
 
 - **Ctrl/Cmd+Shift+Space** from anywhere brings up the chat.
-- The tray icon (menu bar on macOS) has Chat, Today and Week. On Windows and Linux, closing the window keeps ClaudeBot in the tray; use **Quit ClaudeBot** to quit.
+- The tray icon (menu bar on macOS) has Chat, Today and Week. On Windows, closing the window keeps ClaudeBot in the tray; use **Quit ClaudeBot** to quit.
 - **ClaudeBot → Open at login** (macOS and Windows) starts it with your computer.
 **Forget this server** signs the app out (on the server too) and clears its storage.
 
